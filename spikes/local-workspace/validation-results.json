@@ -1,0 +1,242 @@
+{
+  "date": "2026-10-05",
+  "scope": "D0-A controlled native Win32 subset; full D0-A gate NOT_PASSED; D0-B NOT_RUN",
+  "environment": {
+    "windows_build": "10.0.26200",
+    "architecture": "x64",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "python": "3.11.5",
+    "chromium": "153.0.8010.12",
+    "notepad_package": "11.2607.14.0"
+  },
+  "checks": {
+    "typescript_noemit": "PASS",
+    "typescript_offline": {
+      "pass": 422,
+      "fail": 0
+    },
+    "local_browser_regression": {
+      "pass": 50,
+      "fail": 0
+    },
+    "python_contracts": {
+      "files": 11,
+      "pass": 46,
+      "fail": 0,
+      "spike_subset": 16
+    },
+    "fake_viewer": {
+      "pass": 1,
+      "fail": 0
+    }
+  },
+  "real_cases": [
+    {
+      "app": "fixture",
+      "case": "normal",
+      "outcome": "AUTOMATED_SUBSET_PASS",
+      "input": "PASS",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "measured_fps": 4.92,
+      "observed_frames": 16,
+      "frame_changed": true,
+      "invalid_hwnd_rejected": true,
+      "default_target_windows": 0,
+      "isolation": "PASS",
+      "stop_reason": "verifier_complete",
+      "monitor": {
+        "foreground_events": 0,
+        "cursor_changes": 0,
+        "samples": 321,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": true,
+        "input_desktop": "Default"
+      }
+    },
+    {
+      "app": "fixture",
+      "case": "disconnect",
+      "outcome": "PASS",
+      "input": "NOT_RUN",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "invalid_hwnd_rejected": true,
+      "default_target_windows": 0,
+      "isolation": "PASS",
+      "stop_reason": "viewer_disconnected_or_lease_expired",
+      "reason": "stop_or_lease_expired",
+      "monitor": {
+        "foreground_events": 0,
+        "cursor_changes": 0,
+        "samples": 409,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": true,
+        "input_desktop": "Default"
+      }
+    },
+    {
+      "app": "fixture",
+      "case": "target_exit",
+      "outcome": "PASS",
+      "input": "NOT_RUN",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "invalid_hwnd_rejected": true,
+      "default_target_windows": 0,
+      "isolation": "PASS",
+      "stop_reason": "worker_blocked",
+      "reason": "target_exited",
+      "monitor": {
+        "foreground_events": 0,
+        "cursor_changes": 0,
+        "samples": 140,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": true,
+        "input_desktop": "Default"
+      }
+    },
+    {
+      "app": "fixture",
+      "case": "capture_timeout",
+      "outcome": "PASS",
+      "input": "NOT_RUN",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "invalid_hwnd_rejected": true,
+      "default_target_windows": 0,
+      "isolation": "PASS",
+      "stop_reason": "capture_timeout",
+      "monitor": {
+        "foreground_events": 0,
+        "cursor_changes": 0,
+        "samples": 320,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": true,
+        "input_desktop": "Default"
+      }
+    },
+    {
+      "app": "fixture",
+      "case": "worker_exit",
+      "outcome": "PASS",
+      "input": "NOT_RUN",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "invalid_hwnd_rejected": true,
+      "default_target_windows": 0,
+      "isolation": "PASS",
+      "stop_reason": "worker_timeout",
+      "monitor": {
+        "foreground_events": 0,
+        "cursor_changes": 0,
+        "samples": 407,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": true,
+        "input_desktop": "Default"
+      }
+    },
+    {
+      "app": "notepad",
+      "case": "normal",
+      "outcome": "UNSUPPORTED",
+      "input": "NOT_RUN",
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "stop_reason": "start_failed",
+      "reason": "packaged_notepad_unsupported"
+    }
+  ],
+  "human_verification": {
+    "status": "PARTICIPANT_REPORTED_PASS",
+    "app": "fixture",
+    "observations": [
+      "continuous synthetic typing",
+      "no unexpected mouse jump",
+      "no foreground steal"
+    ],
+    "runtime_input": "PASS",
+    "monitor": {
+      "foreground_events": 0,
+      "cursor_changes": 220,
+      "samples": 1447,
+      "human_parallel_input": "NOT_RUN",
+      "sampling_limit": "cursor samples cannot attribute movement",
+      "foreground_final_equals_initial": true,
+      "cursor_final_equals_initial": false,
+      "input_desktop": "Default"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    },
+    "scope_note": "before final read-only active-session and Default-window checks; input/capture/viewer unchanged"
+  },
+  "real_viewer": {
+    "status": "AUTOMATED_SUBSET_PASS",
+    "render": "PASS",
+    "text_verified": true,
+    "click_verified": true,
+    "default_target_windows": 0,
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    }
+  },
+  "not_run": [
+    "classic Notepad actions",
+    "packaged Notepad launch/capture/input",
+    "WPF TestBench",
+    "D0-B human takeover",
+    "UIA",
+    "WGC",
+    "IME",
+    "clipboard",
+    "drag",
+    "multi-window",
+    "model",
+    "third-party site",
+    "VM",
+    "original A5 chain"
+  ],
+  "content_review": {
+    "source_directory_unchanged": true,
+    "core_contracts_unchanged": true,
+    "dependencies_upgraded": false,
+    "new_dependencies": false,
+    "license_selected": false,
+    "generated_images_committed": false,
+    "push_performed_for_spike": false
+  }
+}
