@@ -8,6 +8,8 @@
 
 候选保留 P7-B 三项独立契约反例；fixture-gate 四类历史场景改成新建合成 SQLite，仍测试跨页来源、未渲染、候选截断和缺失属性；Guest 文件证据使用人工编写 before/after，仍断言 pass、wrong-content fail、missing-boundary unknown；PNG 换为同尺寸常量像素，仍验证 CRC、截断、几何和绑定。新合成数据不得冒称真实实验记录。
 
+D1 Worker 传输测试的 2×2 假截图改为标准库生成 PNG，避免隐含依赖旧机器安装的 Pillow；认证、只读动作拒绝、MIME 和 PNG 字节断言仍保留。文本用 LF 签入，保证全新 Windows 检出的夹具指纹稳定。
+
 A5 manifest/build-readiness/startup-gate/browser-probe/browser-window/runner-readiness/runtime-fingerprint 留在私有原工程。可复用 sidecar/readiness/execute-audit/request-meter/run-analysis/runner-io 保持现有目录，改为当前导入与合成 baseline；historicalAudit 私有留存，未调用原实验数据库。measurement 的 Case 类型只从原接口提取，核心 schema 未改。
 
 所有阶段文档、真实评测、证据目录、数据库、截图、日志、browser state、缓存、阶段 p8/p9 排障脚本、P7 历史采集链继续在原工程留存。原工程未删除、封存或切换维护。本轮交付私有清单和源码完整性指纹，供后续确认完整私有现场及迁移；尚未把“只维护新主工程”作为自动完成的步骤。

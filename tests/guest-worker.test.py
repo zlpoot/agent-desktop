@@ -4,13 +4,22 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+import struct
 import threading
 import types
 import unittest
+import zlib
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from PIL import Image
+def synthetic_png():
+    def chunk(kind, data):
+        return (struct.pack('>I', len(data)) + kind + data +
+                struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff))
+    return (b'\x89PNG\r\n\x1a\n' +
+            chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', zlib.compress((b'\0' + b'\xff\0\0' * 2) * 2)) +
+            chunk(b'IEND', b''))
 
 
 class GuestWorkerTest(unittest.TestCase):
@@ -19,7 +28,8 @@ class GuestWorkerTest(unittest.TestCase):
         os.environ["AGENT_DESKTOP_TOKEN"] = "test-secret"
         os.environ["AGENT_DESKTOP_VM_ID"] = "vm-test"
         sys.modules["pyautogui"] = types.SimpleNamespace(
-            screenshot=lambda: Image.new("RGB", (2, 2), "red"))
+            screenshot=lambda: types.SimpleNamespace(
+                save=lambda output, **kwargs: output.write(synthetic_png())))
         source = Path(__file__).resolve().parents[1] / "guest" / "worker.py"
         spec = importlib.util.spec_from_file_location("guest_worker", source)
         module = importlib.util.module_from_spec(spec)
