@@ -14,6 +14,8 @@ import { FacetRegistry } from "../contracts/facets.js";
 import { ContributorRegistry } from "../contracts/verifier-contributor.js";
 import { createDomainEvaluator } from "../verification/domain-evaluator.js";
 import type { DesktopProvider } from "../contracts/desktop-provider.js";
+import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
+import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import type { ModelProvider } from "../contracts/model-provider.js";
 import type { TraceStore, WorkflowStore as WorkflowStoreContract } from "../contracts/stores.js";
 import type { WorkerClientFactory } from "../contracts/worker-client.js";
@@ -59,6 +61,7 @@ export interface RootAssembly {
   desktop?: DesktopProvider;
   vmControl?: VmControl;
   controlBus: ControlBus;
+  environmentProviders: readonly EnvironmentProvider[];
   /** 拒绝新任务/控制，等待任务收尾，再释放 Session 与基础设施。 */
   dispose(): Promise<void>;
 }
@@ -100,6 +103,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const workflowStore = options.workflowStore ?? ((path: string) => new WorkflowStore(path));
         const workerClientFactory = options.workerClientFactory ?? GuestDesktopRuntime.connect;
         const desktop = options.desktop ?? new DesktopSessionManager(rootDir, process.env.AGENT_DESKTOP_TOKEN ?? "");
+        const hyperVCompatibility = new HyperVDesktopProvider(desktop, process.env.AGENT_DESKTOP_TOKEN ?? "");
         const vmControl = options.vmControl
           ?? (process.env.AGENT_DESKTOP_VM_ID ? new HyperVVmControl(process.env.AGENT_DESKTOP_VM_ID) : undefined);
         ctx.provide("extensionRegistry", extensionRegistry);
@@ -108,6 +112,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         ctx.provide("workflowStore", workflowStore);
         ctx.provide("workerClientFactory", workerClientFactory);
         ctx.provide("desktopProvider", desktop);
+        ctx.provide("hyperVCompatibility", hyperVCompatibility);
+        ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility]));
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
@@ -120,12 +126,16 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
             finally { await controlBus.disposeSessions(); }
           } finally {
             try { await extensionRegistry.clear(); }
-            finally { await desktop.close(); }
+            finally {
+              try { await hyperVCompatibility.close(); }
+              finally { await desktop.close(); }
+            }
           }
         };
       },
     }, 'Root', ['extensionRegistry', 'modelProvider', 'traceStore', 'workflowStore',
-      'workerClientFactory', 'desktopProvider', ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
+      'workerClientFactory', 'desktopProvider', 'desktopEnvironmentProviders', 'hyperVCompatibility',
+      ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
       name: "taskController",
       inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory"],
@@ -173,6 +183,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       desktop: root.desktopProvider,
       vmControl: root.vmControl,
       controlBus,
+      environmentProviders: root.desktopEnvironmentProviders,
       dispose,
     };
   } catch (error) {

@@ -1,4 +1,4 @@
-/** P0/P1 environment contract. The legacy desktop-provider.ts stays in use until P2. */
+/** Environment contract. Legacy task/transport consumers migrate through compatibility adapters. */
 export type DesktopEnvironmentKind = "physical" | "virtual-machine" | "local-workspace";
 export type CapabilityState = "supported" | "unsupported" | "not-proven" | "forbidden";
 export type DesktopCapability =

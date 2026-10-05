@@ -24,7 +24,7 @@ export class GuestDesktopRuntime implements VisionDesktopRuntime {
   }
 
   static async connect(endpoint: string, token: string, vmId: string,
-    artifactDir: string, controlEpoch?: number): Promise<GuestDesktopRuntime> {
+    artifactDir: string, controlEpoch?: number, expectedRecoveryEpoch?: string): Promise<GuestDesktopRuntime> {
     if (!token || !vmId) throw new Error("Guest Worker Token 和 VM ID 必填");
     const url = new URL(endpoint);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password ||
@@ -38,6 +38,11 @@ export class GuestDesktopRuntime implements VisionDesktopRuntime {
       recovery_epoch?: string; file_rpc?: boolean; control_epoch_rpc?: boolean; action_id_rpc?: boolean } : undefined;
     if (!worker || worker.vm_id !== vmId) {
       throw new WorkerConnectionError("Guest Worker 身份校验失败");
+    }
+    // Compatibility adapters pin the Session handshake across runtime connection races.
+    // The unchanged RPC recoveryEpoch field remains independently checked by the Guest lock.
+    if (expectedRecoveryEpoch !== undefined && (!expectedRecoveryEpoch || worker.recovery_epoch !== expectedRecoveryEpoch)) {
+      throw new WorkerConnectionError("Guest Worker instance changed; reopen Session and reobserve");
     }
     if (!worker.action_rpc) throw new Error("Guest Worker 尚未启用 D2 Action RPC");
     if (controlEpoch !== undefined && (!worker.control_epoch_rpc || !worker.action_id_rpc))
