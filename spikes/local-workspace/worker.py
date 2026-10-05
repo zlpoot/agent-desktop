@@ -1,9 +1,10 @@
-"""D0-A worker runs only on the assigned non-input Desktop."""
+"""D0-A/B worker runs only on the assigned non-input Desktop."""
 import argparse
 from pathlib import Path
 import sys
 import time
-from policy import Blocked, TEXT, validate_command
+from policy import Blocked
+from input_engine import Inputs
 from storage import read_json, write_json
 from win32 import Api
 
@@ -66,8 +67,8 @@ def main():
         state["capture_pid"] = capture_pid
         handles.append(capture_handle)
         state["status"] = "ready"
-        seen = None
-        input_done = False
+        inputs = Inputs(api, target, expected, api.windows(target, children=True),
+                        lambda: read_json(directory / "control.json", {}), config["run_id"], config["app"] == "fixture")
         while True:
             control = read_json(directory / "control.json", {})
             if control.get("stop", True) or time.monotonic() >= control.get("lease", 0):
@@ -75,46 +76,15 @@ def main():
                 state["reason"] = "stop_or_lease_expired"
                 break
             api.guard(target, expected)
-            command = read_json(directory / "command.json", {})
-            if command and command.get("id") != seen:
-                validate_command(command, config["run_id"], time.monotonic(), control["lease"], control.get("stop"))
-                if input_done:
-                    raise Blocked("script_already_executed")
-                seen = command["id"]
-                children = api.windows(target, children=True)
-                edits = [hwnd for hwnd in children if api.class_name(hwnd).lower() == "edit"]
-                buttons = [hwnd for hwnd in children if api.class_name(hwnd).lower() == "button"]
-                if len(edits) != 1 or (config["app"] == "fixture" and len(buttons) != 1):
-                    state["input"] = "UNSUPPORTED"
-                    state["reason"] = "standard_controls_unavailable_UIA_not_implemented"
-                else:
-                    for hwnd in edits + buttons:
-                        api.guard(hwnd, expected)
-                    if api.text(edits[0]) != "":
-                        raise Blocked("nonempty_target_refuse_overwrite")
-                    api.type_text(edits[0], expected, TEXT)
-                    if config["app"] == "fixture":
-                        api.click(buttons[0], expected)
-                    # Wait for actual processing, then inspect the independent control state.
-                    deadline = time.monotonic() + 2
-                    text_ok = click_ok = False
-                    while time.monotonic() < deadline:
-                        api.guard(edits[0], expected)
-                        text_ok = api.text(edits[0]) == TEXT
-                        click_ok = config["app"] != "fixture"
-                        for hwnd in children:
-                            if api.class_name(hwnd).lower() == "static":
-                                api.guard(hwnd, expected)
-                                click_ok |= api.text(hwnd) == "Clicks: 1"
-                        if text_ok and click_ok:
-                            break
-                        time.sleep(0.05)
-                    state.update(input="PASS" if text_ok and click_ok else "FAIL", text_verified=text_ok,
-                                 click_verified=click_ok if config["app"] == "fixture" else "NOT_RUN",
-                                 method="WM_CHAR / WM_LBUTTONDOWN+UP" if config["app"] == "fixture" else "WM_CHAR")
-                input_done = True
+            inputs.acknowledge(control)
+            for path in sorted((directory / "commands").glob("*.json"))[:1]:
+                command = read_json(path, {})
+                path.unlink(missing_ok=True)
+                inputs.command(command)
+            inputs.step()
+            state.update(inputs.view(), method="synchronous WM_CHAR / target-local mouse messages")
             publish()
-            time.sleep(0.1)
+            time.sleep(0.02)
     except Exception as error:
         state.update(status="blocked", reason=str(error), error=type(error).__name__)
     finally:

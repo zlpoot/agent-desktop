@@ -256,6 +256,18 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.controller.snapshot()["status"], "ready")
         self.assertTrue(self.request("/frame")[1].startswith(b"\x89PNG"))
 
+    def test_human_routes_require_nonce_origin_and_current_epoch(self):
+        run = json.loads(self.request("/run", {"app": "fixture"})[1])["run_id"]
+        body = {"run_id": run, "epoch": 1, "event": {"kind": "char", "value": "X"}}
+        self.assertEqual(self.request("/human", body)[0], 409)
+        self.assertEqual(self.request("/control", {"run_id": run, "epoch": 1, "owner": "human"})[0], 200)
+        self.assertEqual(self.request("/human", body)[0], 409)
+        body["epoch"] = 2
+        self.assertEqual(self.request("/human", body, Authorization="wrong")[0], 403)
+        self.assertEqual(self.request("/human", body, Origin="http://evil.invalid")[0], 403)
+        self.assertEqual(self.request("/human", body)[0], 200)
+        self.assertEqual(self.request("/act", {"run_id": run, "epoch": 1})[0], 409)
+
 
 if __name__ == "__main__":
     unittest.main()

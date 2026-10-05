@@ -38,7 +38,8 @@
     "test:local-workspace": "python -m unittest discover -s spikes/local-workspace/tests -v",
     "test:local-workspace:browser": "node --test spikes/local-workspace/tests/viewer.test.mjs",
     "test:local-workspace:windows": "python spikes/local-workspace/verify.py --real --faults",
-    "test:local-workspace:viewer:windows": "node spikes/local-workspace/verify-viewer.mjs --real"
+    "test:local-workspace:viewer:windows": "node spikes/local-workspace/verify-viewer.mjs --real",
+    "test:local-workspace:takeover:windows": "node spikes/local-workspace/verify-viewer.mjs --real --takeover"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.17",

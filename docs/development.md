@@ -12,4 +12,4 @@
 
 验证记录区分安装下载、离线测试、本地浏览器与现场实验；失败必须记录，修复后可复验，但不得删除历史实验 FAIL。现场入口仅显式执行，本地脚本名包含 smoke 并不自动意味着离线安全。
 
-D0-A 是 `spikes/local-workspace` 中独立的受控实验。修改该目录后增加 `npm run test:local-workspace` 和 `npm run test:local-workspace:browser`；前者也由 `test:python` 纳入。带 `:windows` 的入口会启动真实隐藏桌面应用，单独授权、执行和记录，不计入离线通过数字。根提取分类清单记录提取时的基线，本轮新增 Spike 的来源、范围和后续验证见其 README 与 validation.md。
+D0-A/B 是 `spikes/local-workspace` 中独立的受控实验。修改该目录后增加 `npm run test:local-workspace` 和 `npm run test:local-workspace:browser`；前者也由 `test:python` 纳入。带 `:windows` 的入口会启动真实隐藏桌面应用，单独授权、执行和记录，不计入离线通过数字。根提取分类清单记录提取时的基线，本轮新增 Spike 的来源、范围和后续验证见其 README、D0-A validation.md 与 D0-B validation-d0b.md。

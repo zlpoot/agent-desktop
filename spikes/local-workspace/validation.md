@@ -1,6 +1,8 @@
 # D0-A 验证记录 · 2026-10-05
 
-**合成 Win32 场景完成验证；完整 D0-A 未通过，不进入 D0-B。** 打包版 Notepad 尚不支持，现有 WPF TestBench 未运行。结果不改变历史 A5 safety FAIL、原 Windows 实验暂停及整体未完成的结论。
+**D0-A 阶段结束时的结论：合成 Win32 场景完成验证；完整 D0-A 未通过，不自动进入 D0-B。**
+
+后续用户明确授权仅限合成夹具进入 D0-B，见 [独立验证记录](validation-d0b.md)。本文保留 D0-A 当时的结果与数字。 打包版 Notepad 尚不支持，现有 WPF TestBench 未运行。结果不改变历史 A5 safety FAIL、原 Windows 实验暂停及整体未完成的结论。
 
 ## 环境和安装
 

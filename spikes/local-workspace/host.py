@@ -1,5 +1,6 @@
-"""Standalone D0-A controller. --fake never loads Win32 or starts an app."""
+"""Standalone D0-A/B controller. --fake never loads Win32 or starts an app."""
 import argparse
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -10,7 +11,7 @@ import sys
 import threading
 import time
 import uuid
-from policy import Blocked, LEASE_SECONDS, MAX_DURATION, png_rgb
+from policy import Blocked, HUMAN_LIMIT, LEASE_SECONDS, MAX_DURATION, TEXT, png_rgb, validate_human_event
 from storage import read_json, write_json
 
 HERE = Path(__file__).resolve().parent
@@ -62,9 +63,12 @@ class Controller:
             self.deadline = time.monotonic() + MAX_DURATION
             self.lease = time.monotonic() + LEASE_SECONDS
             self.command_sent = False
+            self.owner, self.epoch, self.sequence, self.human_count = "agent", 1, 0, 0
             self.record = {"status": "starting", "app": app, "run_id": run_id,
                            "mode": "real" if self.real else "fake", "input": "NOT_RUN",
                            "started": self.started, "human_parallel_input": "NOT_RUN"}
+            self.record.update(owner=self.owner, epoch=self.epoch, agent_progress=0, agent_total=len(TEXT), human_actions=0)
+            (self.run_directory / "commands").mkdir()
             if not self.real:
                 self.record.update(status="ready", isolation="SIMULATED")
                 return self.snapshot()
@@ -101,7 +105,71 @@ class Controller:
 
     def write_control(self, stop):
         if self.run_directory:
-            write_json(self.run_directory / "control.json", {"stop": stop, "lease": self.lease})
+            write_json(self.run_directory / "control.json", {"stop": stop, "lease": self.lease,
+                                                           "owner": self.owner, "epoch": self.epoch})
+
+    def ready_epoch(self, run_id, epoch, owner):
+        state = self.snapshot()
+        if self.record["status"] != "ready" or run_id != self.record.get("run_id"):
+            raise Blocked("stale_or_inactive_run")
+        if type(epoch) is not int or epoch != self.epoch or owner != self.owner:
+            raise Blocked("input_epoch_revoked")
+        if not state.get("control_ready") or time.monotonic() >= self.lease:
+            raise Blocked("handoff_not_acknowledged_or_lease_expired")
+
+    def enqueue(self, action, **data):
+        self.sequence += 1
+        command = {"id": str(self.sequence), "run_id": self.record["run_id"], "owner": self.owner,
+                   "epoch": self.epoch, "action": action, "expires": time.monotonic() + 2, **data}
+        if self.real:
+            queue = self.run_directory / "commands"
+            if len(list(queue.glob("*.json"))) >= 16:
+                raise Blocked("input_queue_full")
+            write_json(queue / f"{self.sequence:08d}.json", command)
+        return command["id"]
+
+    def transfer(self, run_id, epoch, owner):
+        with self.lock:
+            if owner not in ("agent", "human"):
+                raise Blocked("unsupported_owner")
+            self.ready_epoch(run_id, epoch, self.owner)
+            already_started = self.snapshot().get("agent_started", False)
+            if self.record["app"] != "fixture":
+                raise Blocked("takeover_fixture_only")
+            if owner == self.owner:
+                raise Blocked("owner_already_active")
+            self.owner, self.epoch = owner, self.epoch + 1
+            self.record.update(owner=owner, epoch=self.epoch)
+            for path in (self.run_directory / "commands").glob("*.json*"):
+                path.unlink(missing_ok=True)
+            if self.real:
+                self.write_control(False)
+                # Resume also re-authorizes the single intent if takeover removed
+                # its queue entry before the worker had started it. The worker
+                # rejects duplicates; it never restarts an accepted script.
+                if owner == "agent" and self.command_sent and not already_started:
+                    self.enqueue("script")
+            return self.snapshot()
+
+    def receive_input(self, run_id, epoch, event):
+        with self.lock:
+            self.ready_epoch(run_id, epoch, "human")
+            validate_human_event(event)
+            if self.record["app"] != "fixture" or self.human_count >= HUMAN_LIMIT:
+                raise Blocked("human_input_budget_or_app")
+            frame = self.snapshot().get("frame", {})
+            if self.real and (frame.get("error") or time.monotonic() - frame.get("heartbeat", 0) > 2):
+                raise Blocked("stale_frame")
+            if event["kind"] == "click":
+                if (event["width"], event["height"]) != (frame.get("width"), frame.get("height")):
+                    raise Blocked("stale_frame_geometry")
+                if not max(0, frame.get("sequence", 0) - 10) <= event["sequence"] <= frame.get("sequence", 0):
+                    raise Blocked("stale_frame_sequence")
+            command_id = self.enqueue("human", event=event)
+            self.human_count += 1
+            if not self.real:
+                self.record.update(human_actions=self.human_count, last_command={"id": command_id, "result": "SIMULATED"})
+            return {**self.snapshot(), "accepted_command": command_id}
 
     def ping(self):
         with self.lock:
@@ -111,17 +179,14 @@ class Controller:
                     self.write_control(False)
             return self.snapshot()
 
-    def act(self, run_id):
+    def act(self, run_id, epoch=None):
         with self.lock:
-            if self.record["status"] != "ready" or run_id != self.record.get("run_id"):
-                raise Blocked("stale_or_inactive_run")
+            self.ready_epoch(run_id, self.epoch if epoch is None else epoch, "agent")
             if time.monotonic() >= self.lease or self.command_sent:
                 raise Blocked("expired_lease_or_script_already_sent")
             self.command_sent = True
             if self.real:
-                write_json(self.run_directory / "command.json", {
-                    "id": uuid.uuid4().hex, "run_id": run_id, "action": "script", "expires": time.monotonic() + 2,
-                })
+                self.enqueue("script")
             else:
                 self.record.update(input="SIMULATED", text_verified=True, click_verified=True)
             return self.snapshot()
@@ -137,7 +202,13 @@ class Controller:
                 frame = read_json(self.run_directory / "frame.json", {})
                 result["frame"] = frame
             elif not self.real and self.record["status"] == "ready":
-                result["frame"] = {"sequence": int((time.time() - self.started) * 5), "nonuniform": True, "simulated": True}
+                result["frame"] = {"sequence": int((time.time() - self.started) * 5), "width": 320, "height": 160,
+                                   "nonuniform": True, "simulated": True}
+            if self.record["status"] in ("starting", "ready"):
+                result.update(owner=self.owner, epoch=self.epoch, script_started=self.command_sent,
+                              human_remaining=HUMAN_LIMIT - self.human_count)
+                result["control_ready"] = (result.get("status") == "ready" and (not self.real or
+                    (result.get("owner_ack") == self.owner and result.get("epoch_ack") == self.epoch)))
             return result
 
     def frame(self):
@@ -155,6 +226,18 @@ class Controller:
             except (FileNotFoundError, PermissionError):
                 return None
 
+    def frame_packet(self):
+        with self.lock:
+            image = self.frame()
+            if not image:
+                return None, {}
+            if not self.real:
+                return image, self.snapshot()["frame"]
+            metadata = read_json(self.run_directory / "frame.json", {})
+            if hashlib.sha256(image).hexdigest() != metadata.get("sha256"):
+                return None, {}  # Image and metadata must describe the same frame.
+            return image, metadata
+
     def stop(self, reason="user_stop"):
         with self.lock:
             if self.record["status"] == "idle" or (self.record["status"] == "stopped" and not self.api):
@@ -162,6 +245,8 @@ class Controller:
             before = self.snapshot()
             self.record.update(before)
             self.record.update(status="stopped", stop_reason=reason, ended=time.time())
+            self.owner, self.epoch = "none", self.epoch + 1
+            self.record.update(owner=self.owner, epoch=self.epoch, control_ready=False)
             cleanup = {"status": "PASS", "job_active": 0, "desktop_absent": True}
             errors = []
             if self.real:
@@ -215,6 +300,8 @@ class Controller:
             self.record["cleanup"] = cleanup
             self.api = self.job = self.desktop = self.process = self.monitor = None
             if self.run_directory:
+                for path in (self.run_directory / "commands").glob("*.json*"):
+                    path.unlink(missing_ok=True)
                 write_json(self.run_directory / "result.json", self.record)
             return self.snapshot()
 
@@ -277,7 +364,7 @@ def make_server(controller, port=0):
         def log_message(self, *_):
             pass  # Never log URL, token or remote input.
 
-        def response(self, status, body, kind="application/json"):
+        def response(self, status, body, kind="application/json", extra=None):
             if isinstance(body, dict):
                 body = json.dumps(body).encode()
             self.send_response(status)
@@ -286,6 +373,8 @@ def make_server(controller, port=0):
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; frame-ancestors 'none'")
+            for key, value in (extra or {}).items():
+                self.send_header(key, str(value))
             self.end_headers()
             self.wfile.write(body)
 
@@ -311,8 +400,10 @@ def make_server(controller, port=0):
             elif self.path == "/status":
                 self.response(200, controller.ping())
             elif self.path == "/frame":
-                frame = controller.frame()
-                self.response(200 if frame else 204, frame or b"", "image/png")
+                frame, metadata = controller.frame_packet()
+                self.response(200 if frame else 204, frame or b"", "image/png", {
+                    "X-Frame-Sequence": metadata.get("sequence", 0), "X-Frame-Width": metadata.get("width", 0),
+                    "X-Frame-Height": metadata.get("height", 0)})
             else:
                 self.response(404, {"error": "unknown_route"})
 
@@ -327,8 +418,12 @@ def make_server(controller, port=0):
                 body = json.loads(self.rfile.read(length))
                 if self.path == "/run" and set(body) == {"app"}:
                     result = controller.start(body["app"])
-                elif self.path == "/act" and set(body) == {"run_id"}:
-                    result = controller.act(body["run_id"])
+                elif self.path == "/act" and set(body) == {"run_id", "epoch"}:
+                    result = controller.act(body["run_id"], body["epoch"])
+                elif self.path == "/control" and set(body) == {"run_id", "epoch", "owner"}:
+                    result = controller.transfer(body["run_id"], body["epoch"], body["owner"])
+                elif self.path == "/human" and set(body) == {"run_id", "epoch", "event"}:
+                    result = controller.receive_input(body["run_id"], body["epoch"], body["event"])
                 elif self.path == "/stop" and set(body) == {"run_id"}:
                     if body["run_id"] != controller.record.get("run_id"):
                         raise Blocked("stale_run")
@@ -353,7 +448,7 @@ def main():
     args = parser.parse_args()
     controller = Controller(args.artifacts, real=args.real)
     server, token = make_server(controller, args.port)
-    print(f"D0-A {'REAL WINDOWS' if args.real else 'FAKE'} Viewer: http://127.0.0.1:{server.server_port}/#{token}", flush=True)
+    print(f"D0-A/B {'REAL WINDOWS' if args.real else 'FAKE'} Viewer: http://127.0.0.1:{server.server_port}/#{token}", flush=True)
     print("No application starts until Run. Each run: 60 seconds maximum, 3 second viewer lease.", flush=True)
     try:
         server.serve_forever(poll_interval=0.1)

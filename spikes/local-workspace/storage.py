@@ -26,7 +26,15 @@ def write_json(path, data):
 
 
 def read_json(path, default=None):
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, PermissionError):
-        return default
+    # Brief Windows sharing conflicts during atomic replacement may make a
+    # current control file unreadable. Never reuse stale permissions: retry for
+    # at most 20 ms, then return the fail-closed default. Lease clocks still run.
+    for attempt in range(5):
+        try:
+            return json.loads(Path(path).read_text(encoding="utf-8"))
+        except (FileNotFoundError, PermissionError):
+            if attempt == 4:
+                return default
+            time.sleep(0.005)
+        except json.JSONDecodeError:
+            return default

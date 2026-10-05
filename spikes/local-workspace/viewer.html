@@ -1,14 +1,16 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>D0-A 本地工作区实验</title><link rel="stylesheet" href="/viewer.css"></head>
-<body><main><h1>D0-A 本地工作区实验</h1><p id="mode">连接中…</p>
+<title>D0-A/B 本地工作区实验</title><link rel="stylesheet" href="/viewer.css"></head>
+<body><main><h1>D0-A/B 本地工作区实验</h1><p id="mode">连接中…</p>
 <p>只运行合成文字与一次定向点击。窗口保留在隐藏桌面；每次最多运行 60 秒。</p>
 <div class="controls"><label>应用 <select id="app"><option value="fixture">合成 Win32 夹具</option><option value="notepad">已安装的经典 Notepad</option></select></label>
-<button id="run">Run</button><button id="act" disabled>运行固定脚本</button><button id="delayed" disabled>5 秒后运行脚本</button><button id="stop" disabled>Stop</button></div>
-<p id="notice" role="status"></p><img id="frame" alt="隐藏桌面的目标窗口画面" hidden>
+<button id="run">Run</button><button id="act" disabled>运行固定脚本</button><button id="delayed" disabled>5 秒后运行脚本</button><button id="takeover" disabled>接管 Take Control</button><button id="resume" disabled>恢复 Resume</button><button id="stop" disabled>Stop</button></div>
+<p id="owner">尚未运行</p>
+<p>接管仅支持合成夹具。等待“人类控制”后，点击画面内的文本框，再输入合成 ASCII 文字或 Backspace；可点击画面内按钮。输入会传到隐藏窗口并出现在私有截图中。恢复后固定脚本从原进度继续。每次最多 256 个事件，不支持中文输入法、粘贴、拖动、滚轮或快捷键。</p>
+<p id="notice" role="status"></p><img id="frame" alt="隐藏桌面的目标窗口画面" tabindex="0" draggable="false" hidden>
 <details><summary>状态与验证结果</summary><pre id="status"></pre></details>
 <label for="parallel">并行输入检查：脚本运行时，在这里输入合成文字并移动鼠标。此框内容不会发送或保存。</label>
 <textarea id="parallel" placeholder="只输入合成文字"></textarea>
 <p id="parallel-count">尚未进行人工并行输入验证</p>
-<p>实验性能力。D0-B 人类接管尚未实现；A5 safety FAIL、历史 Windows 实验暂停及整体未完成的结论保持不变。</p>
+<p>实验性能力。D0-B 仅为合成夹具接管验证；Notepad 仍不支持，完整 D0-A 门槛未通过。A5 safety FAIL、历史 Windows 实验暂停及整体未完成的结论保持不变。</p>
 </main><script src="/viewer.js"></script></body></html>

@@ -7,3 +7,4 @@ button { cursor: pointer; } button:disabled { opacity: .4; cursor: default; } #s
 img { display: block; max-width: 100%; margin: 20px 0; border: 1px solid #5b7184; } img[hidden] { display: none; }
 pre { padding: 16px; background: #192c3d; overflow: auto; } textarea { display: block; width: min(90%, 600px); height: 70px; margin-top: 10px; }
 #notice { color: #ffd79b; min-height: 1.5em; }
+#frame:focus { outline: 3px solid #70c0e0; } #owner { font-weight: 600; }

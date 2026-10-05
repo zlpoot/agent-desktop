@@ -83,6 +83,7 @@ class Api:
             ("GetWindowThreadProcessId", [H, C.POINTER(D)], D), ("IsWindow", [H], W.BOOL),
             ("GetClassNameW", [H, W.LPWSTR, I], I), ("GetWindowRect", [H, C.POINTER(W.RECT)], W.BOOL),
             ("GetClientRect", [H, C.POINTER(W.RECT)], W.BOOL),
+            ("ClientToScreen", [H, C.POINTER(W.POINT)], W.BOOL),
             ("PostMessageW", [H, W.UINT, UPTR, SPTR], W.BOOL),
             ("SendMessageTimeoutW", [H, W.UINT, UPTR, SPTR, W.UINT, W.UINT, C.POINTER(UPTR)], SPTR),
             ("PrintWindow", [H, H, W.UINT], W.BOOL),
@@ -277,20 +278,54 @@ class Api:
 
     def type_text(self, hwnd, expected, text):
         for char in text:
-            self.guard(hwnd, expected)
-            self.checked(self.u.PostMessageW(hwnd, 0x0102, ord(char), 1), "post_char")
+            self.input_guard(hwnd, expected)
+            self.send(hwnd, 0x0102, ord(char), 1)
+
+    def input_guard(self, hwnd, expected):
+        self.guard(hwnd, expected)
+        check_input = getattr(self, "check_input", None)
+        if check_input:
+            check_input()
+
+    def cancel_owned_input(self, hwnd, expected):
+        self.assert_default()
+        validate_target(self.identity(hwnd), expected)
+        self.send(hwnd, 0x001F)  # WM_CANCELMODE; target-local cleanup, no system input.
 
     def click(self, hwnd, expected):
-        self.guard(hwnd, expected)
+        self.input_guard(hwnd, expected)
         rect = W.RECT()
         self.checked(self.u.GetClientRect(hwnd, C.byref(rect)), "client_rect")
         x, y = (rect.right - rect.left) // 2, (rect.bottom - rect.top) // 2
         if not (0 < x < 32768 and 0 < y < 32768):
             raise Blocked("invalid_click_geometry")
+        self.click_at(hwnd, expected, x, y)
+
+    def click_at(self, hwnd, expected, x, y):
         position = x | (y << 16)
-        for message, buttons in ((0x200, 0), (0x201, 1), (0x202, 0)):
+        try:
+            for message, buttons in ((0x200, 0), (0x201, 1), (0x202, 0)):
+                self.input_guard(hwnd, expected)
+                self.send(hwnd, message, buttons, position)
+        finally:
+            self.cancel_owned_input(hwnd, expected)
+
+    def control_at(self, target, expected, event, controls):
+        self.guard(target, expected)
+        root = W.RECT()
+        self.checked(self.u.GetWindowRect(target, C.byref(root)), "target_rect")
+        if (root.right - root.left, root.bottom - root.top) != (event["width"], event["height"]):
+            raise Blocked("frame_geometry_changed")
+        sx, sy = root.left + event["x"], root.top + event["y"]
+        for hwnd in controls:
             self.guard(hwnd, expected)
-            self.checked(self.u.PostMessageW(hwnd, message, buttons, position), "post_click")
+            origin, rect = W.POINT(), W.RECT()
+            self.checked(self.u.ClientToScreen(hwnd, C.byref(origin)), "control_origin")
+            self.checked(self.u.GetClientRect(hwnd, C.byref(rect)), "control_bounds")
+            x, y = sx - origin.x, sy - origin.y
+            if 0 <= x < rect.right and 0 <= y < rect.bottom:
+                return hwnd, x, y
+        raise Blocked("click_outside_supported_controls")
 
     def capture(self, hwnd, expected):
         self.guard(hwnd, expected)
