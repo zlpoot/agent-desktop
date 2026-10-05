@@ -111,7 +111,11 @@ export class HyperVDesktopProvider implements DesktopProvider {
     const value = await response.json() as { vm_id?: string; recovery_epoch?: string; action_rpc?: boolean;
       control_rpc?: boolean; recovery_rpc?: boolean; control_epoch_rpc?: boolean; action_id_rpc?: boolean;
       ready_for_observation?: boolean; ready_for_input?: boolean };
-    if (value.vm_id !== row.vmId || !value.recovery_epoch || typeof value.recovery_epoch !== "string" ||
+    if (value.vm_id !== row.vmId) {
+      // A reused endpoint is an identity replacement, even if the original VM later returns.
+      this.invalidate(source); deny("incompatible-worker");
+    }
+    if (!value.recovery_epoch || typeof value.recovery_epoch !== "string" ||
       value.action_rpc !== true || value.control_rpc !== true || value.recovery_rpc !== true ||
       value.control_epoch_rpc !== true || value.action_id_rpc !== true ||
       typeof value.ready_for_observation !== "boolean" || typeof value.ready_for_input !== "boolean") deny("incompatible-worker");

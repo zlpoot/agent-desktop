@@ -230,6 +230,42 @@ test("endpoint replacement stales old Session; wrong VM endpoint receives no act
   } finally { await f.close(); await other.close(); }
 });
 
+for (const trigger of ["status", "runtime"] as const) {
+  test(`same-endpoint VM identity drift through ${trigger} permanently stales Sessions and drains old runtime`, async () => {
+    const f = await fixture(), drainStarted = deferred();
+    try {
+      const session = await f.provider.open("vm:vm"), observer = await f.provider.open("vm:vm");
+      const input = f.provider.taskControl(session); await input.beginTask("task");
+      const runtime = await f.provider.connectRuntime(session, f.dir);
+      await runtime.attach({ windowHandle: 7 }); const observation = await runtime.observe();
+      assert.equal((await session.status()).state, "open");
+      const epoch = f.remote.epoch, endpoint = f.legacy.get("legacy")!.workerEndpoint;
+      const closeRuntime = runtime.close;
+      runtime.close = () => { drainStarted.resolve(); return closeRuntime(); };
+
+      f.remote.id = "another-vm"; // Same endpoint and recovery_epoch: only backend VM identity drifts.
+      if (trigger === "status") assert.equal((await session.status()).state, "stale");
+      else await assert.rejects(runtime.observe(), /incompatible-worker/);
+      assert.equal((await session.status()).state, "stale");
+      assert.equal((await observer.status()).state, "stale");
+      await drainStarted.promise;
+
+      f.remote.id = "vm";
+      assert.equal(f.remote.epoch, epoch); assert.equal(f.legacy.get("legacy")!.workerEndpoint, endpoint);
+      assert.equal((await session.status()).state, "stale");
+      assert.equal((await observer.status()).state, "stale");
+      assert.throws(() => f.provider.taskControl(session), /stale-session/);
+      assert.throws(() => f.provider.connectRuntime(session, f.dir), /stale-session/);
+      await assert.rejects(runtime.observe(), /runtime-closed|stale-session/);
+      await assert.rejects(runtime.restore(observation), /runtime-closed|stale-session/);
+      await assert.rejects(runtime.execute(action, resolution, "never-resurrect"), /runtime-closed|stale-session/);
+      assert.equal(f.remote.calls.filter(call => call.method === "observe").length, 1);
+      assert.equal(f.remote.calls.some(call => call.method === "restore" || call.method === "execute"), false);
+      assert.equal(f.remote.effects, 0);
+    } finally { await f.close(); }
+  });
+}
+
 test("backend independently refuses recovery identity changed after Host's last admission", async () => {
   const f = await fixture();
   try {

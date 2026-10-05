@@ -58,3 +58,21 @@ Runtime readiness 独立表达：已验证机制随 Guest readiness 变化；未
 - `git diff --check`：通过。日志与导出 patch 保留在 ignored `.artifacts`，不提交生成资产。
 
 状态：IMPLEMENTATION COMPLETE / READY FOR INDEPENDENT REVIEW。审查范围为 P1 基线到本地 P2 checkpoint；没有 push、修改 GitHub Issue 状态或开始 P3/P4。
+
+## P2 revision — independent review REQUEST CHANGES
+
+独立审查针对 `1ed0ccb..a57fad6` 发现一个 P1 blocker：已 open 的 Session 在同 endpoint 返回另一 VM 的 vm_id 时，只拒绝当次检查，没有永久 stale；原 vm_id/recovery_epoch 恢复后旧 Session 可以重新通过检查。
+
+本次最小修订将 `state()` 中的 vm_id mismatch 拆为 terminal identity failure：先调用现有 `invalidate(source)`，同步 stale 该 source 的全部已建立 Sessions 并启动 cleanup/drain，再返回原来的 incompatible-worker 拒绝。无需等待后续 fresh 检查；原身份恢复也不会重新启用旧 Session。普通传输、协议与 readiness 的其余处理保持原样。
+
+新增同一反例的 status 与 runtime 两条入口验证：先 open owner/observer、attach + observe；保持 endpoint 与 recovery_epoch 不变，只将 VM A 改为 B；确认两个 Sessions stale 且 runtime drain 已启动；改回 A 后继续拒绝旧 Task control、runtime 连接、observe、restore 旧 observation 与 execute，且没有新动作派发。
+
+本修订只涉及适配器、专项测试和本记录，保留上面的原 checkpoint 验证结果。未改 Guest 协议或 blocked 恢复策略，未 push，也未开始 P3/P4 或真实 Windows/VM/模型实验。A5 `safety FAIL`、Windows `PAUSED`、整体 `INCOMPLETE` 不变。修订仍待 exact-head Re-Review，不自行标为 ACCEPTED。
+
+2026-10-05 修订验证结果：
+
+- `npm run check`：通过。
+- Hyper-V compatibility 专项：22/22，通过，包含新增两条 same-endpoint identity drift 反例。
+- `npm run test:offline`：468 PASS，0 failed / cancelled / skipped。
+- `npm run test:python`：11 个契约文件通过，failed 列表为空。
+- `git diff --check`：通过。修订日志与导出 patch 仍放在 ignored `.artifacts`。
