@@ -1,7 +1,7 @@
 {
   "date": "2026-10-05",
   "scope": "D0-C installed NetEase startup/search/play and limited takeover; explicit opt-in",
-  "status": "AUTOMATED_SUBSET_PASS; HUMAN_PENDING",
+  "status": "ACCEPTED limited NetEase startup/search/play and takeover subset; AUTOMATED_PASS and HUMAN_REPORTED_PASS",
   "d0": "OPEN",
   "environment": {
     "windows": "10.0.26200 x64",
@@ -84,9 +84,9 @@
       "capture_ms": 78.0
     },
     "run_seconds": 36.31,
-    "playback_evidence": "exact result selected; matching title and current pause control; audible output requires human confirmation",
-    "human_audible_output": "NOT_RUN",
-    "human_parallel_input": "NOT_RUN"
+    "playback_evidence": "Exact result selected; matching title and current pause control. Audible output confirmed separately by overall user report.",
+    "human_audible_output": "REPORTED_PASS",
+    "human_parallel_input": "REPORTED_PASS"
   },
   "boundaries": {
     "provider_agent_workflow": "UNCHANGED",
@@ -103,8 +103,8 @@
     "wgc": "NOT_RUN",
     "ime_clipboard_drag_scroll_global_input": "NOT_RUN; not implemented",
     "real_models_vm_original_a5": "NOT_RUN",
-    "netease_budget_expiry": "NOT_RUN; disconnect expiry and prior synthetic budget expiry are separate",
-    "netease_real_viewer_human": "PENDING"
+    "netease_budget_expiry": "PASS in human Viewer run; duration_budget_exhausted with successful cleanup",
+    "netease_real_viewer_human": "REPORTED_PASS limited subset"
   },
   "source_preservation": {
     "protected_files": 624,
@@ -116,5 +116,46 @@
     "private_frames_profile_paths_tokens": "IGNORED_NOT_COMMITTED",
     "new_dependency_or_framework": false,
     "push": "NOT_RUN"
+  },
+  "human_validation": {
+    "date": "2026-10-05",
+    "status": "REPORTED_PASS",
+    "statement": "我验证了，没问题",
+    "scope": "requested D0-C NetEase checklist; overall user confirmation, not itemized observations",
+    "audible_output": "REPORTED_PASS",
+    "desktop_parallel_experience": "REPORTED_PASS",
+    "manual_resume": "NOT_EVIDENCED_BY_RUN_RECORD; separately verified automatically",
+    "run": {
+      "status": "stopped",
+      "input": "PASS",
+      "agent_progress": 4,
+      "agent_total": 4,
+      "human_actions": 3,
+      "stop_reason": "duration_budget_exhausted",
+      "run_seconds": 60.05,
+      "track_matches": true,
+      "playing_at_stop": false,
+      "cleanup": {
+        "status": "PASS",
+        "job_active": 0,
+        "desktop_absent": true
+      },
+      "monitor": {
+        "foreground_events": 4,
+        "cursor_changes": 1286,
+        "samples": 5379,
+        "human_parallel_input": "NOT_RUN",
+        "sampling_limit": "cursor samples cannot attribute movement",
+        "foreground_final_equals_initial": true,
+        "cursor_final_equals_initial": false,
+        "input_desktop": "Default"
+      },
+      "frame": {
+        "width": 1600,
+        "height": 1000,
+        "sequence": 265,
+        "capture_ms": 62.0
+      }
+    }
   }
 }
