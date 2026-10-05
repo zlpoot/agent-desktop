@@ -81,6 +81,9 @@ class Api:
             ("GetUserObjectInformationW", [H, I, V, D, C.POINTER(D)], W.BOOL),
             ("EnumDesktopWindows", [H, ENUMPROC, SPTR], W.BOOL), ("EnumChildWindows", [H, ENUMPROC, SPTR], W.BOOL),
             ("GetWindowThreadProcessId", [H, C.POINTER(D)], D), ("IsWindow", [H], W.BOOL),
+            ("IsWindowVisible", [H], W.BOOL),
+            ("SetThreadDpiAwarenessContext", [H], H),
+            ("SetWindowPos", [H, H, I, I, I, I, W.UINT], W.BOOL),
             ("GetClassNameW", [H, W.LPWSTR, I], I), ("GetWindowRect", [H, C.POINTER(W.RECT)], W.BOOL),
             ("GetClientRect", [H, C.POINTER(W.RECT)], W.BOOL),
             ("ClientToScreen", [H, C.POINTER(W.POINT)], W.BOOL),
@@ -122,6 +125,17 @@ class Api:
         handle = self.checked(self.u.OpenInputDesktop(0, False, 1), "input_desktop")
         try: return self.name(handle)
         finally: self.u.CloseDesktop(handle)
+
+    def capture_dpi(self):
+        self.checked(self.u.SetThreadDpiAwarenessContext(-4), "capture_thread_dpi")
+
+    def size_owned_window(self, hwnd, expected, width, height):
+        self.guard(hwnd, expected)
+        if not (400 <= width <= 2048 and 300 <= height <= 2048):
+            raise Blocked("owned_window_size_budget")
+        self.u.ShowWindow(hwnd, 4)  # Restore/show without activation (SW_SHOWNOACTIVATE).
+        # NOZORDER | NOACTIVATE: only the owned hidden app's geometry changes.
+        self.checked(self.u.SetWindowPos(hwnd, None, 50, 50, width, height, 0x14), "size_owned_window")
 
     def assert_default(self):
         data, size = C.c_void_p(), W.DWORD()
@@ -191,6 +205,14 @@ class Api:
         self.checked(self.k.QueryInformationJobObject(job, 1, accounting, 48, None), "job_accounting")
         return W.DWORD.from_buffer(accounting, 40).value
 
+    def job_pids(self, job):
+        data = C.create_string_buffer(8 + 128 * C.sizeof(UPTR))
+        self.checked(self.k.QueryInformationJobObject(job, 3, data, len(data), None), "job_process_list")
+        count = W.DWORD.from_buffer(data, 4).value
+        if count > 128:
+            raise Blocked("job_process_budget")
+        return list((UPTR * count).from_buffer(data, 8))
+
     def launch(self, argv, desktop, job=None):
         startup, process = STARTUPINFO(), PROCESSINFO()
         startup.cb = C.sizeof(startup)
@@ -246,6 +268,16 @@ class Api:
             if job: self.k.CloseHandle(job)
         return {"alive": True, "pid": pid.value, "desktop": self.name(self.u.GetThreadDesktop(tid)),
                 "session": self.session(pid.value), "in_job": owned}
+
+    def owned_process(self, pid):
+        process = self.k.OpenProcess(0x1000, False, pid)
+        job = self.k.OpenJobObjectW(4, False, getattr(self, "owned_job_name", None))
+        owned = W.BOOL()
+        try:
+            return bool(process and job and self.k.IsProcessInJob(process, job, C.byref(owned)) and owned.value)
+        finally:
+            if process: self.k.CloseHandle(process)
+            if job: self.k.CloseHandle(job)
 
     def guard(self, hwnd, expected):
         check_control = getattr(self, "check_control", None)
@@ -327,13 +359,15 @@ class Api:
                 return hwnd, x, y
         raise Blocked("click_outside_supported_controls")
 
-    def capture(self, hwnd, expected):
+    def capture(self, hwnd, expected, flags=0):
         self.guard(hwnd, expected)
         rect = W.RECT()
         self.checked(self.u.GetWindowRect(hwnd, C.byref(rect)), "window_rect")
         width, height = rect.right - rect.left, rect.bottom - rect.top
         if not (0 < width <= 2048 and 0 < height <= 2048):
-            raise Blocked("invalid_capture_geometry")
+            error = Blocked("invalid_capture_geometry")
+            error.geometry = {"width": width, "height": height}
+            raise error
         dc = self.checked(self.g.CreateCompatibleDC(None), "capture_dc")
         bitmap = previous = None
         try:
@@ -341,7 +375,7 @@ class Api:
             bits = C.c_void_p()
             bitmap = self.checked(self.g.CreateDIBSection(dc, C.byref(info), 0, C.byref(bits), None, 0), "capture_bitmap")
             previous = self.checked(self.g.SelectObject(dc, bitmap), "select_bitmap")
-            self.checked(self.u.PrintWindow(hwnd, dc, 0), "print_window")
+            self.checked(self.u.PrintWindow(hwnd, dc, flags), "print_window")
             bgra = C.string_at(bits, width * height * 4)
             rgb = bytearray(width * height * 3)
             rgb[0::3], rgb[1::3], rgb[2::3] = bgra[2::4], bgra[1::4], bgra[0::4]

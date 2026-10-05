@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-05",
+  "scope": "D0-C installed NetEase startup/search/play and limited takeover; explicit opt-in",
+  "status": "AUTOMATED_SUBSET_PASS; HUMAN_PENDING",
+  "d0": "OPEN",
+  "environment": {
+    "windows": "10.0.26200 x64",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "python": "3.11.5",
+    "powershell": "7.6.5",
+    "chromium": "153.0.8010.12",
+    "netease": "3.1.40.205461",
+    "other_versions": "NOT_VERIFIED"
+  },
+  "offline": {
+    "typecheck": "PASS",
+    "typescript": {
+      "pass": 422,
+      "fail": 0,
+      "skip": 0
+    },
+    "python": {
+      "pass": 79,
+      "fail": 0,
+      "contract_files": 11,
+      "includes_spike": 49
+    },
+    "browser": {
+      "pass": 50,
+      "fail": 0,
+      "skip": 0
+    },
+    "fake_viewer": {
+      "pass": 1,
+      "fail": 0
+    }
+  },
+  "real_app": {
+    "outcome": "AUTOMATED_SUBSET_PASS",
+    "song": "我怀念的",
+    "artist": "孙燕姿",
+    "app_family": "CEF multi-process",
+    "profile": "existing installed application normal user profile; no login performed",
+    "isolation": "owned hidden Desktop and Job; all Job PIDs checked on Default",
+    "agent_input_class": "TARGETED_WINDOW_INPUT",
+    "human_input_class": "SEMANTIC_INPUT_AND_TARGETED_WINDOW_INPUT",
+    "global_input": "PROHIBITED",
+    "agent_progress": 4,
+    "track_matches": true,
+    "playing": true,
+    "takeover": {
+      "status": "PASS",
+      "paused_progress": 1,
+      "human_actions": 5,
+      "edit_and_backspace_verified": true,
+      "old_epoch_rejected": true,
+      "budget_preserved": true,
+      "play_pause_verified": true
+    },
+    "disconnect": {
+      "status": "PASS",
+      "stop_reason": "viewer_disconnected_or_lease_expired"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    },
+    "monitor": {
+      "foreground_events": 0,
+      "cursor_changes": 0,
+      "samples": 3278,
+      "human_parallel_input": "NOT_RUN",
+      "sampling_limit": "cursor samples cannot attribute movement",
+      "foreground_final_equals_initial": true,
+      "cursor_final_equals_initial": true,
+      "input_desktop": "Default"
+    },
+    "frame": {
+      "width": 1600,
+      "height": 1000,
+      "sequence": 141,
+      "capture_ms": 78.0
+    },
+    "run_seconds": 36.31,
+    "playback_evidence": "exact result selected; matching title and current pause control; audible output requires human confirmation",
+    "human_audible_output": "NOT_RUN",
+    "human_parallel_input": "NOT_RUN"
+  },
+  "boundaries": {
+    "provider_agent_workflow": "UNCHANGED",
+    "duration_seconds": 60,
+    "lease_seconds": 3,
+    "frame_max": 2048,
+    "model_budget": "UNCHANGED",
+    "d0_b": "ACCEPTED synthetic subset only",
+    "a5_safety": "FAIL historical",
+    "historical_windows": "PAUSED",
+    "overall": "INCOMPLETE",
+    "notepad": "UNSUPPORTED at packaged-app preflight; not launched",
+    "classic_win32_comparator": "NOT_RUN",
+    "wgc": "NOT_RUN",
+    "ime_clipboard_drag_scroll_global_input": "NOT_RUN; not implemented",
+    "real_models_vm_original_a5": "NOT_RUN",
+    "netease_budget_expiry": "NOT_RUN; disconnect expiry and prior synthetic budget expiry are separate",
+    "netease_real_viewer_human": "PENDING"
+  },
+  "source_preservation": {
+    "protected_files": 624,
+    "changed": 0
+  },
+  "distribution": {
+    "license": "UNDECIDED",
+    "vendor_code_assets_copied": false,
+    "private_frames_profile_paths_tokens": "IGNORED_NOT_COMMITTED",
+    "new_dependency_or_framework": false,
+    "push": "NOT_RUN"
+  }
+}

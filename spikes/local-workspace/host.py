@@ -1,4 +1,4 @@
-"""Standalone D0-A/B controller. --fake never loads Win32 or starts an app."""
+"""Standalone D0 controller. --fake never loads Win32 or starts an app."""
 import argparse
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,10 +37,11 @@ def notepad_preflight():
 
 
 class Controller:
-    def __init__(self, directory, real=False):
+    def __init__(self, directory, real=False, netease=None):
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.real = real
+        self.netease = netease
         self.lock = threading.RLock()
         self.record = {"status": "idle", "mode": "real" if real else "fake"}
         self.api = self.job = self.desktop = self.process = self.monitor = None
@@ -52,8 +53,12 @@ class Controller:
 
     def start(self, app):
         with self.lock:
-            if app not in ("fixture", "notepad"):
+            if app not in ("fixture", "notepad", "netease"):
                 raise Blocked("unsupported_app")
+            if app == "netease" and not self.netease:
+                raise Blocked("netease_explicit_path_required")
+            if app == "netease" and not self.real:
+                raise Blocked("netease_real_opt_in_required")
             if self.record["status"] in ("starting", "ready"):
                 raise Blocked("run_already_active")
             run_id = uuid.uuid4().hex
@@ -78,6 +83,11 @@ class Controller:
                 from win32 import Api
                 from monitor import Monitor
                 notepad = notepad_preflight() if app == "notepad" else None
+                music = None
+                if app == "netease":
+                    from netease import preflight
+                    music = preflight(self.netease)
+                    self.record.update(app_version=music["version"], input_class="SEMANTIC_INPUT", stage="launch")
                 # Package probing can take seconds. The lease starts after preflight.
                 self.started = time.time()
                 self.deadline = time.monotonic() + MAX_DURATION
@@ -95,9 +105,11 @@ class Controller:
                 self.job = self.api.job(name)
                 write_json(self.run_directory / "config.json", {
                     "run_id": run_id, "app": app, "desktop": name, "notepad": notepad,
+                    "netease": music,
                 })
                 self.write_control(False)
-                self.process, _ = self.api.launch([sys.executable, HERE / "worker.py", self.run_directory], name, self.job)
+                worker = "netease_worker.py" if app == "netease" else "worker.py"
+                self.process, _ = self.api.launch([sys.executable, HERE / worker, self.run_directory], name, self.job)
             except Exception as error:
                 self.record.update(status="blocked", reason=str(error), error=type(error).__name__)
                 self.stop("start_failed")
@@ -134,8 +146,8 @@ class Controller:
                 raise Blocked("unsupported_owner")
             self.ready_epoch(run_id, epoch, self.owner)
             already_started = self.snapshot().get("agent_started", False)
-            if self.record["app"] != "fixture":
-                raise Blocked("takeover_fixture_only")
+            if self.record["app"] not in ("fixture", "netease"):
+                raise Blocked("takeover_app_unsupported")
             if owner == self.owner:
                 raise Blocked("owner_already_active")
             self.owner, self.epoch = owner, self.epoch + 1
@@ -155,7 +167,7 @@ class Controller:
         with self.lock:
             self.ready_epoch(run_id, epoch, "human")
             validate_human_event(event)
-            if self.record["app"] != "fixture" or self.human_count >= HUMAN_LIMIT:
+            if self.record["app"] not in ("fixture", "netease") or self.human_count >= HUMAN_LIMIT:
                 raise Blocked("human_input_budget_or_app")
             frame = self.snapshot().get("frame", {})
             if self.real and (frame.get("error") or time.monotonic() - frame.get("heartbeat", 0) > 2):
@@ -182,6 +194,8 @@ class Controller:
     def act(self, run_id, epoch=None):
         with self.lock:
             self.ready_epoch(run_id, self.epoch if epoch is None else epoch, "agent")
+            if self.record["app"] == "netease" and not self.snapshot().get("input_ready"):
+                raise Blocked("music_input_not_ready")
             if time.monotonic() >= self.lease or self.command_sent:
                 raise Blocked("expired_lease_or_script_already_sent")
             self.command_sent = True
@@ -194,6 +208,7 @@ class Controller:
     def snapshot(self):
         with self.lock:
             result = dict(self.record)
+            result["netease_available"] = bool(self.netease)
             if self.real and self.run_directory:
                 worker = read_json(self.run_directory / "worker.json", {})
                 # A late final worker write must not resurrect a stopped run.
@@ -322,7 +337,8 @@ class Controller:
                     frame = state.get("frame", {})
                     if worker.get("owned_pid") and self.api:
                         try:
-                            count = self.api.default_target_count(worker["owned_pid"])
+                            pids = self.api.job_pids(self.job) if self.record["app"] == "netease" else [worker["owned_pid"]]
+                            count = sum(self.api.default_target_count(pid) for pid in pids)
                             self.record["default_target_windows"] = count
                             if count:
                                 self.stop("default_target_window_detected")
@@ -445,10 +461,14 @@ def main():
     mode.add_argument("--real", action="store_true")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--artifacts", type=Path, default=ROOT / ".artifacts" / "local-workspace")
+    parser.add_argument("--netease-path", type=Path, default=os.environ.get("NETEASE_APP_PATH"))
+    parser.add_argument("--song", default="我怀念的")
+    parser.add_argument("--artist", default="孙燕姿")
     args = parser.parse_args()
-    controller = Controller(args.artifacts, real=args.real)
+    music = {"path": str(args.netease_path), "song": args.song, "artist": args.artist} if args.netease_path else None
+    controller = Controller(args.artifacts, real=args.real, netease=music)
     server, token = make_server(controller, args.port)
-    print(f"D0-A/B {'REAL WINDOWS' if args.real else 'FAKE'} Viewer: http://127.0.0.1:{server.server_port}/#{token}", flush=True)
+    print(f"D0 {'REAL WINDOWS' if args.real else 'FAKE'} Viewer: http://127.0.0.1:{server.server_port}/#{token}", flush=True)
     print("No application starts until Run. Each run: 60 seconds maximum, 3 second viewer lease.", flush=True)
     try:
         server.serve_forever(poll_interval=0.1)

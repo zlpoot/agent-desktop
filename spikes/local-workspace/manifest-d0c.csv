@@ -1,0 +1,22 @@
+path,classification,reason,dependencies
+README.md,保留并更新,新增真实应用验证入口及有限结论,Spike README 与验证记录
+docs/development.md,保留并更新,区分离线回归及显式真实应用测试,现有测试入口
+package.json,保留并更新,增加两个显式 opt-in 入口；依赖不变,现有 Python
+spikes/local-workspace/README.md,保留并更新,记录真实 CEF 应用边界、配置和来源,既有 D0-A/B 记录
+spikes/local-workspace/capture.py,保留并更新,接收目标线程 DPI 与捕获 flags；大小/超时门不变,win32、storage
+spikes/local-workspace/host.py,保留并更新,显式配置与同一预算、所有 Job PID 检查,netease、既有 controller
+spikes/local-workspace/win32.py,保留并更新,归属检查、线程 DPI、非激活尺寸设置,Windows 系统 API
+spikes/local-workspace/viewer.html,保留并更新,显式配置后才开放网易云选项,viewer.js
+spikes/local-workspace/viewer.js,保留并更新,真实应用输入准备门与有限接管,既有 nonce/epoch IPC
+spikes/local-workspace/tests/viewer.test.mjs,保留并更新,确认 Fake 禁用真实应用选项,现有 Playwright
+spikes/local-workspace/netease.py,新增保留,签名与单实例预检、精确原唱选择策略,标准库、已安装 PowerShell
+spikes/local-workspace/netease_input.py,新增保留,有限任务及人类控制、效果不明 fail closed,policy、uia、win32
+spikes/local-workspace/netease_worker.py,新增保留,隐藏应用及 CEF 控件 Worker；无模型,既有 Job/Desktop、标准库
+spikes/local-workspace/uia.py,新增保留,拥有进程中的 UIA COM 观察与 ValuePattern,Windows SDK ABI、标准库 ctypes
+spikes/local-workspace/verify-netease.py,新增保留,独立真实启动、搜索、播放、接管、断连验证,显式安装路径、真实网易云与音乐服务
+spikes/local-workspace/tests/test_netease.py,新增保留,合成安全反例；不启动 COM 或真实应用,unittest、Mock
+spikes/local-workspace/netease.env.example,模板,不含默认机器安装路径,NETEASE_APP_PATH；手动配置
+spikes/local-workspace/validation-d0c.md,新增保留,当前实测及失败/未运行边界,本轮脱敏日志摘要
+spikes/local-workspace/validation-d0c-results.json,新增保留,公开可核对摘要；无敏感值,实际私有 probe/result 记录
+spikes/local-workspace/manifest-d0c.csv,新增保留,本轮逐文件去向及依赖,新文件和变更白名单
+.artifacts/d0c-netease*/,私有留存,路径、UIA、账号画面、PNG、IPC、进程标识及调试日志；不提交,根忽略规则

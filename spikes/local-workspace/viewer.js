@@ -18,8 +18,9 @@ function render() {
   const ready = !mutation && state.status === 'ready' && state.control_ready;
   el('mode').textContent = state.mode === 'real' ? '实机模式：仅操作本次隐藏桌面的窗口' : 'FAKE：合成演示，不启动 Windows 应用';
   el('run').disabled = active || mutation;
-  el('act').disabled = el('delayed').disabled = !ready || state.owner !== 'agent' || state.script_started;
-  el('takeover').disabled = !ready || state.owner !== 'agent' || state.app !== 'fixture';
+  el('act').disabled = el('delayed').disabled = !ready || state.owner !== 'agent' || state.script_started || (state.app === 'netease' && !state.input_ready);
+  el('takeover').disabled = !ready || state.owner !== 'agent' || !['fixture', 'netease'].includes(state.app) || (state.app === 'netease' && !state.input_ready);
+  el('music-option').disabled = !state.netease_available || state.mode !== 'real';
   el('resume').disabled = !humanReady();
   el('stop').disabled = !active || mutation;
   el('app').disabled = active || mutation;

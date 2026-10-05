@@ -30,6 +30,7 @@ test('D0-A Fake Viewer: effective frame, fixed script, stale run, private typing
     page.on('request', request => { if (request.method() === 'POST') bodies.push(request.postData()); });
     await page.goto(url);
     await page.waitForFunction(() => document.querySelector('#mode').textContent.includes('FAKE'));
+    assert.equal(await page.locator('#music-option').evaluate(node => node.disabled), true);
     assert.equal(new URL(page.url()).hash, '');
     await page.locator('#run').click();
     await page.waitForFunction(() => !document.querySelector('#act').disabled);

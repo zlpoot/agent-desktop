@@ -14,6 +14,8 @@ def main():
     args = parser.parse_args()
     target = read_json(args.directory / "target.json")
     api = Api()
+    if target.get("dpi_aware"):
+        api.capture_dpi()
     api.join_job_view(target["desktop"])
     def check_control():
         control = read_json(args.directory / "control.json", {})
@@ -27,7 +29,7 @@ def main():
             if control.get("stop", True) or time.monotonic() >= control.get("lease", 0):
                 break
             begin = time.monotonic()
-            image, geometry = api.capture(target["hwnd"], target)
+            image, geometry = api.capture(target["hwnd"], target, target.get("print_flags", 0))
             count += 1
             write_bytes(args.directory / "frame.png", image)
             write_json(args.directory / "frame.json", {
@@ -39,7 +41,8 @@ def main():
     except Exception as error:
         control = read_json(args.directory / "control.json", {})
         if not control.get("stop", True) and time.monotonic() < control.get("lease", 0):
-            write_json(args.directory / "frame.json", {"error": type(error).__name__, "reason": str(error), "time": time.time()})
+            write_json(args.directory / "frame.json", {"error": type(error).__name__, "reason": str(error), "time": time.time(),
+                                                       "source_geometry": getattr(error, "geometry", None)})
 
 
 if __name__ == "__main__":

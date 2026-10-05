@@ -1,4 +1,4 @@
-# D0-A/B：同 Windows 隐藏工作区 Spike
+# D0-A/B/C：同 Windows 隐藏工作区 Spike
 
 独立技术实验，尚未接入 DesktopProvider、Agent Loop、Workflow 或 Guest。只验证隐藏 Desktop 内的合成 Win32 控件、已安装经典 Notepad 的有限能力。现有 WPF TestBench 不是本实验的原生夹具，尚未运行。
 
@@ -74,3 +74,30 @@ PrintWindow 在独立采集进程执行，目标约 5 FPS；旧帧超时会停�
 ## 来源
 
 此目录代码为本轮新编写；ctypes 结构和调用按公开 Win32 ABI 定义，没有复制第三方实现或素材。运行依赖仅为现有 Python、Node、Playwright 及 Windows 系统 API；没有增加项目许可证。API 依据：[CreateDesktopW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-createdesktopw)、[STARTUPINFOW](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfow)、[SetThreadDesktop](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreaddesktop)、[PrintWindow](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-printwindow)、[PostMessageW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-postmessagew)、[Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[Window Stations](https://learn.microsoft.com/en-us/windows/win32/winstation/window-stations)、[SendMessageTimeoutW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendmessagetimeoutw)、[WM_CANCELMODE](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-cancelmode)、[EM_GETSEL](https://learn.microsoft.com/en-us/windows/win32/controls/em-getsel)、[ClientToScreen](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-clienttoscreen)。
+
+## D0-C：安装版网易云真实应用边界
+
+仅按用户授权检索孙燕姿《我怀念的》并尝试正常播放；不登录、购买、下载或改变账号。本次复用已安装应用的普通用户配置，应用可能显示已登录账号、收藏和播放历史。隐藏 Desktop 不是独立账号或文件沙箱，也不能隔离声音。该应用是 CEF 多进程客户端，不是经典 Win32 控件对照。历史 Notepad 结果停在包预检层，不能据此判断其实际激活或控件能力。
+
+先从托盘正常退出当前网易云实例；预检发现已有实例会拒绝启动，避免单实例重定向。只接受显式路径、有效签名和匹配产品名。没有设置路径时，原控制台、Fake 与合成夹具入口仍可运行。模板见 `netease.env.example`，不自动加载。
+
+```powershell
+# 自行填写实际安装路径；不在仓库中保存机器路径
+npm run demo:local-workspace:netease -- --netease-path '<已安装的 cloudmusic.exe 绝对路径>'
+# 单独执行真实应用自动子集，包含接管、合成编辑、退格和恢复
+npm run test:local-workspace:netease:windows -- --path '<已安装的 cloudmusic.exe 绝对路径>'
+```
+
+也可显式配置会话环境变量 `NETEASE_APP_PATH` 后启动 Viewer。默认歌曲和歌手为本次授权值；不同曲目需通过 `--song` / `--artist` 显式指定，不代表其他歌曲已验证。安装过程不下载或复制网易云、CEF、SDK、音乐或图片。
+
+Viewer 选择网易云 → Run → 等待完整画面和固定脚本按钮可用 → 运行固定脚本。脚本输入检索词、打开单曲页，精确选择带原唱标记和匹配歌手的结果。不会点击“播放全部”、收藏、下载、会员或其他歌曲。匹配含糊、登录/付费障碍、非空搜索框、画面或控件失效时停止。脚本有限执行一次，不接模型、不改 Provider，也不采用系统输入回退。
+
+输入分类为 `TARGETED_WINDOW_INPUT`（本次 Job 内唯一 CEF 渲染 HWND 的 WM_CHAR / 鼠标消息）和 `SEMANTIC_INPUT`（接管搜索框的 UIA ValuePattern）。UIA 读取与操作前校验进程属于本次 Job、Session 和原生 HWND 的 Desktop，拒绝密码控件。应用用 accessibility 启动参数暴露控件；ctypes COM ABI 来自 Windows SDK，未增加 comtypes/pywinauto 依赖。Invoke/Legacy 的有限客户端接口保留，但当前脚本和人类点击使用已验证的目标消息；不声称通用 UIA 输入已通过。
+
+当前应用在启动稳定后使用线程 DPI 感知、仅针对归属窗口的非激活尺寸设置（1600×1000）及 PrintWindow(flags=2) 取得完整画面；初始化黑帧不能算成功。最大捕获尺寸仍为 2048，未增加预算或启用 WGC。Host 检查所有 Job PID 在 Default 上的窗口，采集与输入均在隐藏 Worker 内完成。
+
+接管允许搜索框中的合成 ASCII 编辑/退格，以及底部播放/暂停按钮。恢复保留编辑与脚本进度；不重新输入检索词。实际检索词若被人工改成别的内容，脚本仍只允许最初授权歌曲，可能停止。接管时已发操作的效果无法确认则 fail closed，不能为了 ACK 继续未知动作。正常切换只在已确认效果的步骤间进行；这是有限接管能力，不是任意实时应用控制。
+
+自动播放判断要求本轮选择精确搜索结果、匹配歌曲/歌手标题且当前底部按钮语义为 pause。静态 AutomationId 在 play/pause 时都不变，不能单独判定播放。该结果证明应用播放状态；可听声音、试听长度、设备音量与人工并行体验必须由参与者另行确认。每次仍限 60 秒、租约 3 秒、输入队列 16、有效期 2 秒、人类事件 256，不支持 IME/粘贴/快捷键/滚轮/拖拽。
+
+`.artifacts/d0c-netease*/` 保存真实应用帧、UIA 名称、安装路径、临时 IPC 及详细运行记录，全部私有忽略。公共验证仅保留版本、布尔结果、计数及原因，详见 [D0-C 记录](validation-d0c.md)。完整 D0 仍 OPEN；不进入 D1。来源补充：[UIA ElementFromHandle](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-elementfromhandle)、[ValuePattern](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingvalue)、[SetThreadDpiAwarenessContext](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreaddpiawarenesscontext)、[SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)。

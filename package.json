@@ -39,7 +39,9 @@
     "test:local-workspace:browser": "node --test spikes/local-workspace/tests/viewer.test.mjs",
     "test:local-workspace:windows": "python spikes/local-workspace/verify.py --real --faults",
     "test:local-workspace:viewer:windows": "node spikes/local-workspace/verify-viewer.mjs --real",
-    "test:local-workspace:takeover:windows": "node spikes/local-workspace/verify-viewer.mjs --real --takeover"
+    "test:local-workspace:takeover:windows": "node spikes/local-workspace/verify-viewer.mjs --real --takeover",
+    "demo:local-workspace:netease": "python spikes/local-workspace/host.py --real",
+    "test:local-workspace:netease:windows": "python spikes/local-workspace/verify-netease.py --real --takeover"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.17",
