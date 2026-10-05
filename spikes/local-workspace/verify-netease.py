@@ -92,12 +92,15 @@ def main():
                 state = click_node(lambda x: x["auto_id"] == "btn_pc_minibar_play")
                 if not state["playing"]: raise RuntimeError("human_play_not_verified")
                 controller.transfer(state["run_id"], state["epoch"], "agent")
-                state = wait(lambda s: s.get("control_ready") and s["owner"] == "agent", 5)
+                state = wait(lambda s: s.get("control_ready") and s["owner"] == "agent" and
+                             (s.get("resume_observation") or {}).get("epoch") == s["epoch"] and
+                             not s.get("resume_observation_pending"), 5)
                 report["takeover"].update(play_pause_verified=True, human_actions=state["human_actions"])
         report.update(outcome="AUTOMATED_SUBSET_PASS" if state.get("input")=="PASS" and state["status"]=="ready" else "BLOCKED",
                       stage=state.get("stage"), reason=state.get("reason"), uia_elements=state.get("uia_elements"),
                       frame=state.get("frame"), app_version=state.get("app_version"), stop_reason=state.get("stop_reason"),
-                      input=state.get("input"),agent_progress=state.get("agent_progress"),track_matches=state.get("track_matches"),playing=state.get("playing"))
+                      input=state.get("input"),agent_progress=state.get("agent_progress"),track_matches=state.get("track_matches"),playing=state.get("playing"),
+                      resume_observation=state.get("resume_observation"),control_history=state.get("control_history"))
         report["playback_evidence"] = "exact result selected; matching title and current pause control; audible output requires human confirmation"
         if args.disconnect and report["outcome"] == "AUTOMATED_SUBSET_PASS":
             controller.transfer(state["run_id"], state["epoch"], "human")

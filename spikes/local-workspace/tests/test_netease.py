@@ -21,6 +21,7 @@ class MusicTests(unittest.TestCase):
     def setUp(self):
         self.api, self.uia = Mock(), Mock()
         self.api.text.return_value = "synthetic"
+        self.uia.observe.return_value = []
         self.control = {"owner": "agent", "epoch": 1}
         self.inputs = MusicInputs(self.api, self.uia, 1, {}, {"song": SONG, "artist": ARTIST, "query": ARTIST + " " + SONG},
                                   lambda: self.control, "r", Mock())
@@ -86,6 +87,35 @@ class MusicTests(unittest.TestCase):
         self.inputs.acknowledge(self.control)
         self.assertEqual(self.inputs.progress, 2)
         self.assertTrue(self.inputs.started)
+
+    def test_completed_script_resume_reobserves_exact_track_without_replaying_input(self):
+        self.inputs.started = self.inputs.done = True
+        self.inputs.progress = 4
+        self.control = {"owner": "human", "epoch": 2}
+        self.inputs.acknowledge(self.control)
+        self.api.text.return_value = SONG + " " + ARTIST
+        self.uia.observe.return_value = [{"auto_id": "btn_pc_minibar_play", "name": "pause", "offscreen": False}]
+        self.control = {"owner": "agent", "epoch": 3}
+        self.inputs.acknowledge(self.control)
+        self.inputs.step()
+        proof = self.inputs.view()["resume_observation"]
+        self.assertEqual(proof["epoch"], 3)
+        self.assertTrue(proof["track_matches"] and proof["playing"] and proof["task_completed"])
+        self.assertEqual([x["owner"] for x in self.inputs.control_history], ["agent", "human", "agent"])
+        self.api.type_text.assert_not_called()
+        self.api.send.assert_not_called()
+        self.uia.set_value.assert_not_called()
+
+    def test_resume_evidence_does_not_turn_a_changed_track_into_match_or_emit_input(self):
+        self.control = {"owner": "human", "epoch": 2}
+        self.inputs.acknowledge(self.control)
+        self.api.text.return_value = "other synthetic song"
+        self.control = {"owner": "agent", "epoch": 3}
+        self.inputs.acknowledge(self.control)
+        self.inputs.step()
+        self.assertFalse(self.inputs.resume_observation["track_matches"])
+        self.api.type_text.assert_not_called()
+        self.api.send.assert_not_called()
 
     def test_nonempty_search_is_never_overwritten(self):
         self.uia.value.return_value = "existing"

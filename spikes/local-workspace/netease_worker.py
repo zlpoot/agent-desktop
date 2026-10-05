@@ -89,7 +89,10 @@ def main():
         while True:
             check_control(); api.guard(target, expected)
             control=read_json(directory/"control.json",{})
+            previous = (inputs.owner, inputs.epoch)
             inputs.acknowledge(control)
+            if previous != (inputs.owner, inputs.epoch):
+                state.update(inputs.view()); publish()
             for path in sorted((directory/"commands").glob("*.json"))[:1]:
                 command=read_json(path,{})
                 path.unlink(missing_ok=True)

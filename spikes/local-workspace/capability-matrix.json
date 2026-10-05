@@ -1,0 +1,218 @@
+{
+  "date": "2026-10-05",
+  "scope": "D0 limited same-OS hidden Local Workspace; evidence report, not a Provider interface",
+  "decision": "OPEN_PENDING_D0D",
+  "full_virtual_desktop": "NOT_PROVEN",
+  "gates": {
+    "D1_real_viewer_same_run_resume": "PENDING",
+    "D2_deliberate_default_interference": "PENDING",
+    "D3_capability_matrix": "READY",
+    "D4_final_review": "PENDING"
+  },
+  "capabilities": [
+    {
+      "category": "Workspace",
+      "capability": "SAME_OS",
+      "result": "PASS",
+      "evidence": "D0-A/B/C",
+      "boundary": "同一交互 Session；仅当前 Windows 版本"
+    },
+    {
+      "category": "Workspace",
+      "capability": "HIDDEN_DESKTOP",
+      "result": "PASS",
+      "evidence": "D0-A/B/C",
+      "boundary": "唯一 Desktop 与 Job；不是独立 OS/账号/文件沙箱"
+    },
+    {
+      "category": "Workspace",
+      "capability": "LOCAL_INSTALLED_APP",
+      "result": "PASS",
+      "evidence": "D0-C",
+      "boundary": "仅网易云 3.1.40.205461，正常用户配置"
+    },
+    {
+      "category": "Observation",
+      "capability": "GDI_CAPTURE",
+      "result": "PASS",
+      "evidence": "D0-C",
+      "boundary": "PrintWindow；固定归属窗口、有限尺寸和新鲜度"
+    },
+    {
+      "category": "Observation",
+      "capability": "UIA_OBSERVATION",
+      "result": "PASS",
+      "evidence": "D0-C",
+      "boundary": "仅暴露且属于本次 Job 的控件"
+    },
+    {
+      "category": "Observation",
+      "capability": "VIEWER",
+      "result": "PASS",
+      "evidence": "D0-B/C",
+      "boundary": "localhost；Fake 自动回归与真实参与者"
+    },
+    {
+      "category": "Input",
+      "capability": "TARGETED_WINDOW_INPUT",
+      "result": "PASS",
+      "evidence": "D0-B/C",
+      "boundary": "归属 HWND 消息；有限文本、结果行与允许控件坐标"
+    },
+    {
+      "category": "Input",
+      "capability": "SEMANTIC_INPUT",
+      "result": "PASS",
+      "evidence": "D0-C 自动用例",
+      "boundary": "ValuePattern；仅有限搜索框编辑，不是任意 UIA 输入"
+    },
+    {
+      "category": "Input",
+      "capability": "RAW_ISOLATED_INPUT",
+      "result": "NOT_PROVEN",
+      "evidence": "未实现/未运行",
+      "boundary": "任意像素、按键组合、Canvas/DirectX 等不在本轮"
+    },
+    {
+      "category": "Input",
+      "capability": "GLOBAL_INPUT",
+      "result": "FORBIDDEN",
+      "evidence": "既有静态反例与运行边界",
+      "boundary": "本 Spike 禁用系统输入；不扩大到其他 Provider 的声明"
+    },
+    {
+      "category": "Ownership",
+      "capability": "AGENT_TO_HUMAN",
+      "result": "PASS",
+      "evidence": "D0-B/C",
+      "boundary": "有限控件与同步效果确认；未知效果 fail closed"
+    },
+    {
+      "category": "Ownership",
+      "capability": "HUMAN_TO_AGENT",
+      "result": "PASS",
+      "evidence": "D0-B 人工 / D0-C 自动",
+      "boundary": "网易云同一次人工完整闭环仍待 D0-D Gate D1"
+    },
+    {
+      "category": "Ownership",
+      "capability": "EPOCH_REJECTION",
+      "result": "PASS",
+      "evidence": "D0-B/C 自动与离线",
+      "boundary": "旧代次拒绝；不延长运行预算"
+    },
+    {
+      "category": "Ownership",
+      "capability": "LEASE_TIMEOUT",
+      "result": "PASS",
+      "evidence": "D0-B/C",
+      "boundary": "3 秒租约；人类模式断连清理"
+    },
+    {
+      "category": "Ownership",
+      "capability": "DURATION_BUDGET",
+      "result": "PASS",
+      "evidence": "D0-B/C 人工",
+      "boundary": "60 秒；NetEase 实际预算到期和清理已记录"
+    },
+    {
+      "category": "Ownership",
+      "capability": "OWNED_JOB_CLEANUP",
+      "result": "PASS",
+      "evidence": "D0-B/C",
+      "boundary": "本次 Job 归零、Desktop 消失；不结束外部实例"
+    },
+    {
+      "category": "Isolation",
+      "capability": "DEFAULT_DESKTOP_FALLBACK",
+      "result": "FORBIDDEN",
+      "evidence": "Spike 边界",
+      "boundary": "归属/控制失败时停止"
+    },
+    {
+      "category": "Isolation",
+      "capability": "SWITCH_DESKTOP",
+      "result": "FORBIDDEN",
+      "evidence": "Spike 源码与静态检查",
+      "boundary": "不申请切换权限；无切换调用"
+    },
+    {
+      "category": "Isolation",
+      "capability": "SYSTEM_SENDINPUT",
+      "result": "FORBIDDEN",
+      "evidence": "Spike 源码与静态检查",
+      "boundary": "无系统键鼠、光标定位或前台激活回退"
+    },
+    {
+      "category": "Isolation",
+      "capability": "DEFAULT_PARALLEL_USE",
+      "result": "PENDING",
+      "evidence": "D0-C 总体报告 / D0-D Gate D2",
+      "boundary": "故意持续输入、切窗口、移动鼠标的专项仍待报告"
+    },
+    {
+      "category": "Isolation",
+      "capability": "SEPARATE_USER_PROFILE_FILES_NETWORK_AUDIO",
+      "result": "NOT_PROVEN",
+      "evidence": "同一用户/窗口站边界",
+      "boundary": "现有配置、文件、网络、剪贴板和声音不独立"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "SYNTHETIC_WIN32",
+      "result": "PASS",
+      "evidence": "D0-A/B",
+      "boundary": "原生合成 EDIT/BUTTON；不能替代真实应用兼容性"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "NETEASE_CEF",
+      "result": "PASS",
+      "evidence": "D0-C",
+      "boundary": "指定版本/歌曲及有限接管"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "PACKAGED_NOTEPAD",
+      "result": "UNSUPPORTED",
+      "evidence": "D0-A 包预检",
+      "boundary": "没有实际激活；兼容性案例，不阻塞有限能力收口"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "CHROME",
+      "result": "NOT_RUN",
+      "evidence": "未运行",
+      "boundary": "不增加应用范围"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "OFFICE",
+      "result": "NOT_RUN",
+      "evidence": "未运行",
+      "boundary": "不增加应用范围"
+    },
+    {
+      "category": "Compatibility",
+      "capability": "WPF_WINUI_OTHER_APPS",
+      "result": "NOT_RUN",
+      "evidence": "未运行",
+      "boundary": "不推断通用桌面兼容性"
+    },
+    {
+      "category": "Observation",
+      "capability": "WGC",
+      "result": "NOT_RUN",
+      "evidence": "未实现/未运行",
+      "boundary": "不以新增捕获系统阻塞收口"
+    }
+  ],
+  "historical": {
+    "d0_b": "ACCEPTED synthetic subset",
+    "d0_c": "ACCEPTED limited NetEase subset",
+    "a5_safety": "FAIL",
+    "windows": "PAUSED",
+    "overall": "INCOMPLETE"
+  },
+  "future": "P0 LocalWorkspaceProvider design is a separate next step; no interface implemented"
+}

@@ -18,6 +18,9 @@ class MusicInputs:
         self.next_step = 0
         self.playing = self.track_matches = False
         self.pending_effect = False
+        self.control_history = []
+        self.resume_observation = None
+        self.resume_observation_pending = False
         api.check_input = self.check_input
 
     def check_input(self): validate_epoch(self.owner, self.epoch, self.read_control())
@@ -27,8 +30,14 @@ class MusicInputs:
             if self.pending_effect: raise Blocked("music_input_effect_unknown_fail_closed")
             # Commands are serialized; cancel held target-window state before ACK.
             self.api.cancel_owned_input(self.target, self.expected)
+            previous_owner = self.owner
             self.owner, self.epoch = control["owner"], control["epoch"]
             self.selected = False
+            if previous_owner == "human" and self.owner == "agent":
+                self.resume_observation_pending = True
+            self.control_history = (self.control_history + [{"from": previous_owner, "owner": self.owner,
+                                    "epoch": self.epoch, "agent_progress": self.progress,
+                                    "human_actions": self.human_actions, "acknowledged_at": time.monotonic()}])[-16:]
 
     def observe(self):
         self.rows = self.uia.observe(self.publish, ROLES)
@@ -148,6 +157,14 @@ class MusicInputs:
                 raise Blocked("music_input_effect_unknown_fail_closed") from error
 
     def step(self):
+        if self.owner == "agent" and self.resume_observation_pending:
+            # Evidence follows the ordinary ACK; it cannot delay handoff or
+            # authorize new input. Reuse the existing read-only observation.
+            self.observe(); self.check_input()
+            self.resume_observation = {"epoch": self.epoch, "observed_at": time.monotonic(),
+                                       "track_matches": self.track_matches, "playing": self.playing,
+                                       "agent_progress": self.progress, "task_completed": self.done}
+            self.resume_observation_pending = False
         if not self.started or self.done or self.owner != "agent" or time.monotonic() < self.next_step: return
         self.observe(); self.check_input()
         if self.progress == 0:
@@ -186,4 +203,6 @@ class MusicInputs:
                 "last_command":self.last,"input":"PASS" if self.done else "RUNNING" if self.started else "NOT_RUN",
                 "track_matches":self.track_matches,"playing":self.playing,"stage":"done" if self.done else "music_ready",
                 "input_ready":True,"input_class":"SEMANTIC_INPUT_AND_TARGETED_WINDOW_INPUT",
-                "agent_input_class":"TARGETED_WINDOW_INPUT"}
+                "agent_input_class":"TARGETED_WINDOW_INPUT", "control_history":self.control_history,
+                "resume_observation":self.resume_observation,
+                "resume_observation_pending":self.resume_observation_pending}

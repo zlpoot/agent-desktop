@@ -6,6 +6,7 @@
 <div class="controls"><label>应用 <select id="app"><option value="fixture">合成 Win32 夹具</option><option value="notepad">已安装的经典 Notepad</option><option value="netease" id="music-option" disabled>网易云音乐（需显式配置）</option></select></label>
 <button id="run">Run</button><button id="act" disabled>运行固定脚本</button><button id="delayed" disabled>5 秒后运行脚本</button><button id="takeover" disabled>接管 Take Control</button><button id="resume" disabled>恢复 Resume</button><button id="stop" disabled>Stop</button></div>
 <p id="owner">尚未运行</p>
+<p id="resume-evidence" role="status"></p>
 <p>等待“人类控制”后，点击画面内文本框，再输入合成 ASCII 文字或 Backspace。合成夹具可点击按钮；网易云仅开放搜索框和底部播放／暂停按钮。输入会出现在私有截图中。恢复后固定脚本从原进度继续。每次最多 256 个事件，不支持中文输入法、粘贴、拖动、滚轮或快捷键。</p>
 <p id="notice" role="status"></p><img id="frame" alt="隐藏桌面的目标窗口画面" tabindex="0" draggable="false" hidden>
 <details><summary>状态与验证结果</summary><pre id="status"></pre></details>

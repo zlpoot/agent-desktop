@@ -26,6 +26,8 @@ function render() {
   el('app').disabled = active || mutation;
   el('owner').textContent = !active ? '尚未运行 / 已停止' : !state.control_ready ? '切换中：等待旧动作结束，输入禁用' :
     state.owner === 'human' ? `人类控制 · 剩余 ${state.human_remaining} 个事件` : `Agent 控制 · 进度 ${state.agent_progress ?? 0}/${state.agent_total ?? 26}`;
+  const observation = state.resume_observation;
+  el('resume-evidence').textContent = state.resume_observation_pending ? 'Resume 已确认，正在只读重新观察…' : observation ? `Resume 后重新观察 · 代次 ${observation.epoch} · ${observation.track_matches ? '指定歌曲匹配' : '指定歌曲不匹配'} · ${observation.playing ? '播放中' : '已暂停'} · 进度 ${observation.agent_progress}/4` : '';
   el('frame').setAttribute('aria-disabled', String(!humanReady()));
   el('status').textContent = JSON.stringify(state, null, 2);
   if (!active) { el('frame').hidden = true; frame = undefined; pending = []; clearTimeout(delayed); }
