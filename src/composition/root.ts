@@ -16,6 +16,9 @@ import { createDomainEvaluator } from "../verification/domain-evaluator.js";
 import type { DesktopProvider } from "../contracts/desktop-provider.js";
 import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
 import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
+import { PhysicalDesktopProvider, type PhysicalBackendFactory } from "../desktop-provider/physical-provider.js";
+import { ResourceInputControl } from "../desktop-provider/resource-input-control.js";
+import type { PhysicalInputPolicy } from "../runtime/desktop/desktop-runtime.js";
 import type { ModelProvider } from "../contracts/model-provider.js";
 import type { TraceStore, WorkflowStore as WorkflowStoreContract } from "../contracts/stores.js";
 import type { WorkerClientFactory } from "../contracts/worker-client.js";
@@ -50,6 +53,8 @@ export interface RootAssemblyOptions {
   extensionRegistry?: ExtensionRegistry;
   desktop?: DesktopProvider;
   vmControl?: VmControl;
+  physicalBackendFactory?: PhysicalBackendFactory;
+  physicalInputPolicy?: PhysicalInputPolicy;
   /** 装配完成后追加的插件（测试注入用）；任一失败即回收整个 Root。 */
   extraPlugins?: Plugin[];
 }
@@ -104,6 +109,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const workerClientFactory = options.workerClientFactory ?? GuestDesktopRuntime.connect;
         const desktop = options.desktop ?? new DesktopSessionManager(rootDir, process.env.AGENT_DESKTOP_TOKEN ?? "");
         const hyperVCompatibility = new HyperVDesktopProvider(desktop, process.env.AGENT_DESKTOP_TOKEN ?? "");
+        const physicalCompatibility = new PhysicalDesktopProvider(new ResourceInputControl(),
+          options.physicalBackendFactory, options.physicalInputPolicy, options.physicalBackendFactory ? true : undefined);
         const vmControl = options.vmControl
           ?? (process.env.AGENT_DESKTOP_VM_ID ? new HyperVVmControl(process.env.AGENT_DESKTOP_VM_ID) : undefined);
         ctx.provide("extensionRegistry", extensionRegistry);
@@ -113,7 +120,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         ctx.provide("workerClientFactory", workerClientFactory);
         ctx.provide("desktopProvider", desktop);
         ctx.provide("hyperVCompatibility", hyperVCompatibility);
-        ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility]));
+        ctx.provide("physicalCompatibility", physicalCompatibility);
+        ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility, physicalCompatibility]));
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
@@ -128,13 +136,16 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
             try { await extensionRegistry.clear(); }
             finally {
               try { await hyperVCompatibility.close(); }
-              finally { await desktop.close(); }
+              finally {
+                try { await physicalCompatibility.close(); }
+                finally { await desktop.close(); }
+              }
             }
           }
         };
       },
     }, 'Root', ['extensionRegistry', 'modelProvider', 'traceStore', 'workflowStore',
-      'workerClientFactory', 'desktopProvider', 'desktopEnvironmentProviders', 'hyperVCompatibility',
+      'workerClientFactory', 'desktopProvider', 'desktopEnvironmentProviders', 'hyperVCompatibility', 'physicalCompatibility',
       ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
       name: "taskController",
