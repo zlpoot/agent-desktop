@@ -18,6 +18,7 @@
 | 本地批准恢复示例 | PASS，start=waiting_user，显式 approve 后 resume=done |
 | 规则数据集评测 | 104 evaluated，103 标签匹配，1 false pass，18 not_run，modelCalls=0；脚本退出 0，不宣称标签全部通过 |
 | 原始证据评测 | 10 evaluated，8 标签匹配，2 unknown 与标签不一致，0 false pass，modelCalls=0；脚本退出 0 |
+| 规则测量 benchmark | 38 个合成用例 × 20 次，共 760 标签匹配 / 0 false pass / 0 false fail / 0 modelCalls；不是独立新增的 760 项回归 |
 | 提交前内容/来源审查 | 2 张合成 PNG 已按实际像素与 CRC 审核；118 项依赖锁条目未改，624 个原跟踪文件内容指纹未改；无旧源码绝对路径、内网默认地址、原密钥值或未经审核二进制 |
 
 TypeScript 文件工具测试在当前权限下不能创建符号链接，**链接分支跳过**（diagnostic）；测试整体仍通过。它不等于验证了 Windows 链接分支。
@@ -30,6 +31,21 @@ TypeScript 文件工具测试在当前权限下不能创建符号链接，**链�
 
 ## 全新检出复验
 
-首次本地提交完成后，从该新仓库检出到独立空目录，重新建立 venv、下载 Node 依赖及匹配 Chromium，然后按 README 校验类型、两组 TypeScript、Python、示例及控制台。此节将在实际复验后补充结果；不会使用原数据库、配置或缓存。
+首次本地提交 `131dafc` 建立了独立根历史。从它以 `git clone --no-local` 检出到独立空目录，按 README 重新建立 venv（`include-system-site-packages=false`）、安装 psutil 5.9.0、运行 npm ci 并重新下载 Chromium。没有复用原目录或候选工作树的 node_modules、配置、数据库、npm/浏览器缓存。
 
-首个干净 venv 的 Python 回归失败：D1 Worker 传输测试隐含 `PIL` 导入，本机已有 Pillow 掩盖了依赖。已用标准库生成同尺寸 PNG，未安装 Pillow或新增依赖，保留原契约断言；修复将单独提交并在独立检出目录复验。
+首个干净 venv 的 Python 回归失败：D1 Worker 传输测试隐含 `PIL` 导入，本机已有 Pillow 掩盖了依赖。已用标准库生成同尺寸 PNG，未安装 Pillow 或新增依赖，保留原契约断言。修复提交 `ff2b9b6` 已在独立检出目录快进；依赖锁未改，继续使用该检出自行下载安装的依赖。
+
+| 独立检出检查 | 最终实际结果 |
+|---|---|
+| 新 npm 安装 / Chromium 下载 / Python venv 安装 | 全部退出 0，Node 24.21.0、Python 3.11.5、psutil 5.9.0 |
+| noEmit 类型校验 | PASS，退出 0 |
+| TypeScript 离线 | 422 PASS / 0 FAIL / 0 skipped，236.263 秒 |
+| 本地浏览器 | 50 PASS / 0 FAIL / 0 skipped，121.066 秒 |
+| Python Worker 契约（修复后） | 30 PASS / 0 FAIL，10 文件，退出 0 |
+| FakeModel/FakeRuntime 示例 | PASS，status=done，退出 0 |
+| localhost 浏览器示例 | PASS，status=done，退出 0 |
+| 无模型/Guest 配置控制台 | PASS，四个本地只读路由可用，退出 0 |
+
+符号链接分支在独立检出中仍因 Windows 权限跳过。现场实验仍全部 NOT RUN。原目录的两份已改配置、三份未跟踪日志及既有私有现场保持原样；未删除、封存或推送，未修改可见性，未添加项目许可证。
+
+机器可读结果在 `validation-results.json`，含各组数量和私有运行日志指纹。日志、下载缓存、生成数据库与独立检出目录留在本机，不作为公开候选内容提交。最终文档提交仅记录复验与来源审查，不改变已测试代码。

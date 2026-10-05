@@ -1,0 +1,118 @@
+{
+  "validatedAt": "2026-10-05T10:09:49.295307+08:00",
+  "timezone": "Asia/Shanghai",
+  "firstCommit": "131dafc",
+  "testedCodeCommit": "ff2b9b6251f80aa2ec877f1350c3152d76512b7f",
+  "environment": {
+    "os": "Windows 10.0.26200 x64",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "python": "3.11.5",
+    "psutil": "5.9.0",
+    "playwrightChromiumBuild": 1243,
+    "otherVersionsValidated": false
+  },
+  "freshCheckout": {
+    "initiallyEmpty": true,
+    "cloneMode": "--no-local",
+    "newVenv": true,
+    "systemSitePackages": false,
+    "freshNpmCache": true,
+    "freshBrowserDownload": true,
+    "sourceOrCandidateCachesReused": false,
+    "oldConfigsOrDatabasesReused": false
+  },
+  "typecheck": {
+    "status": "PASS",
+    "exitCode": 0,
+    "mode": "noEmit"
+  },
+  "typescriptOffline": {
+    "tests": 422,
+    "pass": 422,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "localBrowser": {
+    "tests": 50,
+    "pass": 50,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "pythonContracts": {
+    "tests": 30,
+    "files": 10,
+    "pass": 30,
+    "fail": 0,
+    "exitCode": 0
+  },
+  "controlledExamples": {
+    "fakeModelAndRuntime": "done",
+    "localBrowser": "done",
+    "dashboardWithoutModelOrGuestConfig": "PASS",
+    "candidateApprovalStart": "waiting_user",
+    "candidateApprovalResume": "done"
+  },
+  "skippedBranches": [
+    {
+      "name": "Windows file-tool symlink rejection",
+      "reason": "EPERM creating synthetic symlink; diagnostic branch skip in both runs"
+    }
+  ],
+  "notRun": [
+    "real model calls",
+    "third-party websites",
+    "VM lifecycle",
+    "physical desktop input",
+    "full desktop Python dependency installation"
+  ],
+  "evaluation": {
+    "rules": {
+      "evaluated": 104,
+      "correct": 103,
+      "falsePass": 1,
+      "notRun": 18,
+      "modelCalls": 0,
+      "mismatch": "challenge/contract-omits-path"
+    },
+    "raw": {
+      "evaluated": 10,
+      "correct": 8,
+      "falsePass": 0,
+      "modelCalls": 0,
+      "unknownMismatches": [
+        "uia-duplicate-label",
+        "desktop-context-frame"
+      ]
+    },
+    "benchmark": {
+      "syntheticCases": 38,
+      "repetitions": 20,
+      "correct": 760,
+      "modelCalls": 0
+    }
+  },
+  "retainedFailure": "A5 safety FAIL; Windows paused; overall incomplete",
+  "initialCleanPythonFailure": {
+    "file": "tests/guest-worker.test.py",
+    "reason": "implicit Pillow fixture dependency",
+    "resolution": "stdlib synthetic 2x2 PNG; no new dependency"
+  },
+  "logHashes": {
+    "browser-install.log": "94dfbe3466c4fca2ae1f599477146bfa7cbb314b30ab4ecbb56e11c8349e294c",
+    "browser.log": "909917e2e4f7df751bc0537ee37b9386b3299996e64ee3482b4be3e2f923f459",
+    "dashboard.log": "a4e6811e7b646573dd6358c1167b69e1fe654e3a8ef7412508d6398963e19673",
+    "demo-browser.log": "dfa633395dc3f874eaac62f96a70b26ebcf0706a84404228ad5064c5527b922c",
+    "demo-offline.log": "2499cd12f84d44e1be2ef33fb7fce9e2973aad96af577a6ff2210a2a00a67968",
+    "npm-ci.log": "f74e8616e48cc4073433ff77a5f3dc0a8fd44bd3872d8d4584c93112249ca8d1",
+    "offline.log": "87d403b21b27c49c46c2ca015bfb9402ba392352847d1f4cbb6a29bfeabb4e1b",
+    "python-final.log": "be238457b816ea5a4e0a452d9dcf1cb2fea09cc40481c6d6e840326b2f209c20",
+    "python.log": "3f09efcc30346d840fe6ddddd719a7fec4e37e1f38dce5774628b1b883c05ee4",
+    "typecheck-final.log": "b9c7c98c403f6561726c025c0aa315f7c77c5f5f118e8e6ff7daf7779d61ca6d",
+    "typecheck.log": "b9c7c98c403f6561726c025c0aa315f7c77c5f5f118e8e6ff7daf7779d61ca6d"
+  }
+}
