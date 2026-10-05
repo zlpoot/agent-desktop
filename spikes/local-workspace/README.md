@@ -1,6 +1,6 @@
-# D0-A/B/C：同 Windows 隐藏工作区 Spike
+# D0-A/B/C/D：同 Windows 隐藏工作区 Spike
 
-独立技术实验，尚未接入 DesktopProvider、Agent Loop、Workflow 或 Guest。只验证隐藏 Desktop 内的合成 Win32 控件、已安装经典 Notepad 的有限能力。现有 WPF TestBench 不是本实验的原生夹具，尚未运行。
+独立技术实验，尚未接入 DesktopProvider、Agent Loop、Workflow 或 Guest。已验证隐藏 Desktop 内的合成 Win32 控件和指定版本网易云的有限能力；Notepad 入口保留为兼容性探测。现有 WPF TestBench 不是本实验的原生夹具，尚未运行。
 
 目前合成 Win32 夹具的自动子集通过，人工并行输入也已由参与者报告通过；完整 D0-A 尚未通过。当前机器安装打包版 Notepad 11.2607.14.0，本入口将其标记为 `UNSUPPORTED`，没有启动该应用。打包版的无会话恢复启动、Broker 重定向与现代控件操作尚未实现，不能把这个结果解释为 Windows 上永久不可行。人工报告只覆盖本次合成夹具，自动测试不代替人工结果。详见 [本次验证](validation.md)。
 
@@ -77,9 +77,9 @@ PrintWindow 在独立采集进程执行，目标约 5 FPS；旧帧超时会停�
 
 ## D0-C：安装版网易云真实应用边界
 
-当前 D0-C 已接受，仅限本次网易云启动、孙燕姿《我怀念的》检索/播放及有限接管子集。自动用例通过，人工参与者也报告“我验证了，没问题”；人工运行验证了 60 秒预算停机与清理。人工日志未记录 Resume，恢复和搜索框合成编辑的证据来自自动用例。完整 D0 仍 OPEN，详见 [验证记录](validation-d0c.md)。
+当前 D0-C 已接受，仅限本次网易云启动、孙燕姿《我怀念的》检索/播放及有限接管子集。自动用例通过，人工参与者也报告“我验证了，没问题”；人工运行验证了 60 秒预算停机与清理。人工日志未记录 Resume，恢复和搜索框合成编辑的证据来自自动用例。D0-C 当时保留完整 D0 为 OPEN，历史记录见 [验证记录](validation-d0c.md)；当前收口结论见下方 D0-D。
 
-D0-D 按后续授权只收口同一次真实人工 Resume 和刻意 Default 并行干扰，不再增加应用或输入能力。当前两道人工 Gate 待运行；原控制权 ACK 与其后的 Resume 重新观察分别记录，固定任务已完成时只读核验、不重放输入，60 秒预算不变。见 [收口记录](validation-d0d.md) 和 [Capability Matrix](capability-matrix.md)。
+D0-D 按后续授权只收口同一次真实人工 Resume 和刻意 Default 并行干扰，不再增加应用或输入能力。本次同一运行记录 Agent 1→Human 2→Agent 3，Resume 后重新观察指定歌曲匹配且播放中；参与者对专项并行干扰和接管报告“我确认了，没问题”。D0 以 `CLOSED_CAPABILITY_SCOPED` 接受。原控制权 ACK 与其后的重新观察分别记录，固定任务已完成时只读核验、不重放输入，60 秒预算不变。RAW 输入和任意应用未证，Notepad 仍为兼容性案例。见 [收口记录](validation-d0d.md) 和 [Capability Matrix](capability-matrix.md)。
 
 仅按用户授权检索孙燕姿《我怀念的》并尝试正常播放；不登录、购买、下载或改变账号。本次复用已安装应用的普通用户配置，应用可能显示已登录账号、收藏和播放历史。隐藏 Desktop 不是独立账号或文件沙箱，也不能隔离声音。该应用是 CEF 多进程客户端，不是经典 Win32 控件对照。历史 Notepad 结果停在包预检层，不能据此判断其实际激活或控件能力。
 
@@ -104,4 +104,4 @@ Viewer 选择网易云 → Run → 等待完整画面和固定脚本按钮可用
 
 自动播放判断要求本轮选择精确搜索结果、匹配歌曲/歌手标题且当前底部按钮语义为 pause。静态 AutomationId 在 play/pause 时都不变，不能单独判定播放。该结果证明应用播放状态；可听声音、试听长度、设备音量与人工并行体验必须由参与者另行确认。每次仍限 60 秒、租约 3 秒、输入队列 16、有效期 2 秒、人类事件 256，不支持 IME/粘贴/快捷键/滚轮/拖拽。
 
-`.artifacts/d0c-netease*/` 保存真实应用帧、UIA 名称、安装路径、临时 IPC 及详细运行记录，全部私有忽略。公共验证仅保留版本、布尔结果、计数及原因，详见 [D0-C 记录](validation-d0c.md)。完整 D0 仍 OPEN；不进入 D1。来源补充：[UIA ElementFromHandle](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-elementfromhandle)、[ValuePattern](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingvalue)、[SetThreadDpiAwarenessContext](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreaddpiawarenesscontext)、[SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)。
+`.artifacts/d0c-netease*/` 与 `.artifacts/d0d-closure*/` 保存真实应用帧、UIA 名称、安装路径、临时 IPC 及详细运行记录，全部私有忽略。公共验证仅保留版本、布尔结果、计数及原因，详见 [D0-C 记录](validation-d0c.md)。D0 已按上述有限能力范围收口，尚未实现 Provider 或继续其他应用测试；P0 LocalWorkspaceProvider Design 是独立下一步。来源补充：[UIA ElementFromHandle](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation-elementfromhandle)、[ValuePattern](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-implementingvalue)、[SetThreadDpiAwarenessContext](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreaddpiawarenesscontext)、[SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos)。

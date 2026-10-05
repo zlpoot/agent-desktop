@@ -1,13 +1,13 @@
 {
   "date": "2026-10-05",
   "scope": "D0 limited same-OS hidden Local Workspace; evidence report, not a Provider interface",
-  "decision": "OPEN_PENDING_D0D",
+  "decision": "CLOSED_CAPABILITY_SCOPED",
   "full_virtual_desktop": "NOT_PROVEN",
   "gates": {
-    "D1_real_viewer_same_run_resume": "PENDING",
-    "D2_deliberate_default_interference": "PENDING",
-    "D3_capability_matrix": "READY",
-    "D4_final_review": "PENDING"
+    "D1_real_viewer_same_run_resume": "PASS",
+    "D2_deliberate_default_interference": "PASS_USER_REPORTED",
+    "D3_capability_matrix": "PASS",
+    "D4_final_review": "PASS_CAPABILITY_SCOPED"
   },
   "capabilities": [
     {
@@ -49,7 +49,7 @@
       "category": "Observation",
       "capability": "VIEWER",
       "result": "PASS",
-      "evidence": "D0-B/C",
+      "evidence": "D0-B/C / D0-D 同次人工",
       "boundary": "localhost；Fake 自动回归与真实参与者"
     },
     {
@@ -84,15 +84,15 @@
       "category": "Ownership",
       "capability": "AGENT_TO_HUMAN",
       "result": "PASS",
-      "evidence": "D0-B/C",
+      "evidence": "D0-B/C / D0-D 同次人工",
       "boundary": "有限控件与同步效果确认；未知效果 fail closed"
     },
     {
       "category": "Ownership",
       "capability": "HUMAN_TO_AGENT",
       "result": "PASS",
-      "evidence": "D0-B 人工 / D0-C 自动",
-      "boundary": "网易云同一次人工完整闭环仍待 D0-D Gate D1"
+      "evidence": "D0-B 人工 / D0-C 自动 / D0-D 同次真实人工",
+      "boundary": "真实 Resume 代次 3，随后重新观察匹配歌曲/播放；输入已完成，继续输入仍依据既有自动用例"
     },
     {
       "category": "Ownership",
@@ -112,14 +112,14 @@
       "category": "Ownership",
       "capability": "DURATION_BUDGET",
       "result": "PASS",
-      "evidence": "D0-B/C 人工",
+      "evidence": "D0-B/C 人工 / D0-D 同次人工",
       "boundary": "60 秒；NetEase 实际预算到期和清理已记录"
     },
     {
       "category": "Ownership",
       "capability": "OWNED_JOB_CLEANUP",
       "result": "PASS",
-      "evidence": "D0-B/C",
+      "evidence": "D0-B/C / D0-D 同次人工",
       "boundary": "本次 Job 归零、Desktop 消失；不结束外部实例"
     },
     {
@@ -146,9 +146,9 @@
     {
       "category": "Isolation",
       "capability": "DEFAULT_PARALLEL_USE",
-      "result": "PENDING",
-      "evidence": "D0-C 总体报告 / D0-D Gate D2",
-      "boundary": "故意持续输入、切窗口、移动鼠标的专项仍待报告"
+      "result": "PASS",
+      "evidence": "D0-D 同次人工专项总体确认",
+      "boundary": "仅本次指定干扰与五项 UX 检查；无逐项记录，计数不归因"
     },
     {
       "category": "Isolation",
@@ -214,5 +214,19 @@
     "windows": "PAUSED",
     "overall": "INCOMPLETE"
   },
-  "future": "P0 LocalWorkspaceProvider design is a separate next step; no interface implemented"
+  "future": "P0 LocalWorkspaceProvider design is a separate next step; no interface implemented",
+  "acceptance": "D0 LOCAL WORKSPACE — ACCEPTED",
+  "final_review": {
+    "result": "ACCEPTED_CAPABILITY_SCOPED",
+    "criteria": "Per user D0-D closure scope; Notepad and raw input are compatibility/research cases, not closure blockers",
+    "same_run_real_resume": "PASS",
+    "deliberate_default_interference": "USER_REPORTED_PASS",
+    "finite_task_resumed_observation": "PASS; input already completed before manual takeover; no new or replayed input",
+    "cleanup": "PASS; budget exhaustion, not manual Stop",
+    "viewer_service": "STOPPED; associated processes 0",
+    "core_protocol_schema_budget": "UNCHANGED",
+    "private_evidence": "PRESERVED_IGNORED",
+    "next_step": "P0 LocalWorkspaceProvider design only; no Provider implementation authorized by closure",
+    "generic_apps_and_raw_input": "NOT_PROVEN"
+  }
 }
