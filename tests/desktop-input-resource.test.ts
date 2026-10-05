@@ -135,6 +135,7 @@ test("interface-only lifecycle arbitration can revoke expired grants on close an
       assertAuthority: (binding, authority) => input.assertAuthority(binding, authority),
       registerBackend: (validate, drain) => input.registerBackend(validate, drain),
       revokeSession: binding => { forcedRevocations++; return input.revokeSession(binding); },
+      blockResource: binding => input.blockResource(binding),
     };
     const backend = new FakeDesktopBackend(definition(), arbiter);
     const provider = new FakeDesktopProvider("fake", "local-workspace", new Map([["fixture", backend]]), capabilities());

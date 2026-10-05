@@ -37,11 +37,12 @@ def notepad_preflight():
 
 
 class Controller:
-    def __init__(self, directory, real=False, netease=None):
+    def __init__(self, directory, real=False, netease=None, expected_netease_version=None):
         self.directory = Path(directory).resolve()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.real = real
         self.netease = netease
+        self.expected_netease_version = expected_netease_version
         self.lock = threading.RLock()
         self.record = {"status": "idle", "mode": "real" if real else "fake"}
         self.api = self.job = self.desktop = self.process = self.monitor = None
@@ -87,6 +88,8 @@ class Controller:
                 if app == "netease":
                     from netease import preflight
                     music = preflight(self.netease)
+                    if self.expected_netease_version and music["version"] != self.expected_netease_version:
+                        raise Blocked("netease_validated_version_required")
                     self.record.update(app_version=music["version"], input_class="SEMANTIC_INPUT", stage="launch")
                 # Package probing can take seconds. The lease starts after preflight.
                 self.started = time.time()
@@ -370,7 +373,7 @@ class Controller:
         self.watchdog.join(4)
 
 
-def make_server(controller, port=0):
+def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=None):
     token = secrets.token_urlsafe(32)
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -414,6 +417,11 @@ def make_server(controller, port=0):
             elif not self.authorized():
                 self.response(403, {"error": "unauthorized"})
             elif self.path == "/status":
+                snapshot = controller.snapshot()
+                if heartbeat_handler and not heartbeat_handler(snapshot.get("run_id"),
+                        snapshot.get("owner"), snapshot.get("epoch")):
+                    self.response(409, {"error": "input_authority_unconfirmed"})
+                    return
                 self.response(200, controller.ping())
             elif self.path == "/frame":
                 frame, metadata = controller.frame_packet()
@@ -437,7 +445,7 @@ def make_server(controller, port=0):
                 elif self.path == "/act" and set(body) == {"run_id", "epoch"}:
                     result = controller.act(body["run_id"], body["epoch"])
                 elif self.path == "/control" and set(body) == {"run_id", "epoch", "owner"}:
-                    result = controller.transfer(body["run_id"], body["epoch"], body["owner"])
+                    result = (transfer_handler or controller.transfer)(body["run_id"], body["epoch"], body["owner"])
                 elif self.path == "/human" and set(body) == {"run_id", "epoch", "event"}:
                     result = controller.receive_input(body["run_id"], body["epoch"], body["event"])
                 elif self.path == "/stop" and set(body) == {"run_id"}:

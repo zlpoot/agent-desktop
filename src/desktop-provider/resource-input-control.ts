@@ -13,20 +13,25 @@ interface Resource {
   serial: Promise<void>;
   blocked: boolean;
 }
+interface Participant {
+  validate(binding: DesktopSessionIdentity): boolean;
+  drain(authority: InputAuthority, successor?: InputAuthority): Promise<void>;
+  activate?: (authority: InputAuthority) => Promise<void>;
+}
 
 /** In-process managed-client arbiter; backend gates and authenticated infrastructure remain mandatory.
  * One shared object must be injected for all Sessions/providers aliasing a resource.
  * A monotonic clock and bounded lease are injected; no timers or physical input. */
 export class ResourceInputControl implements DesktopInputArbiter {
   private readonly resources = new Map<string, Resource>();
-  private readonly validators = new Set<(binding: DesktopSessionIdentity) => boolean>();
-  private readonly drains = new Set<(authority: InputAuthority) => Promise<void>>();
+  private readonly participants = new Set<Participant>();
   constructor(private readonly now: () => number = () => performance.now(), private readonly leaseMs = 3000) {
     if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error("Invalid input lease");
   }
   registerBackend(validate: (binding: DesktopSessionIdentity) => boolean,
-    drain: (authority: InputAuthority) => Promise<void>): void {
-    this.validators.add(validate); this.drains.add(drain);
+    drain: (authority: InputAuthority, successor?: InputAuthority) => Promise<void>,
+    activate?: (authority: InputAuthority) => Promise<void>): void {
+    this.participants.add({ validate, drain, activate });
   }
   /** Viewer-safe snapshot: observing another owner never reveals its grant credential. */
   view(binding: DesktopSessionIdentity): { epoch: number; owner?: InputClient; state: "idle" | "held" | "expired" | "revoking" } {
@@ -38,7 +43,7 @@ export class ResourceInputControl implements DesktopInputArbiter {
         this.now() >= resource.expiresAt ? "expired" : "held" };
   }
   private valid(binding: DesktopSessionIdentity): void {
-    if (![...this.validators].some(validate => validate(binding))) deny("stale-session");
+    if (![...this.participants].some(participant => participant.validate(binding))) deny("stale-session");
   }
   private resource(id: string): Resource {
     let resource = this.resources.get(id);
@@ -53,13 +58,38 @@ export class ResourceInputControl implements DesktopInputArbiter {
     resource.serial = result.then(() => {}, () => {});
     return result;
   }
-  private async revoke(resource: Resource): Promise<void> {
+  private authority(binding: DesktopSessionIdentity, owner: InputClient, epoch: number): InputAuthority {
+    if (!binding.inputResourceId) deny("observation-only");
+    if (!["agent", "human"].includes(owner.kind) || !owner.clientId.trim()) deny("invalid-owner");
+    return Object.freeze({ ...sessionIdentity(binding), inputResourceId: binding.inputResourceId,
+      owner: Object.freeze({ ...owner }), epoch, grantId: randomUUID() });
+  }
+  private async install(resource: Resource, authority: InputAuthority): Promise<InputAuthority> {
+    resource.grant = authority; resource.epoch = authority.epoch; resource.expiresAt = this.now() + this.leaseMs;
+    resource.blocked = true; // The next owner is not usable until every matching backend ACKs activation.
+    const failures: unknown[] = [];
+    for (const participant of this.participants) if (participant.activate && participant.validate(authority)) {
+      try { await participant.activate(authority); }
+      catch (error) { failures.push(error); }
+    }
+    if (failures.length) {
+      resource.grant = undefined; resource.expiresAt = -Infinity; resource.epoch++; // Never retry this epoch.
+      for (const participant of this.participants) {
+        try { await participant.drain(authority); }
+        catch (error) { failures.push(error); }
+      }
+      throw new AggregateError(failures, "Input backend activation unconfirmed; resource permanently blocked");
+    }
+    resource.blocked = false;
+    return authority;
+  }
+  private async revoke(resource: Resource, successor?: InputAuthority): Promise<void> {
     const previous = resource.grant;
     // Disable both owners before drain. Failure permanently blocks new grants until explicit infrastructure recovery.
     resource.grant = undefined; resource.epoch++; resource.blocked = true;
     const failures: unknown[] = [];
-    if (previous) for (const drain of this.drains) {
-      try { await drain(previous); }
+    if (previous) for (const participant of this.participants) {
+      try { await participant.drain(previous, successor); }
       catch (error) { failures.push(error); }
     }
     if (failures.length) throw new AggregateError(failures, "Input resource drain failed");
@@ -67,12 +97,7 @@ export class ResourceInputControl implements DesktopInputArbiter {
   }
   private grant(resource: Resource, binding: DesktopSessionIdentity, owner: InputClient): InputAuthority {
     this.valid(binding);
-    if (!binding.inputResourceId) deny("observation-only");
-    if (!["agent", "human"].includes(owner.kind) || !owner.clientId.trim()) deny("invalid-owner");
-    const authority: InputAuthority = Object.freeze({ ...sessionIdentity(binding), inputResourceId: binding.inputResourceId,
-      owner: Object.freeze({ ...owner }), epoch: ++resource.epoch, grantId: randomUUID() });
-    resource.grant = authority; resource.expiresAt = this.now() + this.leaseMs;
-    return authority;
+    return this.authority(binding, owner, ++resource.epoch);
   }
   acquire(binding: DesktopSessionIdentity, owner: InputClient): Promise<InputAuthority> {
     if (!binding.inputResourceId) return Promise.reject(new Error("observation-only"));
@@ -80,9 +105,13 @@ export class ResourceInputControl implements DesktopInputArbiter {
     return this.exclusive(resource, async () => {
       this.valid(binding);
       if (resource.blocked) deny("resource-drain-unconfirmed");
-      if (resource.grant && this.now() >= resource.expiresAt) await this.revoke(resource);
+      if (resource.grant && this.now() >= resource.expiresAt) {
+        const next = this.authority(binding, owner, resource.epoch + 2);
+        await this.revoke(resource, next);
+        return this.install(resource, next);
+      }
       if (resource.grant) deny("input-resource-busy");
-      return this.grant(resource, binding, owner);
+      return this.install(resource, this.grant(resource, binding, owner));
     });
   }
   assertAuthority(binding: DesktopSessionIdentity, authority: InputAuthority): void {
@@ -99,14 +128,19 @@ export class ResourceInputControl implements DesktopInputArbiter {
     const resource = this.resource(authority.inputResourceId);
     return this.exclusive(resource, async () => {
       this.assertAuthority(authority, authority);
-      await this.revoke(resource);
-      return this.grant(resource, authority, owner);
+      const next = this.authority(authority, owner, resource.epoch + 2);
+      await this.revoke(resource, next);
+      return this.install(resource, next);
     });
   }
   /** Trusted management handshake deadline; action requests cannot extend the lease. */
   remainingLease(authority: InputAuthority): number {
     this.assertAuthority(authority, authority);
     return this.resources.get(authority.inputResourceId)!.expiresAt - this.now();
+  }
+  renewAuthority(authority: InputAuthority): void {
+    this.assertAuthority(authority, authority);
+    this.resources.get(authority.inputResourceId)!.expiresAt = this.now() + this.leaseMs;
   }
   release(authority: InputAuthority): Promise<void> {
     const resource = this.resource(authority.inputResourceId);
@@ -125,5 +159,13 @@ export class ResourceInputControl implements DesktopInputArbiter {
       if (resource.blocked) deny("resource-drain-unconfirmed");
       if (resource.grant && sameSession(resource.grant, binding)) await this.revoke(resource);
     });
+  }
+  blockResource(binding: DesktopSessionIdentity): void {
+    if (!binding.inputResourceId) return;
+    const resource = this.resource(binding.inputResourceId);
+    resource.grant = undefined;
+    resource.expiresAt = -Infinity;
+    resource.epoch++;
+    resource.blocked = true;
   }
 }

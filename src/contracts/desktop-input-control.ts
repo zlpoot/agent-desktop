@@ -28,9 +28,14 @@ export interface DesktopInputArbiter extends DesktopInputControl {
    * Every participant must be attempted on revocation, even if another fails.
    * Any failure rejects the ACK and leaves the resource blocked. */
   registerBackend(validate: (binding: DesktopSessionIdentity) => boolean,
-    drain: (authority: InputAuthority) => Promise<void>): void;
+    drain: (authority: InputAuthority, successor?: InputAuthority) => Promise<void>,
+    activate?: (authority: InputAuthority) => Promise<void>): void;
+  /** Extend only the current authority after an authenticated, live client heartbeat. */
+  renewAuthority?(authority: InputAuthority): void;
   /** System close/disconnect/instance replacement: does not require a valid grant.
    * Immediately disables authority for this binding, then awaits drain/ACK.
    * Must not revoke another Session's authority or clear an unconfirmed drain. */
   revokeSession(binding: DesktopSessionIdentity): Promise<void>;
+  /** Irrecoverable backend cleanup failure: close admission for the entire resource permanently. */
+  blockResource(binding: DesktopSessionIdentity): void;
 }
