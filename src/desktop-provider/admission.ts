@@ -1,12 +1,17 @@
 import type {
   CapabilityContext, CapabilityDeclaration, DesktopCapabilities, DesktopCapability,
-  DesktopReadiness,
+  DesktopReadiness, DesktopSessionIdentity,
 } from "../contracts/desktop-environment.js";
 
 export class DesktopAdmissionError extends Error {
   constructor(readonly reason: string) { super(`Desktop admission denied: ${reason}`); }
 }
 export function deny(reason: string): never { throw new DesktopAdmissionError(reason); }
+
+export function sameSession(a: DesktopSessionIdentity, b: DesktopSessionIdentity): boolean {
+  return a.providerId === b.providerId && a.environmentId === b.environmentId &&
+    a.sessionId === b.sessionId && a.instanceId === b.instanceId && a.inputResourceId === b.inputResourceId;
+}
 
 const dimensions = new Set<keyof CapabilityContext>([
   "providerId", "environmentKind", "application", "applicationVersion", "targetRole", "action", "mechanism",

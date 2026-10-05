@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { DesktopInputArbiter } from "../src/contracts/desktop-input-control.js";
 import { FakeDesktopBackend, FakeDesktopProvider, FakeDesktopRuntime } from "../src/desktop-provider/fake-provider.js";
 import { FakeInputControl } from "../src/desktop-provider/fake-input-control.js";
 import { capabilities, definition, fixture } from "./fixtures/desktop-provider.js";
@@ -93,6 +94,66 @@ test("a failed drain leaves the resource blocked rather than issuing a success A
   assert.throws(() => f.backend.execute(f.request), /invalid-input-authority/);
   const second = await f.provider.open("fixture");
   await assert.rejects(f.input.acquire(second, { kind: "agent", clientId: "other" }), /resource-drain-unconfirmed/);
+});
+
+test("an early drain failure still cancels backend queues and never unlocks on expiry or close", async () => {
+  let now = 0;
+  const input = new FakeInputControl(() => now, 100);
+  // Register the failing participant BEFORE the backend registers its queue cancellation.
+  const failure = new Error("early drain failed");
+  input.registerBackend(() => false, async () => { throw failure; });
+  const f = await fixture({ input });
+  let tailDrained = false;
+  input.registerBackend(() => false, async () => { tailDrained = true; });
+  const pending = f.backend.queue(f.request);
+  await assert.rejects(input.transfer(f.authority, { kind: "human", clientId: "viewer" }),
+    (error: unknown) => error instanceof AggregateError && error.errors.includes(failure));
+  await assert.rejects(pending.result, /input-revoked/);
+  assert.equal(tailDrained, true);
+  assert.equal(input.view(f.session).state, "revoking");
+  assert.throws(() => f.backend.execute(f.request), /invalid-input-authority/);
+  assert.throws(() => f.backend.dispatch(pending.actionId), /unknown-or-cancelled-action/);
+  now = 200;
+  const other = await f.provider.open("fixture");
+  await assert.rejects(input.acquire(other, { kind: "agent", clientId: "other" }), /resource-drain-unconfirmed/);
+  await assert.rejects(f.session.close(), /resource-drain-unconfirmed/);
+  await assert.rejects(f.session.close(), /resource-drain-unconfirmed/);
+  await assert.rejects(input.acquire(other, { kind: "agent", clientId: "other" }), /resource-drain-unconfirmed/);
+  assert.equal(input.view(other).state, "revoking");
+  assert.equal(f.backend.executed().length, 0);
+});
+
+test("interface-only lifecycle arbitration can revoke expired grants on close and instance replacement", async () => {
+  for (const lifecycle of ["close", "replace"] as const) {
+    let now = 0; let forcedRevocations = 0;
+    const input = new FakeInputControl(() => now, 100);
+    // Exposes only the public arbiter contract, not FakeInputControl.view or its concrete class.
+    const arbiter: DesktopInputArbiter = {
+      acquire: (binding, owner) => input.acquire(binding, owner),
+      transfer: (authority, owner) => input.transfer(authority, owner),
+      release: authority => input.release(authority),
+      assertAuthority: (binding, authority) => input.assertAuthority(binding, authority),
+      registerBackend: (validate, drain) => input.registerBackend(validate, drain),
+      revokeSession: binding => { forcedRevocations++; return input.revokeSession(binding); },
+    };
+    const backend = new FakeDesktopBackend(definition(), arbiter);
+    const provider = new FakeDesktopProvider("fake", "local-workspace", new Map([["fixture", backend]]), capabilities());
+    const session = await provider.open("fixture");
+    const observation = backend.observe(backend.bind(session, "editor"));
+    const authority = await arbiter.acquire(session, { kind: "agent", clientId: "task" });
+    const pending = backend.queue({ observation, authority, operationId: "edit" });
+    now = 100;
+    await assert.rejects(arbiter.release(authority), /invalid-input-authority/);
+    if (lifecycle === "close") await session.close();
+    else await backend.replaceInstance();
+    await assert.rejects(pending.result, /session-closed|instance-replaced/);
+    assert.equal(forcedRevocations, 1);
+    const replacement = await provider.open("fixture");
+    const next = await arbiter.acquire(replacement, { kind: "agent", clientId: "next" });
+    assert.ok(next.epoch > authority.epoch);
+    arbiter.assertAuthority(replacement, next);
+    assert.throws(() => backend.execute({ observation, authority, operationId: "edit" }), /stale-session/);
+  }
 });
 
 test("lease expiration rejects input and queued actions; reacquisition drains without resetting authority", async () => {

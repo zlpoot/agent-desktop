@@ -4,9 +4,8 @@ import type {
   DesktopObservationBinding, DesktopProvider, DesktopReadiness, DesktopSession,
   DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
 } from "../contracts/desktop-environment.js";
-import type { InputAuthority } from "../contracts/desktop-input-control.js";
-import { assertDesktopCapabilities, deny } from "./admission.js";
-import { FakeInputControl, sameSession } from "./fake-input-control.js";
+import type { DesktopInputArbiter, InputAuthority } from "../contracts/desktop-input-control.js";
+import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
 
 export interface FakeTargetDefinition {
   readonly application: string;
@@ -65,7 +64,7 @@ export class FakeDesktopBackend {
   private readonly pending = new Map<string, Pending>();
   private readonly definition: FakeBackendDefinition;
   private readonly accepted: FakeActionResult[] = [];
-  constructor(definition: FakeBackendDefinition, readonly inputControl: FakeInputControl) {
+  constructor(definition: FakeBackendDefinition, readonly inputControl: DesktopInputArbiter) {
     this.definition = structuredClone(definition);
     inputControl.registerBackend(binding => this.isCurrent(binding), async authority => {
       this.cancel(request => request.authority.grantId === authority.grantId, "input-revoked");

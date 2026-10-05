@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DesktopSessionIdentity } from "../contracts/desktop-environment.js";
-import type { DesktopInputControl, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
-import { deny } from "./admission.js";
-
-export function sameSession(a: DesktopSessionIdentity, b: DesktopSessionIdentity): boolean {
-  return a.providerId === b.providerId && a.environmentId === b.environmentId &&
-    a.sessionId === b.sessionId && a.instanceId === b.instanceId && a.inputResourceId === b.inputResourceId;
-}
+import type { DesktopInputArbiter, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
+import { deny, sameSession } from "./admission.js";
 function sessionIdentity(binding: DesktopSessionIdentity): DesktopSessionIdentity {
   return { providerId: binding.providerId, environmentId: binding.environmentId,
     sessionId: binding.sessionId, instanceId: binding.instanceId, inputResourceId: binding.inputResourceId };
@@ -22,7 +17,7 @@ interface Resource {
 /** Deterministic in-memory arbiter for P1 fixtures, not a production control adapter.
  * One shared object must be injected for all Sessions/providers aliasing a resource.
  * A monotonic clock and bounded lease are injected; no timers or physical input. */
-export class FakeInputControl implements DesktopInputControl {
+export class FakeInputControl implements DesktopInputArbiter {
   private readonly resources = new Map<string, Resource>();
   private readonly validators = new Set<(binding: DesktopSessionIdentity) => boolean>();
   private readonly drains = new Set<(authority: InputAuthority) => Promise<void>>();
@@ -62,7 +57,12 @@ export class FakeInputControl implements DesktopInputControl {
     const previous = resource.grant;
     // Disable both owners before drain. Failure permanently blocks new grants in this fixture.
     resource.grant = undefined; resource.epoch++; resource.blocked = true;
-    if (previous) for (const drain of this.drains) await drain(previous);
+    const failures: unknown[] = [];
+    if (previous) for (const drain of this.drains) {
+      try { await drain(previous); }
+      catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, "Input resource drain failed");
     resource.blocked = false;
   }
   private grant(resource: Resource, binding: DesktopSessionIdentity, owner: InputClient): InputAuthority {
