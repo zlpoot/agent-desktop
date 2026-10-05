@@ -1,0 +1,27 @@
+{
+  "filesReviewed": 377,
+  "binaryFixtures": [
+    {
+      "path": "testbench/verification/v1/assets/desktop-context.png",
+      "dimensions": [
+        2048,
+        1152
+      ],
+      "sha256": "4968c09026cd757b50c0022072e6eaf7ef90cd2a7d2b657c57a23f312a71a36f",
+      "origin": "generated constant RGB pixels; metadata-free"
+    },
+    {
+      "path": "testbench/verification/v1/assets/synthetic-window.png",
+      "dimensions": [
+        1536,
+        789
+      ],
+      "sha256": "57c6800b5b5450c171684dae59862dec732403ddbe993c6a8532fbfdc497b6e6",
+      "origin": "generated constant RGB pixels; metadata-free"
+    }
+  ],
+  "sourceAuthoredFilesUnchanged": 624,
+  "dependencyEntriesUnchanged": 118,
+  "issues": [],
+  "scope": "Authored candidate files; real data, caches and old Git excluded. This is a content/provenance review, not a legal clearance."
+}

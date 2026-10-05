@@ -1,0 +1,6 @@
+{
+  "maxWaits": 3,
+  "maxCollections": 2,
+  "maxEscalations": 1,
+  "waitMs": 1000
+}

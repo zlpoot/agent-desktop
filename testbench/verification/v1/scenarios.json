@@ -1,0 +1,1379 @@
+{
+  "version": "1.0.0",
+  "scenarios": [
+    {
+      "id": "worker-identity",
+      "goal": "连接的是所选 VM 的 Worker，而非同地址上的另一个实例",
+      "category": "environment",
+      "scope": "stage",
+      "family": "worker-identity",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/desktop/guest-runtime.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: worker.vmId",
+        "api: worker.epoch"
+      ],
+      "checks": [
+        {
+          "id": "vmId",
+          "object": "worker",
+          "field": "vmId",
+          "source": "api",
+          "expected": "vm-A",
+          "wrong": "vm-B"
+        },
+        {
+          "id": "epoch",
+          "object": "worker",
+          "field": "epoch",
+          "source": "api",
+          "expected": "epoch-new",
+          "wrong": "epoch-old"
+        }
+      ],
+      "counterexample": "epoch",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 epoch 为错误值 'epoch-old'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "worker-ready",
+      "goal": "Worker 已监听且 action RPC 与健康状态可用",
+      "category": "environment",
+      "scope": "stage",
+      "family": "worker-ready",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/desktop/guest-runtime.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: worker.listening",
+        "api: worker.actionRpc"
+      ],
+      "checks": [
+        {
+          "id": "listening",
+          "object": "worker",
+          "field": "listening",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "actionRpc",
+          "object": "worker",
+          "field": "actionRpc",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "actionRpc",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 actionRpc 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "desktop-ready",
+      "goal": "Guest 已登录且桌面可以读取",
+      "category": "environment",
+      "scope": "stage",
+      "family": "desktop-ready",
+      "split": "development",
+      "codeRefs": [
+        "src/desktop-session/control.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: session.interactive",
+        "api: session.captureAvailable"
+      ],
+      "checks": [
+        {
+          "id": "interactive",
+          "object": "session",
+          "field": "interactive",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "captureAvailable",
+          "object": "session",
+          "field": "captureAvailable",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "captureAvailable",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 captureAvailable 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "window-bind",
+      "goal": "应用启动后绑定唯一匹配的进程实例和窗口",
+      "category": "grounding",
+      "scope": "stage",
+      "family": "window-bind",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/desktop/window-manager.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "window: window-A.processIdentity",
+        "window: window-A.matches"
+      ],
+      "checks": [
+        {
+          "id": "processIdentity",
+          "object": "window-A",
+          "field": "processIdentity",
+          "source": "window",
+          "expected": "app-instance-A",
+          "wrong": "app-instance-B"
+        },
+        {
+          "id": "matches",
+          "object": "window-A",
+          "field": "matches",
+          "source": "window",
+          "expected": 1,
+          "wrong": 2
+        }
+      ],
+      "counterexample": "matches",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 matches 为错误值 2，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "window-focus",
+      "goal": "执行前目标窗口在前台",
+      "category": "grounding",
+      "scope": "action",
+      "family": "window-focus",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/desktop/worker.py"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "window: window-A.foreground"
+      ],
+      "checks": [
+        {
+          "id": "foreground",
+          "object": "window-A",
+          "field": "foreground",
+          "source": "window",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "foreground",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 foreground 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "input-permission",
+      "goal": "输入权限兼容且目标控件启用",
+      "category": "grounding",
+      "scope": "action",
+      "family": "input-permission",
+      "split": "holdout",
+      "codeRefs": [
+        "src/runtime/desktop/worker.py"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: window-A.permissionCompatible",
+        "uia: control-A.enabled"
+      ],
+      "checks": [
+        {
+          "id": "permissionCompatible",
+          "object": "window-A",
+          "field": "permissionCompatible",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "enabled",
+          "object": "control-A",
+          "field": "enabled",
+          "source": "uia",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "enabled",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 enabled 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "frame-full",
+      "goal": "记录的画面覆盖完整 Guest 桌面及任务栏",
+      "category": "observation",
+      "scope": "action",
+      "family": "frame-full",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/desktop/guest-runtime.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: frame-A.width",
+        "api: frame-A.coverage"
+      ],
+      "checks": [
+        {
+          "id": "width",
+          "object": "frame-A",
+          "field": "width",
+          "source": "api",
+          "expected": 2048,
+          "wrong": 1520
+        },
+        {
+          "id": "coverage",
+          "object": "frame-A",
+          "field": "coverage",
+          "source": "api",
+          "expected": "desktop",
+          "wrong": "window"
+        }
+      ],
+      "counterexample": "coverage",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 coverage 为错误值 'window'，不满足目标。",
+      "actionKinds": [
+        "screenshot"
+      ]
+    },
+    {
+      "id": "target-unique",
+      "goal": "目标定位只有一个可见匹配并属于指定窗口",
+      "category": "grounding",
+      "scope": "action",
+      "family": "target-unique",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/semantic-target.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: control-A.windowId",
+        "uia: control-A.matchCount"
+      ],
+      "checks": [
+        {
+          "id": "windowId",
+          "object": "control-A",
+          "field": "windowId",
+          "source": "uia",
+          "expected": "window-A",
+          "wrong": "window-B"
+        },
+        {
+          "id": "matchCount",
+          "object": "control-A",
+          "field": "matchCount",
+          "source": "uia",
+          "expected": 1,
+          "wrong": 3
+        }
+      ],
+      "counterexample": "matchCount",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 matchCount 为错误值 3，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "menu-open",
+      "goal": "单击后目标菜单打开",
+      "category": "interaction",
+      "scope": "action",
+      "family": "menu-open",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: menu-A.visible"
+      ],
+      "checks": [
+        {
+          "id": "visible",
+          "object": "menu-A",
+          "field": "visible",
+          "source": "uia",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "visible",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 visible 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "click"
+      ]
+    },
+    {
+      "id": "double-open",
+      "goal": "双击目标文档后打开的是该文档",
+      "category": "interaction",
+      "scope": "action",
+      "family": "double-open",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: document-window.documentId"
+      ],
+      "checks": [
+        {
+          "id": "documentId",
+          "object": "document-window",
+          "field": "documentId",
+          "source": "uia",
+          "expected": "document-A",
+          "wrong": "document-B"
+        }
+      ],
+      "counterexample": "documentId",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 documentId 为错误值 'document-B'，不满足目标。",
+      "actionKinds": [
+        "double_click"
+      ]
+    },
+    {
+      "id": "text-replace",
+      "goal": "目标编辑区的完整内容替换为指定文本",
+      "category": "text",
+      "scope": "action",
+      "family": "text-replace",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: editor-A.value"
+      ],
+      "checks": [
+        {
+          "id": "value",
+          "object": "editor-A",
+          "field": "value",
+          "source": "uia",
+          "expected": "approved",
+          "wrong": "rejected"
+        }
+      ],
+      "counterexample": "value",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 value 为错误值 'rejected'，不满足目标。",
+      "actionKinds": [
+        "type"
+      ]
+    },
+    {
+      "id": "paste-unicode",
+      "goal": "粘贴后目标编辑区保留中文、换行和符号",
+      "category": "text",
+      "scope": "action",
+      "family": "paste-unicode",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: editor-A.value"
+      ],
+      "checks": [
+        {
+          "id": "value",
+          "object": "editor-A",
+          "field": "value",
+          "source": "uia",
+          "expected": "验收测试\n日期：2026-09-27 ✓",
+          "wrong": "验收测试 日期：2026-09-27 ?"
+        }
+      ],
+      "counterexample": "value",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 value 为错误值 '验收测试 日期：2026-09-27 ?'，不满足目标。",
+      "actionKinds": [
+        "paste_text"
+      ]
+    },
+    {
+      "id": "text-append",
+      "goal": "在原内容后追加一行 World，原内容不被覆盖",
+      "category": "text",
+      "scope": "action",
+      "family": "text-append",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: editor-A.value"
+      ],
+      "checks": [
+        {
+          "id": "value",
+          "object": "editor-A",
+          "field": "value",
+          "source": "uia",
+          "expected": "Hello\nWorld",
+          "wrong": "World"
+        }
+      ],
+      "counterexample": "value",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 value 为错误值 'World'，不满足目标。",
+      "actionKinds": [
+        "type"
+      ]
+    },
+    {
+      "id": "shortcut-dialog",
+      "goal": "快捷键后目标对话框出现",
+      "category": "interaction",
+      "scope": "action",
+      "family": "shortcut-dialog",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: dialog-A.visible"
+      ],
+      "checks": [
+        {
+          "id": "visible",
+          "object": "dialog-A",
+          "field": "visible",
+          "source": "uia",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "visible",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 visible 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "keypress"
+      ]
+    },
+    {
+      "id": "dialog-close",
+      "goal": "Escape 后目标模态框关闭且焦点回到原窗口",
+      "category": "interaction",
+      "scope": "action",
+      "family": "dialog-close",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: window-A.modalPresent",
+        "window: window-A.foreground"
+      ],
+      "checks": [
+        {
+          "id": "modalPresent",
+          "object": "window-A",
+          "field": "modalPresent",
+          "source": "uia",
+          "expected": false,
+          "wrong": true
+        },
+        {
+          "id": "foreground",
+          "object": "window-A",
+          "field": "foreground",
+          "source": "window",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "foreground",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 foreground 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "keypress"
+      ]
+    },
+    {
+      "id": "choice-select",
+      "goal": "指定选择控件选中正确选项",
+      "category": "interaction",
+      "scope": "action",
+      "family": "choice-select",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: choice-A.selectedId"
+      ],
+      "checks": [
+        {
+          "id": "selectedId",
+          "object": "choice-A",
+          "field": "selectedId",
+          "source": "uia",
+          "expected": "option-A",
+          "wrong": "option-B"
+        }
+      ],
+      "counterexample": "selectedId",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 selectedId 为错误值 'option-B'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "drag-move",
+      "goal": "拖动后目标对象属于指定目标容器",
+      "category": "interaction",
+      "scope": "action",
+      "family": "drag-move",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: item-A.parentId"
+      ],
+      "checks": [
+        {
+          "id": "parentId",
+          "object": "item-A",
+          "field": "parentId",
+          "source": "uia",
+          "expected": "container-B",
+          "wrong": "container-A"
+        }
+      ],
+      "counterexample": "parentId",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 parentId 为错误值 'container-A'，不满足目标。",
+      "actionKinds": [
+        "drag"
+      ]
+    },
+    {
+      "id": "scroll-target",
+      "goal": "滚动的是目标列表，且到达指定结果行",
+      "category": "navigation",
+      "scope": "action",
+      "family": "scroll-target",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: list-A.visibleRow"
+      ],
+      "checks": [
+        {
+          "id": "visibleRow",
+          "object": "list-A",
+          "field": "visibleRow",
+          "source": "uia",
+          "expected": "row-20",
+          "wrong": "row-10"
+        }
+      ],
+      "counterexample": "visibleRow",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 visibleRow 为错误值 'row-10'，不满足目标。",
+      "actionKinds": [
+        "scroll"
+      ]
+    },
+    {
+      "id": "browser-navigate",
+      "goal": "浏览器进入指定页面，不能只匹配相似域名",
+      "category": "navigation",
+      "scope": "action",
+      "family": "browser-navigate",
+      "split": "development",
+      "codeRefs": [
+        "src/runtime/browser/playwright-runtime.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "dom: tab-A.url"
+      ],
+      "checks": [
+        {
+          "id": "url",
+          "object": "tab-A",
+          "field": "url",
+          "source": "dom",
+          "expected": "https://example.test/results?id=42",
+          "wrong": "https://example.test.evil/results?id=42"
+        }
+      ],
+      "counterexample": "url",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 url 为错误值 'https://example.test.evil/results?id=42'，不满足目标。",
+      "actionKinds": [
+        "navigate"
+      ]
+    },
+    {
+      "id": "wait-stable",
+      "goal": "目标加载状态在两次连续观察中稳定就绪",
+      "category": "async",
+      "scope": "action",
+      "family": "wait-stable",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "dom: panel-A.ready"
+      ],
+      "checks": [
+        {
+          "id": "ready",
+          "object": "panel-A",
+          "field": "ready",
+          "source": "dom",
+          "expected": true,
+          "wrong": false,
+          "samples": 2
+        }
+      ],
+      "counterexample": "ready",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 ready 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "wait"
+      ]
+    },
+    {
+      "id": "async-result",
+      "goal": "请求已完成且结果属于本次请求；仍在执行时应继续等待",
+      "category": "async",
+      "scope": "stage",
+      "family": "async-result",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: result-A.requestId",
+        "api: result-A.completed"
+      ],
+      "checks": [
+        {
+          "id": "requestId",
+          "object": "result-A",
+          "field": "requestId",
+          "source": "api",
+          "expected": "request-A",
+          "wrong": "request-B"
+        },
+        {
+          "id": "resultStatus",
+          "object": "result-A",
+          "field": "resultStatus",
+          "source": "api",
+          "expected": "succeeded",
+          "wrong": "failed"
+        }
+      ],
+      "counterexample": "resultStatus",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前请求明确返回 failed 终态，未成功完成。",
+      "actionKinds": []
+    },
+    {
+      "id": "document-saved",
+      "goal": "当前文档的最新修改已保存",
+      "category": "persistence",
+      "scope": "stage",
+      "family": "document-saved",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "uia: document-A.modified"
+      ],
+      "checks": [
+        {
+          "id": "modified",
+          "object": "document-A",
+          "field": "modified",
+          "source": "uia",
+          "expected": false,
+          "wrong": true
+        }
+      ],
+      "counterexample": "modified",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 modified 为错误值 True，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "file-save",
+      "goal": "将准确文本保存为当前用户桌面的 report.txt",
+      "category": "persistence",
+      "scope": "task",
+      "family": "file-save",
+      "split": "development",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "file: file-A.exists",
+        "file: file-A.content",
+        "file: file-A.canonicalPath"
+      ],
+      "checks": [
+        {
+          "id": "exists",
+          "object": "file-A",
+          "field": "exists",
+          "source": "file",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "content",
+          "object": "file-A",
+          "field": "content",
+          "source": "file",
+          "expected": "approved",
+          "wrong": "old draft"
+        },
+        {
+          "id": "canonicalPath",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "source": "file",
+          "expected": "C:/Users/test/Desktop/report.txt",
+          "wrong": "C:/Users/test/Documents/report.txt"
+        }
+      ],
+      "counterexample": "canonicalPath",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 canonicalPath 为错误值 'C:/Users/test/Documents/report.txt'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "file-overwrite",
+      "goal": "覆盖保存后同一目标文件已经包含本次内容",
+      "category": "persistence",
+      "scope": "task",
+      "family": "file-overwrite",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "file: file-A.canonicalPath",
+        "file: file-A.contentHash"
+      ],
+      "checks": [
+        {
+          "id": "canonicalPath",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "source": "file",
+          "expected": "C:/Users/test/Desktop/output.txt",
+          "wrong": "C:/Users/test/Desktop/output-copy.txt"
+        },
+        {
+          "id": "contentHash",
+          "object": "file-A",
+          "field": "contentHash",
+          "source": "file",
+          "expected": "sha256-new",
+          "wrong": "sha256-old"
+        }
+      ],
+      "counterexample": "contentHash",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 contentHash 为错误值 'sha256-old'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "download-ready",
+      "goal": "下载结果为完整文件而非临时下载片段",
+      "category": "persistence",
+      "scope": "stage",
+      "family": "download-ready",
+      "split": "holdout",
+      "codeRefs": [
+        "src/actions/schema.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "file: download-A.temporary",
+        "file: download-A.sizeBytes"
+      ],
+      "checks": [
+        {
+          "id": "temporary",
+          "object": "download-A",
+          "field": "temporary",
+          "source": "file",
+          "expected": false,
+          "wrong": true
+        },
+        {
+          "id": "sizeBytes",
+          "object": "download-A",
+          "field": "sizeBytes",
+          "source": "file",
+          "expected": 1024,
+          "wrong": 0
+        }
+      ],
+      "counterexample": "sizeBytes",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 sizeBytes 为错误值 0，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "extract-row",
+      "goal": "读取的是目标表格行的原始数值",
+      "category": "extraction",
+      "scope": "stage",
+      "family": "extract-row",
+      "split": "holdout",
+      "codeRefs": [
+        "src/runtime/browser/playwright-runtime.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "dom: row-A.rowKey",
+        "dom: row-A.quantity"
+      ],
+      "checks": [
+        {
+          "id": "rowKey",
+          "object": "row-A",
+          "field": "rowKey",
+          "source": "dom",
+          "expected": "sku-42",
+          "wrong": "sku-24"
+        },
+        {
+          "id": "quantity",
+          "object": "row-A",
+          "field": "quantity",
+          "source": "dom",
+          "expected": 12,
+          "wrong": 21
+        }
+      ],
+      "counterexample": "quantity",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 quantity 为错误值 21，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "media-state",
+      "goal": "播放状态与指定媒体一致",
+      "category": "extraction",
+      "scope": "task",
+      "family": "media-state",
+      "split": "development",
+      "codeRefs": [
+        "src/verifier/verifier.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: player-A.mediaId",
+        "api: player-A.playing"
+      ],
+      "checks": [
+        {
+          "id": "mediaId",
+          "object": "player-A",
+          "field": "mediaId",
+          "source": "api",
+          "expected": "track-A",
+          "wrong": "track-B"
+        },
+        {
+          "id": "playing",
+          "object": "player-A",
+          "field": "playing",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "playing",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 playing 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "pause-fence",
+      "goal": "暂停后 Host 和 Guest 都停止 Agent 输入",
+      "category": "control",
+      "scope": "stage",
+      "family": "pause-fence",
+      "split": "development",
+      "codeRefs": [
+        "src/desktop-session/control.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: host-task.paused",
+        "api: guest-input.mode"
+      ],
+      "checks": [
+        {
+          "id": "paused",
+          "object": "host-task",
+          "field": "paused",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "mode",
+          "object": "guest-input",
+          "field": "mode",
+          "source": "api",
+          "expected": "paused",
+          "wrong": "agent"
+        }
+      ],
+      "counterexample": "mode",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 mode 为错误值 'agent'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "human-takeover",
+      "goal": "人工接管后 Guest 只接受当前人工客户端的有效租约",
+      "category": "control",
+      "scope": "stage",
+      "family": "human-takeover",
+      "split": "development",
+      "codeRefs": [
+        "guest/input_control.py"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: guest-input.mode",
+        "api: guest-input.owner"
+      ],
+      "checks": [
+        {
+          "id": "mode",
+          "object": "guest-input",
+          "field": "mode",
+          "source": "api",
+          "expected": "human",
+          "wrong": "agent"
+        },
+        {
+          "id": "owner",
+          "object": "guest-input",
+          "field": "owner",
+          "source": "api",
+          "expected": "client-current",
+          "wrong": "old-client"
+        }
+      ],
+      "counterexample": "owner",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 owner 为错误值 'old-client'，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "resume-fresh",
+      "goal": "恢复前已读取新画面，并撤销旧人工租约",
+      "category": "control",
+      "scope": "stage",
+      "family": "resume-fresh",
+      "split": "development",
+      "codeRefs": [
+        "src/desktop-session/control.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: resume-boundary.observedAfterResume",
+        "api: guest-input.oldLeaseAccepted"
+      ],
+      "checks": [
+        {
+          "id": "observedAfterResume",
+          "object": "resume-boundary",
+          "field": "observedAfterResume",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "oldLeaseAccepted",
+          "object": "guest-input",
+          "field": "oldLeaseAccepted",
+          "source": "api",
+          "expected": false,
+          "wrong": true
+        }
+      ],
+      "counterexample": "oldLeaseAccepted",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 oldLeaseAccepted 为错误值 True，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "emergency-fence",
+      "goal": "紧急停止后在途排队输入不能继续落到 Guest",
+      "category": "control",
+      "scope": "stage",
+      "family": "emergency-fence",
+      "split": "holdout",
+      "codeRefs": [
+        "tests/desktop-control-regression.test.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: guest-input.mode",
+        "api: guest-input.queuedInputAccepted"
+      ],
+      "checks": [
+        {
+          "id": "mode",
+          "object": "guest-input",
+          "field": "mode",
+          "source": "api",
+          "expected": "stopped",
+          "wrong": "human"
+        },
+        {
+          "id": "queuedInputAccepted",
+          "object": "guest-input",
+          "field": "queuedInputAccepted",
+          "source": "api",
+          "expected": false,
+          "wrong": true
+        }
+      ],
+      "counterexample": "queuedInputAccepted",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 queuedInputAccepted 为错误值 True，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "reconnect-epoch",
+      "goal": "重连使用新 Worker epoch，旧租约无效",
+      "category": "recovery",
+      "scope": "stage",
+      "family": "reconnect-epoch",
+      "split": "development",
+      "codeRefs": [
+        "src/desktop-session/control.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: worker.epoch",
+        "api: guest-input.oldLeaseAccepted"
+      ],
+      "checks": [
+        {
+          "id": "epoch",
+          "object": "worker",
+          "field": "epoch",
+          "source": "api",
+          "expected": "epoch-new",
+          "wrong": "epoch-old"
+        },
+        {
+          "id": "oldLeaseAccepted",
+          "object": "guest-input",
+          "field": "oldLeaseAccepted",
+          "source": "api",
+          "expected": false,
+          "wrong": true
+        }
+      ],
+      "counterexample": "oldLeaseAccepted",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 oldLeaseAccepted 为错误值 True，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "shutdown-clean",
+      "goal": "Host 关闭后 Guest 输入权已撤销且监听端口释放",
+      "category": "recovery",
+      "scope": "stage",
+      "family": "shutdown-clean",
+      "split": "holdout",
+      "codeRefs": [
+        "src/composition/shutdown.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: guest-input.mode",
+        "api: host-dashboard.listening"
+      ],
+      "checks": [
+        {
+          "id": "mode",
+          "object": "guest-input",
+          "field": "mode",
+          "source": "api",
+          "expected": "paused",
+          "wrong": "agent"
+        },
+        {
+          "id": "listening",
+          "object": "host-dashboard",
+          "field": "listening",
+          "source": "api",
+          "expected": false,
+          "wrong": true
+        }
+      ],
+      "counterexample": "listening",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 listening 为错误值 True，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "workflow-replay",
+      "goal": "恢复使用原流程版本、参数及本边界的新后置条件",
+      "category": "workflow",
+      "scope": "stage",
+      "family": "workflow-replay",
+      "split": "development",
+      "codeRefs": [
+        "src/workflows/recovery.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: workflow-A.definitionHash",
+        "uia: current-step.postcondition"
+      ],
+      "checks": [
+        {
+          "id": "definitionHash",
+          "object": "workflow-A",
+          "field": "definitionHash",
+          "source": "api",
+          "expected": "definition-v1",
+          "wrong": "definition-v2"
+        },
+        {
+          "id": "postcondition",
+          "object": "current-step",
+          "field": "postcondition",
+          "source": "uia",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "postcondition",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 postcondition 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "crash-boundary",
+      "goal": "崩溃后独立证据确认未决动作已完成，且没有重复发出",
+      "category": "recovery",
+      "scope": "stage",
+      "family": "crash-boundary",
+      "split": "development",
+      "codeRefs": [
+        "src/workflows/recovery.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: action-A.resultConfirmed",
+        "api: action-A.repeatDispatchCount"
+      ],
+      "checks": [
+        {
+          "id": "resultConfirmed",
+          "object": "action-A",
+          "field": "resultConfirmed",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "repeatDispatchCount",
+          "object": "action-A",
+          "field": "repeatDispatchCount",
+          "source": "api",
+          "expected": 0,
+          "wrong": 1
+        }
+      ],
+      "counterexample": "repeatDispatchCount",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 repeatDispatchCount 为错误值 1，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "user-response",
+      "goal": "回答绑定当前任务和当前问题且非空",
+      "category": "human",
+      "scope": "action",
+      "family": "user-response",
+      "split": "holdout",
+      "codeRefs": [
+        "src/graph/graph.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: answer-A.questionId",
+        "api: answer-A.hasAnswer"
+      ],
+      "checks": [
+        {
+          "id": "questionId",
+          "object": "answer-A",
+          "field": "questionId",
+          "source": "api",
+          "expected": "question-current",
+          "wrong": "question-old"
+        },
+        {
+          "id": "hasAnswer",
+          "object": "answer-A",
+          "field": "hasAnswer",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "hasAnswer",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 hasAnswer 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "ask_user"
+      ]
+    },
+    {
+      "id": "stage-all",
+      "goal": "阶段内每项要求全部满足才能进入下一阶段",
+      "category": "completion",
+      "scope": "stage",
+      "family": "stage-all",
+      "split": "development",
+      "codeRefs": [
+        "src/graph/graph.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "api: stage-A.targetReady",
+        "api: stage-A.contentCorrect"
+      ],
+      "checks": [
+        {
+          "id": "targetReady",
+          "object": "stage-A",
+          "field": "targetReady",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        },
+        {
+          "id": "contentCorrect",
+          "object": "stage-A",
+          "field": "contentCorrect",
+          "source": "api",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "contentCorrect",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 contentCorrect 为错误值 False，不满足目标。",
+      "actionKinds": []
+    },
+    {
+      "id": "task-all",
+      "goal": "内容、保存位置和持久化都满足原任务要求",
+      "category": "completion",
+      "scope": "task",
+      "family": "task-all",
+      "split": "development",
+      "codeRefs": [
+        "src/graph/graph.ts"
+      ],
+      "collectorStatus": "normalized-fixture-only",
+      "collectionRequired": [
+        "file: file-A.content",
+        "file: file-A.canonicalPath",
+        "file: file-A.durable"
+      ],
+      "checks": [
+        {
+          "id": "content",
+          "object": "file-A",
+          "field": "content",
+          "source": "file",
+          "expected": "approved",
+          "wrong": "draft"
+        },
+        {
+          "id": "canonicalPath",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "source": "file",
+          "expected": "C:/Users/test/Desktop/result.txt",
+          "wrong": "C:/Users/test/Documents/result.txt"
+        },
+        {
+          "id": "durable",
+          "object": "file-A",
+          "field": "durable",
+          "source": "file",
+          "expected": true,
+          "wrong": false
+        }
+      ],
+      "counterexample": "durable",
+      "passReason": "当前目标对象的全部指定字段已由对应来源完整确认。",
+      "failReason": "当前可信证据明确显示 durable 为错误值 False，不满足目标。",
+      "actionKinds": [
+        "done"
+      ]
+    }
+  ]
+}

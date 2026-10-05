@@ -1,0 +1,7 @@
+{
+  "maxAgeMs": 5000,
+  "modelTimeoutMs": 2000,
+  "maxModelBytes": 6000,
+  "confidenceThreshold": 0.85,
+  "allowModelPass": false
+}

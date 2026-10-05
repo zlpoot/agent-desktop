@@ -1,0 +1,20 @@
+[
+  "browser-form-rebind.test.ts",
+  "browser-resume.test.ts",
+  "browser.test.ts",
+  "collector-candidate-budget.test.ts",
+  "dashboard.test.ts",
+  "desktop-control.test.ts",
+  "desktop-session.test.ts",
+  "grounding.test.ts",
+  "model-budget.test.ts",
+  "runtime-inspection.test.ts",
+  "structured-browser-collector.test.ts",
+  "todo-fixture-actions.test.ts",
+  "verification-ui.test.ts",
+  "vm-control-route.test.ts",
+  "web-tasks.test.ts",
+  "workbench.test.ts",
+  "workflow-execution-router.test.ts",
+  "workflow-library.test.ts"
+]

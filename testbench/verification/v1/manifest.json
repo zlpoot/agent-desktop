@@ -1,0 +1,67 @@
+{
+  "version": "candidate-synthetic-1",
+  "labelStatus": "assistant-authored-awaiting-independent-review",
+  "purpose": "Project verification benchmark; normalized scenarios are synthetic, not end-to-end recordings.",
+  "splits": {
+    "development": {
+      "cases": 112,
+      "families": [
+        "worker-identity",
+        "worker-ready",
+        "desktop-ready",
+        "window-bind",
+        "window-focus",
+        "frame-full",
+        "target-unique",
+        "menu-open",
+        "text-replace",
+        "paste-unicode",
+        "shortcut-dialog",
+        "scroll-target",
+        "browser-navigate",
+        "wait-stable",
+        "async-result",
+        "document-saved",
+        "file-save",
+        "media-state",
+        "pause-fence",
+        "human-takeover",
+        "resume-fresh",
+        "reconnect-epoch",
+        "workflow-replay",
+        "crash-boundary",
+        "stage-all",
+        "task-all",
+        "semantic-export",
+        "semantic-settings"
+      ]
+    },
+    "holdout": {
+      "cases": 44,
+      "families": [
+        "input-permission",
+        "double-open",
+        "text-append",
+        "dialog-close",
+        "choice-select",
+        "drag-move",
+        "file-overwrite",
+        "download-ready",
+        "extract-row",
+        "emergency-fence",
+        "shutdown-clean",
+        "user-response",
+        "semantic-download"
+      ]
+    }
+  },
+  "files": {
+    "scenarios.json": "72ca4606c8c6557cbf87ec60f21b55f53dde20374e92e2658172227522b04331",
+    "semantic-cases.json": "341d44a9db90b04c2950c918a16f07ab4ac8640c4ae3a820f78a280c525c83af",
+    "development.json": "da7f5d6ce1d96d434777858077f50bc47db2dae1a0a7d5240ab58472022c7f6c",
+    "holdout.json": "edea2a1705290337be22241e0bc0e8ea4dee87d5b48ca85e229fc772bc5f817d",
+    "raw-cases.json": "38dbe589e99c956295f03fe5032769f9093bf212fdef2c0e7dd6d7f0b52e5c1c",
+    "assets/synthetic-window.png": "57c6800b5b5450c171684dae59862dec732403ddbe993c6a8532fbfdc497b6e6",
+    "assets/desktop-context.png": "4968c09026cd757b50c0022072e6eaf7ef90cd2a7d2b657c57a23f312a71a36f"
+  }
+}

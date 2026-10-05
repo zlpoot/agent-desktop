@@ -1,0 +1,625 @@
+﻿source,category,destination,reason,dependencies
+.gitignore,转成模板,.gitignore,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+README.md,转成模板,README.md,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+apps.example.json,转成模板,apps.example.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/acceptance-verifier.json,转成模板,config/acceptance-verifier.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/agent-desktop-apps.json,转成模板,config/agent-desktop-apps.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/desktop-connection.json,转成模板,config/desktop-connection.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/task-budget.json,转成模板,config/task-budget.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/verification-follow-up.json,转成模板,config/verification-follow-up.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/verification-lab.json,转成模板,config/verification-lab.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+config/verification-shadow.json,转成模板,config/verification-shadow.json,独立重写脱敏默认值或文档；两份已改配置不复制,对应配置加载器或安装说明
+docs/Agent-Desktop-Cordis-Handoff.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Current-Status-And-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D1.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D2.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D3.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D4-A.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D4-B-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D4-B.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-D4.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Deferred-Unattended-Recovery.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Generic-Flow-Review.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Hybrid-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Jev-Verifier-Evaluation.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Next-Phase-Handoff.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Next-Vertical-Phase.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Operations.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P0-Closure.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P1-Closure.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P1-Live-Runs.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P1-Verification-Progress.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P2-Budget-Closure.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P3-Closure.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P3-Progress.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P4-Progress.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P5-Readiness-Progress.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P6-Workflow-Loop.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7-Oracle-Bridge.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7-P8-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7A-Baseline.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7B-Contract-Gate.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7C-C4-Human-Acceptance-Runbook.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P7C-Live-Checkpoint.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch1-Hygiene-Checkpoint.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch2-Facet-Contributor-Checkpoint.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch3-Workflow-Generalization-Checkpoint.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch4A-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch4A-Gap-Calculator-Parameterization.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8-Batch4B-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P8A-Generalization-Audit.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A0-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A1-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A2-0-Cdp-Gate.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A2-Round1-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A4-5-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A4-5-Design.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A4-Acceptance.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A4-Design.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Browser-Window-2026-10-05.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Execution-Startup-Review.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Measurement-Readiness.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Startup-Review.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-A5-Statistical-Protocol.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-P9-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Progress.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Vertical-Validation-Plan.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Vertical-Validation-Results.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Web-P2-Contracts.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Agent-Desktop-Web-Workbench.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Computer Use工具清单与验收.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/M7-M9阶段验收.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Module-V1.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-10.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-11.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-12.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-13.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-14.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-15.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-16.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-17.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-18.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-19.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-2.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-20.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-21.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-22.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-23.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-3.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-4.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-5.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-6.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-7.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-8.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Round-9.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/Verification-Test-Catalog.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P1-Windows-Negative-Observation-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P1-Windows-Negative-Oracle-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P1-Windows-Variant-After-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P1-Windows-Variant-Before-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P1-Windows-Variant-Oracle-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P2-Guest-Budget-Runs-20260929.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P2-Workflow-Before-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P2-Workflow-Guest-File-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Guest-File-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Live-Runs-20260929.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Old-Worker-Identity-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Save-After-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Save-Ready-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P3-Stale-Epoch-20260929.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P4-guest-oracle-pass.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P4-real-guest-recovery.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P4-worker-restart-events.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-guest-lock-unlock.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-guest-logout-login.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-guest-oracle-after-reboot.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-guest-oracle-before.png,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-guest-reboot.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-host-reboot-network.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-reboot-prepare.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-recovery-rewind.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P5-resume-stale-window.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/P9-A45-G4.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/authorization-boundary-seal-check.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/authorization.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/evidence-verification.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/final-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/finalize-evidence.mjs,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/post-window-runtime-drift.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/post-window-seal-check.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/post-window-seal.mjs,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/raw-asset-seal.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/runtime-drift.mjs,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/sealed-manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/window-start.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-browser-window-20261005/write-report.mjs,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/readiness-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/runner-readiness.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/startup-review.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v2/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/readiness-failure-raw-reference.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/readiness-failure.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v3/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/post-regression-seal-check.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/readiness-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/runner-readiness.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/startup-review.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup-v4/validation.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/readiness-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/runner-readiness.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/startup-review.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-execution-startup/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-review/startup-review.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/browser-probe.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/local-dispatch.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/local-executions.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/local-native-events.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/local-probe-seal.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/local-result.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/readiness-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/startup-review.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5-startup-v2/validation.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/a907f33-docs-only.patch,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/historical-audit.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/manifest.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/readiness-dry-run.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/readiness-evidence.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/run.schema.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/tested-files.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/evidence/p9-a5/validation.json,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/业务隔离与Contract整理.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/工具能力与选择规则.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/炉石佣兵之书导航与暂停.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/逐动作解析与证据闭环.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/通用阶段任务与场景配置.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/阶段A收尾-ProviderSessionWeb传输边界.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/阶段B-Cordis装配层.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/阶段B实机验收清单.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/阶段B实机验收结果-2026-09-26.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+docs/阶段B收尾-生命周期与归属修复.md,私有留存,,阶段文档与实验现场证据；新文档另写,历史实验专用
+guest/action-worker.py,保留,guest/action-worker.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,base64; copy; ctypes; desktop_readiness; file_evidence; http.server; human_input; input_control; json; os; pathlib; pyautogui; socket; subprocess; subprocess_rpc; sys; threading; time; uuid
+guest/desktop_readiness.py,保留,guest/desktop_readiness.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,ctypes; os
+guest/file_evidence.py,保留,guest/file_evidence.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,hashlib; os; pathlib; time
+guest/human_input.py,保留,guest/human_input.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,ctypes; math; pyautogui
+guest/input_control.py,保留,guest/input_control.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,secrets; threading
+guest/install-action-worker.ps1,保留,guest/install-action-worker.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/install-worker-autostart.ps1,保留,guest/install-worker-autostart.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/python-command.ps1,保留,guest/python-command.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/smoke-file-rpc.ps1,保留,guest/smoke-file-rpc.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/start-worker.ps1,保留,guest/start-worker.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/subprocess_rpc.py,保留,guest/subprocess_rpc.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,queue; threading
+guest/worker.ps1,保留,guest/worker.ps1,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+guest/worker.py,保留,guest/worker.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,http.server; io; json; os; pyautogui; socket; time
+measurement/p9-a5/browser-probe.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/browser-window.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/build-readiness.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/execute-audit.ts,保留,measurement/p9-a5/execute-audit.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,../../src/actions/schema.js; ../../src/grounding/dom.js; ../../src/runtime/runtime-adapter.js; ./case.js; ./runner-io.js; ./sidecar.js; node:path; playwright
+measurement/p9-a5/manifest.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/readiness.ts,保留,measurement/p9-a5/readiness.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,../../src/actions/schema.js; ./case.js; ./sidecar.js; node:assert/strict; node:fs; node:path
+measurement/p9-a5/request-meter.ts,保留,measurement/p9-a5/request-meter.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,./runner-io.js; ./sidecar.js; node:async_hooks; node:crypto; node:diagnostics_channel; node:path
+measurement/p9-a5/run-analysis.ts,保留,measurement/p9-a5/run-analysis.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,../../src/graph/state.js; ./case.js; ./execute-audit.js; ./sidecar.js
+measurement/p9-a5/runner-io.ts,保留,measurement/p9-a5/runner-io.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,./sidecar.js; node:fs; node:path
+measurement/p9-a5/runner-readiness.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/runtime-fingerprint.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+measurement/p9-a5/sidecar.ts,保留,measurement/p9-a5/sidecar.ts,可复用测量、安全审计；移除冻结源码/历史数据依赖，合成夹具验证,../../src/actions/schema.js; ../../src/workflows/target-remap.js; node:crypto; node:fs; node:path
+measurement/p9-a5/startup-gate.ts,私有留存,,A5 冻结提交、旧种子及实验启动/授权链路,旧 Git 和私有 .artifacts
+package-lock.json,保留,package-lock.json,原版本锁及安装、noEmit 校验入口；仅补离线脚本,原依赖版本不升级
+package.json,保留,package.json,原版本锁及安装、noEmit 校验入口；仅补离线脚本,原依赖版本不升级
+prompts/browser-decision.md,保留,prompts/browser-decision.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/desktop-decision.md,保留,prompts/desktop-decision.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/desktop-visual.md,保留,prompts/desktop-visual.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/jev-choice.md,保留,prompts/jev-choice.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/jev-verifier.md,保留,prompts/jev-verifier.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/stage-diagnosis.md,保留,prompts/stage-diagnosis.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/stage-planner.md,保留,prompts/stage-planner.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/stage-reconcile.md,保留,prompts/stage-reconcile.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/stage-verifier.md,保留,prompts/stage-verifier.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/task-planner.md,保留,prompts/task-planner.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/verification-semantic.md,保留,prompts/verification-semantic.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/vision-locate.md,保留,prompts/vision-locate.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/vision-ocr.md,保留,prompts/vision-ocr.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+prompts/workflow-match.md,保留,prompts/workflow-match.md,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+requirements-desktop.txt,保留,requirements-desktop.txt,原版本锁及安装、noEmit 校验入口；仅补离线脚本,原依赖版本不升级
+scripts/agent-desktop-vm.ps1,保留,scripts/agent-desktop-vm.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/benchmark-verification.mjs,保留,scripts/benchmark-verification.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/engine.ts; ../src/verification/jev.ts; ../tests/fixtures/verification-cases.ts; config/verification-lab.json; node:fs; node:path; prompts/verification-semantic.md
+scripts/build-verification-dataset.mjs,保留,scripts/build-verification-dataset.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,node:crypto; node:fs; node:path
+scripts/capture-p7a-runs.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/check-verification-live.ps1,保留,scripts/check-verification-live.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/compare-jev-context.mjs,保留,scripts/compare-jev-context.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/engine.ts; ../src/verification/jev.ts; ../src/verification/semantic-context.ts; config/verification-lab.json; node:crypto; node:fs; node:path; prompts/verification-semantic.md; scripts/compare-jev-context.mjs; src/verification/engine.ts; src/verification/jev.ts; src/verification/semantic-context.ts; testbench/verification/context-development-v1.json
+scripts/copy-agent-desktop-guest.ps1,保留,scripts/copy-agent-desktop-guest.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/copy-p1-testbench-guest.ps1,保留,scripts/copy-p1-testbench-guest.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/create-template.py,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/desktop-fixture.cs,保留,scripts/desktop-fixture.cs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/eval-hybrid-verifier.mjs,保留,scripts/eval-hybrid-verifier.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; node:fs; node:path
+scripts/eval-jev-verifier.mjs,保留,scripts/eval-jev-verifier.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; node:fs; node:path
+scripts/evaluate-p7a-baseline.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/evaluate-p7b-baseline.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/evaluate-r23-file-boundary.mjs,保留,scripts/evaluate-r23-file-boundary.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/engine.ts; ../src/verification/file-evidence.ts; ../src/verification/jev.ts; ../src/verification/task-evidence.ts; node:crypto; node:fs; node:path; node:perf_hooks; prompts/verification-semantic.md; scripts/evaluate-r23-file-boundary.mjs; src/verification/engine.ts; src/verification/file-evidence.ts; src/verification/jev.ts; src/verification/task-evidence.ts; src/verifier/hybrid-verifier.ts; testbench/verification/r23-file-cases.json
+scripts/evaluate-raw-verification.mjs,保留,scripts/evaluate-raw-verification.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/verification/engine.ts; ../src/verification/raw-evidence.ts; ../src/verification/ui-evidence.ts; node:crypto; node:fs; node:path; playwright; scripts/evaluate-raw-verification.mjs; src/verification/raw-evidence.ts; src/verification/ui-evidence.ts; testbench/verification/raw-ui-contracts-v1.json
+scripts/evaluate-verification-dataset.mjs,保留,scripts/evaluate-verification-dataset.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/engine.ts; ../src/verification/jev.ts; ./verification-input-supplement.mjs; config/verification-lab.json; node:crypto; node:fs; node:path; prompts/verification-semantic.md; scripts/verification-input-supplement.mjs; testbench/verification/contract-supplement-v1.json
+scripts/evaluate-verification-routing.mjs,保留,scripts/evaluate-verification-routing.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/coordinator.ts; ../src/verification/jev.ts; ./verification-input-supplement.mjs; config/verification-follow-up.json; config/verification-lab.json; node:crypto; node:fs; node:path; prompts/verification-semantic.md; scripts/evaluate-verification-routing.mjs; scripts/verification-input-supplement.mjs; src/verification/coordinator.ts; src/verification/engine.ts; src/verification/follow-up.ts; src/verification/jev.ts; src/verification/semantic-context.ts; testbench/verification/contract-supplement-v1.json
+scripts/install-agent-desktop-host-autostart.ps1,保留,scripts/install-agent-desktop-host-autostart.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/install-browser.mjs,保留,scripts/install-browser.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,node:child_process; node:path
+scripts/install-oracle-bridge.ps1,保留,scripts/install-oracle-bridge.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/migrate-workflow-targets.ts,保留,scripts/migrate-workflow-targets.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/workflows/store.js; node:fs; node:path; node:sqlite
+scripts/observe-verification-shadow.mjs,保留,scripts/observe-verification-shadow.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/verification/shadow.ts; node:crypto; node:fs; node:path; node:sqlite; scripts/observe-verification-shadow.mjs; src/verification/shadow.ts
+scripts/p8-b2-live-jd.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b2-live-netease.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-clear-debug.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-cost.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-debug-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-distill-v2.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-dump.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-explore.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-mismatch.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-probe.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-replay-variants.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4a-smoke.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-cost.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-debug-wl.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-debug-wl2.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-debug-wl4.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-dump-durable.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-dump-fail.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-dump-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-dump-trace.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-durable.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-explore.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-failclosed.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-probe.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-readiness.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p8-b4b-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a0-browser-smoke.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a0-taobao-cdp.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a1-wiki-explore.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a1-wiki-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-cdp-gate.mjs,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-cdp-smoke.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-detail-probe.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-enter-debug.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-locate-debug.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-report-read.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-store-query.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-taobao-explore.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-taobao-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a2-trace-query.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-debug.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-exec.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-offline-validate.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-qhits.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-steps.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-trace-probe.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a4-urls.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a45-f1-wiki-probe.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a45-fixture-gate.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/p9-a45-g4-wiki-replay.ts,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/read-guest-oracle.ps1,保留,scripts/read-guest-oracle.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/register-workflow-candidate.ts,保留,scripts/register-workflow-candidate.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/workflows/recovery.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:fs; node:path
+scripts/report-verification-live.mjs,保留,scripts/report-verification-live.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,node:fs; node:path
+scripts/request-oracle.mjs,保留,scripts/request-oracle.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,node:crypto; node:fs; node:fs/promises; node:path; node:url
+scripts/run-nte-elevated.ps1,私有留存,,阶段实验、真实数据采集或一次性排障；不作为废弃代码删除,原工程实验现场
+scripts/serve-agent-desktop-guest.mjs,保留,scripts/serve-agent-desktop-guest.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,node:fs/promises; node:http; node:path; node:url
+scripts/smoke-action-resolver.ts,保留,scripts/smoke-action-resolver.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/chat-completions-model.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/desktop/vision-runtime.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-browser-verification.mjs,保留,scripts/smoke-browser-verification.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/graph/graph.ts; ../src/graph/state.ts; ../src/runtime/browser/playwright-runtime.ts; ../src/trace/sqlite-trace.ts; ../src/verification/host-shadow.ts; ../src/verification/live-shadow.ts; node:crypto; node:fs; node:http; node:path; prompts/verification-semantic.md
+scripts/smoke-calculator-workflow.ts,保留,scripts/smoke-calculator-workflow.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.js; ../src/agent/task-agent.js; ../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; ../src/workflows/store.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-desktop-tools.ts,保留,scripts/smoke-desktop-tools.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/actions/action-resolution.js; ../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/window-manager.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-desktop-workflow.ts,保留,scripts/smoke-desktop-workflow.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.js; ../src/agent/task-agent.js; ../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; ../src/workflows/store.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-live-verification.mjs,保留,scripts/smoke-live-verification.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.ts; ../src/verification/live-shadow.ts; node:fs; prompts/verification-semantic.md
+scripts/smoke-vision-runtime.ts,保留,scripts/smoke-vision-runtime.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/vision-runtime.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-vision-workflow.ts,保留,scripts/smoke-vision-workflow.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.js; ../src/agent/task-agent.js; ../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/vision-runtime.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; ../src/workflows/store.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-web-app-launch.ts,保留,scripts/smoke-web-app-launch.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/app/server.js; ../src/app/task-runner.js; ../src/runtime/desktop/window-manager.js; ../src/trace/sqlite-trace.js; node:child_process; node:crypto; node:fs/promises; node:http; node:path
+scripts/smoke-web-generic.ts,保留,scripts/smoke-web-generic.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/app/server.js; ../src/app/task-runner.js; ../src/trace/sqlite-trace.js; node:crypto; node:fs/promises; node:http; node:path
+scripts/smoke-web-vision.ts,保留,scripts/smoke-web-vision.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/app/server.js; ../src/app/task-runner.js; ../src/trace/sqlite-trace.js; node:child_process; node:crypto; node:fs/promises; node:path
+scripts/smoke-workflow.ts,保留,scripts/smoke-workflow.ts,安装、启动、迁移、可复用评测及明确现场 smoke 入口,../src/agent/local-config.js; ../src/agent/task-agent.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; ../src/workflows/store.js; node:crypto; node:fs/promises; node:http; node:path
+scripts/start-agent-desktop-dashboard.ps1,保留,scripts/start-agent-desktop-dashboard.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/start-nte-elevated.ps1,保留,scripts/start-nte-elevated.ps1,安装、启动、迁移、可复用评测及明确现场 smoke 入口,", ; src/nte-web-runner.ts"
+scripts/verification-input-supplement.mjs,保留,scripts/verification-input-supplement.mjs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+scripts/vision-fixture.cs,保留,scripts/vision-fixture.cs,安装、启动、迁移、可复用评测及明确现场 smoke 入口,对应 src、guest、testbench；现场项显式执行
+src/actions/action-resolution.ts,保留,src/actions/action-resolution.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/actions/schema.ts,保留,src/actions/schema.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/actions/semantic-target.ts,保留,src/actions/semantic-target.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./schema.js
+src/agent/chat-completions-model.ts,保留,src/agent/chat-completions-model.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../contracts/facets.js; ../graph/state.js; ../runtime/desktop/app-catalog.js; ../runtime/desktop/desktop-runtime.js; ../runtime/model-budget.js; ../verification/planner-contract.js; ../verifier/verifier.js; ../workflows/schema.js; ./model-adapter.js; ./prompt-store.js; ./task-planner.js; node:fs/promises
+src/agent/jev-choice-model.ts,保留,src/agent/jev-choice-model.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../contracts/facets.js; ../graph/state.js; ../runtime/model-budget.js; ./model-adapter.js; ./prompt-store.js
+src/agent/local-config.ts,保留,src/agent/local-config.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/facets.js; ../contracts/model-provider.js; ../contracts/verifier-contributor.js; ../verifier/hybrid-verifier.js; ./chat-completions-model.js; ./jev-choice-model.js; ./prompt-store.js; config/acceptance-verifier.json; node:fs; node:path
+src/agent/model-adapter.ts,保留,src/agent/model-adapter.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../graph/state.js; ../verification/planner-contract.js; ../workflows/schema.js
+src/agent/prompt-store.ts,保留,src/agent/prompt-store.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:fs; node:path
+src/agent/stage-workflow-model.ts,保留,src/agent/stage-workflow-model.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../capabilities/registry.js; ../contracts/stores.js; ../graph/state.js; ../workflows/matcher.js; ../workflows/recovery.js; ../workflows/replay-model.js; ./model-adapter.js
+src/agent/task-agent.ts,保留,src/agent/task-agent.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../capabilities/registry.js; ../contracts/stores.js; ../graph/graph.js; ../graph/state.js; ../runtime/model-budget.js; ../runtime/runtime-adapter.js; ../verification/task-contract-coverage.js; ../verifier/hybrid-verifier.js; ../verifier/verifier.js; ../workflows/distill.js; ../workflows/matcher.js; ../workflows/recovery.js; ../workflows/replay-model.js; ../workflows/schema.js; ./model-adapter.js; ./task-planner.js; @langchain/langgraph; node:crypto
+src/agent/task-planner.ts,保留,src/agent/task-planner.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../runtime/desktop/app-catalog.js; ../runtime/desktop/desktop-runtime.js; ../verifier/verifier.js
+src/app/public/app.js,保留,src/app/public/app.js,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/index.html,保留,src/app/public/index.html,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/runtime-plugins.js,保留,src/app/public/runtime-plugins.js,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/style.css,保留,src/app/public/style.css,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/task-experience.js,保留,src/app/public/task-experience.js,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/workbench.css,保留,src/app/public/workbench.css,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/workbench.js,保留,src/app/public/workbench.js,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/public/workflow-library.js,保留,src/app/public/workflow-library.js,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/app/server.ts,保留,src/app/server.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../agent/prompt-store.js; ../composition/inspection.js; ../contracts/desktop-provider.js; ../contracts/facets.js; ../desktop-session/vm-control.js; ../graph/state.js; ../runtime/model-budget.js; ../trace/sqlite-trace.js; ../verification/manual-review.js; ../verification/task-outcome.js; ../workflows/store.js; ./task-runner.js; ./workflow-view.js; node:fs; node:http; node:path; node:sqlite; node:url
+src/app/start.ts,保留,src/app/start.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../composition/eval-oracle.js; ../composition/root.js; ../composition/session-scope.js; ../composition/shutdown.js; ./server.js; node:http
+src/app/task-profiles.ts,保留,src/app/task-profiles.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/extension.js; ../graph/state.js
+src/app/task-routing.ts,保留,src/app/task-routing.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/extension.js; ../contracts/task.js
+src/app/task-runner.ts,保留,src/app/task-runner.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../agent/local-config.js; ../agent/model-adapter.js; ../agent/stage-workflow-model.js; ../agent/task-agent.js; ../capabilities/registry.js; ../contracts/desktop-provider.js; ../contracts/extension.js; ../contracts/facets.js; ../contracts/model-provider.js; ../contracts/stores.js; ../contracts/worker-client.js; ../contracts/worker-error.js; ../desktop-session/recovery.js; ../graph/graph.js; ../graph/resume.js; ../graph/state.js; ../runtime/browser/playwright-runtime.js; ../runtime/desktop/app-catalog.js; ../runtime/desktop/desktop-runtime.js; ../runtime/desktop/guest-runtime.js; ../runtime/desktop/vision-runtime.js; ../runtime/desktop/window-manager.js; ../runtime/model-budget.js; ../trace/sqlite-trace.js; ../verification/domain-evaluator.js; ../verification/goal-file-coverage.js; ../verification/host-shadow.js; ../verification/live-shadow.js; ../verification/manual-review.js; ../verification/task-contract-coverage.js; ../verifier/hybrid-verifier.js; ../workflows/distill.js; ../workflows/execution.js; ../workflows/matcher.js; ../workflows/recovery.js; ../workflows/replay-model.js; ../workflows/store.js; ./task-profiles.js; ./task-routing.js; @langchain/langgraph-checkpoint-sqlite; node:crypto; node:fs/promises; node:path; node:sqlite
+src/app/workflow-view.ts,保留,src/app/workflow-view.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../workflows/matcher.js; ../workflows/recovery.js; ../workflows/schema.js; node:fs; node:path; node:sqlite
+src/approval-demo.ts,保留,src/approval-demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/model-adapter.js; ./graph/graph.js; ./graph/resume.js; ./graph/state.js; ./runtime/browser/playwright-runtime.js; ./trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:crypto; node:fs/promises; node:http; node:path
+src/browser-demo.ts,保留,src/browser-demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./actions/schema.js; ./agent/model-adapter.js; ./capabilities/record.js; ./contracts/task.js; ./graph/graph.js; ./graph/state.js; ./runtime/browser/playwright-runtime.js; ./trace/sqlite-trace.js; node:crypto; node:http; node:path
+src/capabilities/record.ts,保留,src/capabilities/record.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/stores.js; ../contracts/task.js; ./registry.js
+src/capabilities/registry.ts,保留,src/capabilities/registry.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/composition/cordis.d.ts,保留,src/composition/cordis.d.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./context
+src/composition/eval-oracle.ts,保留,src/composition/eval-oracle.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../testbench/oracle-bridge.js
+src/composition/inspection.ts,保留,src/composition/inspection.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/extension.js; cordis
+src/composition/root.ts,保留,src/composition/root.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../agent/local-config.js; ../app/task-runner.js; ../contracts/desktop-provider.js; ../contracts/extension.js; ../contracts/facets.js; ../contracts/model-provider.js; ../contracts/stores.js; ../contracts/verifier-contributor.js; ../contracts/worker-client.js; ../desktop-session/recovery.js; ../desktop-session/session-manager.js; ../desktop-session/vm-control.js; ../extensions/index.js; ../runtime/desktop/guest-runtime.js; ../trace/sqlite-trace.js; ../verification/domain-evaluator.js; ../workflows/store.js; ./inspection.js; ./services.js; cordis; node:path
+src/composition/services.ts,保留,src/composition/services.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../app/task-runner.js; ../contracts/desktop-provider.js; ../contracts/extension.js; ../contracts/model-provider.js; ../contracts/stores.js; ../contracts/worker-client.js; ../desktop-session/vm-control.js
+src/composition/session-scope.ts,保留,src/composition/session-scope.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../desktop-session/connection-config.js; ../desktop-session/control.js; ./inspection.js; ./root.js; ./services.js; cordis; node:path
+src/composition/shutdown.ts,保留,src/composition/shutdown.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./root.js; node:http
+src/contracts/desktop-provider.ts,保留,src/contracts/desktop-provider.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:http
+src/contracts/extension.ts,保留,src/contracts/extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../runtime/desktop/desktop-runtime.js; ../verifier/verifier.js; ./facets.js; ./task.js; ./verifier-contributor.js
+src/contracts/facets.ts,保留,src/contracts/facets.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/contracts/model-provider.ts,保留,src/contracts/model-provider.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../agent/model-adapter.js; ../agent/task-planner.js; ../runtime/desktop/app-catalog.js; ../runtime/desktop/desktop-runtime.js; ../verifier/verifier.js
+src/contracts/stores.ts,保留,src/contracts/stores.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../capabilities/registry.js; ../graph/state.js; ../trace/sqlite-trace.js; ../workflows/schema.js
+src/contracts/task.ts,保留,src/contracts/task.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../capabilities/registry.js; ../verifier/verifier.js
+src/contracts/verifier-contributor.ts,保留,src/contracts/verifier-contributor.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./facets.js
+src/contracts/worker-client.ts,保留,src/contracts/worker-client.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../runtime/desktop/desktop-runtime.js
+src/contracts/worker-error.ts,保留,src/contracts/worker-error.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/demo.ts,保留,src/demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/model-adapter.js; ./graph/graph.js; ./graph/state.js; ./runtime/runtime-adapter.js; ./trace/sqlite-trace.js
+src/desktop-ai.ts,保留,src/desktop-ai.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/local-config.js; ./graph/graph.js; ./graph/resume.js; ./graph/state.js; ./runtime/desktop/desktop-runtime.js; ./trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:child_process; node:crypto; node:fs/promises; node:path
+src/desktop-demo.ts,保留,src/desktop-demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/model-adapter.js; ./graph/graph.js; ./graph/state.js; ./runtime/desktop/desktop-runtime.js; ./runtime/desktop/window-manager.js; ./trace/sqlite-trace.js; node:child_process; node:crypto; node:path; scripts/create-template.py
+src/desktop-inspect.ts,保留,src/desktop-inspect.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./runtime/desktop/desktop-runtime.js; node:crypto; node:path
+src/desktop-session/connection-config.ts,保留,src/desktop-session/connection-config.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:fs; node:path
+src/desktop-session/control.ts,保留,src/desktop-session/control.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../app/task-runner.js; ../contracts/desktop-provider.js; ../contracts/worker-error.js; ../trace/sqlite-trace.js; ./connection-config.js; node:crypto; node:fs/promises; node:path; node:sqlite
+src/desktop-session/recovery.ts,保留,src/desktop-session/recovery.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../graph/state.js; ../trace/sqlite-trace.js; node:crypto; node:path
+src/desktop-session/session-manager.ts,保留,src/desktop-session/session-manager.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:crypto; node:http; node:path; node:sqlite; ws
+src/desktop-session/vm-control.ts,保留,src/desktop-session/vm-control.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:child_process; node:util
+src/extensions/hearthstone/hearthstone-extension.ts,保留,src/extensions/hearthstone/hearthstone-extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../contracts/extension.js; ../../runtime/desktop/desktop-runtime.js
+src/extensions/index.ts,保留,src/extensions/index.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/extension.js; ./hearthstone/hearthstone-extension.js; ./netease/netease-extension.js; ./nte/nte-extension.js; ./shop/shop-extension.js; ./testbench/testbench-extension.js
+src/extensions/netease/music-facet.ts,保留,src/extensions/netease/music-facet.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../contracts/facets.js; ../../contracts/verifier-contributor.js
+src/extensions/netease/music-model.ts,保留,src/extensions/netease/music-model.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/schema.js; ../../agent/model-adapter.js; ../../graph/state.js; ./music-facet.js
+src/extensions/netease/netease-extension.ts,保留,src/extensions/netease/netease-extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../capabilities/registry.js; ../../contracts/extension.js; ../../contracts/facets.js; ../../contracts/task.js; ../../contracts/verifier-contributor.js; ../../graph/graph.js; ../../graph/resume.js; ../../graph/state.js; ../../runtime/desktop/desktop-runtime.js; ../../runtime/desktop/window-manager.js; ../../trace/sqlite-trace.js; ../../verification/domain-evaluator.js; ./music-facet.js; ./music-model.js; @langchain/langgraph-checkpoint-sqlite; node:crypto; node:fs/promises; node:path
+src/extensions/nte/nte-extension.ts,保留,src/extensions/nte/nte-extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../capabilities/registry.js; ../../contracts/extension.js; ../../contracts/task.js; ../../graph/state.js; ../../trace/sqlite-trace.js; node:child_process; node:crypto; node:path
+src/extensions/shop/jd-product.ts,保留,src/extensions/shop/jd-product.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/extensions/shop/shop-extension.ts,保留,src/extensions/shop/shop-extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../contracts/extension.js; ../../contracts/facets.js; ../../contracts/verifier-contributor.js; ./jd-product.js
+src/extensions/testbench/testbench-extension.ts,保留,src/extensions/testbench/testbench-extension.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../contracts/extension.js; ../../runtime/desktop/desktop-runtime.js
+src/graph/graph.ts,保留,src/graph/graph.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../actions/semantic-target.js; ../agent/model-adapter.js; ../contracts/facets.js; ../contracts/stores.js; ../contracts/worker-error.js; ../runtime/model-budget.js; ../runtime/runtime-adapter.js; ../trace/sqlite-trace.js; ../verification/action-evidence.js; ../verification/contracts.js; ../verification/domain-evaluator.js; ../verification/engine.js; ../verification/facet-binding.js; ../verification/file-evidence.js; ../verification/goal-file-coverage.js; ../verification/host-shadow.js; ../verification/planner-contract.js; ../verification/structured-rebind.js; ../verification/task-evidence.js; ../verifier/hybrid-verifier.js; ../verifier/verifier.js; ../workflows/recovery.js; ../workflows/target-remap.js; ./state.js; @langchain/langgraph; node:crypto
+src/graph/resume.ts,保留,src/graph/resume.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../runtime/runtime-adapter.js; ./graph.js; ./state.js; @langchain/langgraph
+src/graph/state.ts,保留,src/graph/state.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../actions/semantic-target.js; ../agent/task-planner.js; ../verification/file-evidence.js; ../verification/host-shadow.js; ../verification/planner-contract.js; ../verification/structured-rebind.js; ../verification/task-contract-coverage.js; ../verifier/hybrid-verifier.js; ../verifier/verifier.js
+src/grounding-stats.ts,保留,src/grounding-stats.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./trace/sqlite-trace.js
+src/grounding/dom.ts,保留,src/grounding/dom.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; playwright
+src/hearthstone-settings.ts,保留,src/hearthstone-settings.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./actions/schema.js; ./capabilities/registry.js; ./graph/state.js; ./runtime/desktop/desktop-runtime.js; ./runtime/desktop/window-manager.js; ./trace/sqlite-trace.js; node:crypto; node:fs/promises; node:path
+src/jev-check.ts,保留,src/jev-check.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/local-config.js; ./graph/state.js
+src/migration/legacy-criteria-adapter.ts,保留,src/migration/legacy-criteria-adapter.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../contracts/verifier-contributor.js; ../verifier/verifier.js
+src/netease-demo.ts,保留,src/netease-demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/model-adapter.js; ./graph/graph.js; ./graph/state.js; ./runtime/desktop/desktop-runtime.js; ./trace/sqlite-trace.js; node:child_process; node:crypto; node:path
+src/nte-settings.ts,保留,src/nte-settings.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./runtime/desktop/desktop-runtime.js; node:crypto; node:path
+src/nte-web-runner.ts,保留,src/nte-web-runner.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./actions/schema.js; ./capabilities/registry.js; ./graph/state.js; ./runtime/desktop/desktop-runtime.js; ./runtime/desktop/window-manager.js; ./trace/sqlite-trace.js; node:fs; node:path
+src/observation/candidate-budget.ts,保留,src/observation/candidate-budget.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ./fixture-gate.js
+src/observation/fixture-gate.ts,保留,src/observation/fixture-gate.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:sqlite
+src/runtime/browser/dom-collector.ts,保留,src/runtime/browser/dom-collector.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/runtime/browser/playwright-runtime.ts,保留,src/runtime/browser/playwright-runtime.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/action-resolution.js; ../../actions/schema.js; ../../grounding/dom.js; ../runtime-adapter.js; ./dom-collector.js; node:crypto; node:fs/promises; node:path; playwright
+src/runtime/browser/raw-cdp-runtime.ts,保留,src/runtime/browser/raw-cdp-runtime.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/schema.js; ../runtime-adapter.js; ./dom-collector.js; node:crypto; node:fs/promises; node:path; ws
+src/runtime/desktop/app-catalog.ts,保留,src/runtime/desktop/app-catalog.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:fs/promises; node:path
+src/runtime/desktop/desktop-runtime.ts,保留,src/runtime/desktop/desktop-runtime.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/action-resolution.js; ../../actions/schema.js; ../runtime-adapter.js; node:child_process; node:path; node:readline; src/runtime/desktop/worker.py
+src/runtime/desktop/guest-runtime.ts,保留,src/runtime/desktop/guest-runtime.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/action-resolution.js; ../../actions/schema.js; ../../contracts/worker-error.js; ../../verification/file-evidence.js; ./desktop-runtime.js; ./vision-runtime.js; node:crypto; node:fs/promises; node:path
+src/runtime/desktop/vision-runtime.ts,保留,src/runtime/desktop/vision-runtime.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../../actions/action-resolution.js; ../../actions/schema.js; ../../agent/model-adapter.js; ../../contracts/model-provider.js; ../../verification/file-evidence.js; ../model-budget.js; ../runtime-adapter.js; ./desktop-runtime.js
+src/runtime/desktop/vision.py,保留,src/runtime/desktop/vision.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,pathlib
+src/runtime/desktop/window-manager.ts,保留,src/runtime/desktop/window-manager.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./desktop-runtime.js; node:child_process; node:fs/promises; node:path
+src/runtime/desktop/worker.py,保留,src/runtime/desktop/worker.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,PIL; ctypes; hashlib; json; os; pathlib; psutil; pyautogui; pywinauto; sys; time; uuid; vision; win32api; win32clipboard; win32con; win32gui; win32process; win32security; win32ui
+src/runtime/model-budget.ts,保留,src/runtime/model-budget.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:async_hooks; node:fs; node:path; node:sqlite
+src/runtime/runtime-adapter.ts,保留,src/runtime/runtime-adapter.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../agent/model-adapter.js; ../verification/file-evidence.js
+src/runtime/system/file-tool.ts,保留,src/runtime/system/file-tool.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:fs; node:fs/promises; node:path
+src/runtime/system/inspector.py,保留,src/runtime/system/inspector.py,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,json; pathlib; psutil; sys
+src/runtime/system/inspector.ts,保留,src/runtime/system/inspector.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,node:child_process; node:path; src/runtime/system/inspector.py
+src/task-a-ai.ts,保留,src/task-a-ai.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./agent/local-config.js; ./capabilities/record.js; ./contracts/task.js; ./graph/graph.js; ./graph/resume.js; ./graph/state.js; ./runtime/browser/playwright-runtime.js; ./trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:crypto; node:fs/promises; node:path
+src/task-a-demo.ts,保留,src/task-a-demo.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./actions/schema.js; ./agent/model-adapter.js; ./graph/graph.js; ./graph/state.js; ./runtime/browser/playwright-runtime.js; ./trace/sqlite-trace.js; node:crypto; node:path
+src/task-b-ai.ts,保留,src/task-b-ai.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./actions/schema.js; ./agent/local-config.js; ./agent/model-adapter.js; ./contracts/facets.js; ./contracts/verifier-contributor.js; ./extensions/shop/shop-extension.js; ./graph/graph.js; ./graph/resume.js; ./graph/state.js; ./runtime/browser/playwright-runtime.js; ./trace/sqlite-trace.js; ./verification/domain-evaluator.js; @langchain/langgraph-checkpoint-sqlite; node:crypto; node:fs/promises; node:path
+src/task-b-login.ts,保留,src/task-b-login.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./runtime/browser/playwright-runtime.js; node:path
+src/trace/sqlite-trace.ts,保留,src/trace/sqlite-trace.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/action-resolution.js; ../actions/schema.js; ../capabilities/registry.js; ../graph/state.js; ../migration/legacy-criteria-adapter.js; node:sqlite
+src/verification/action-evidence.ts,保留,src/verification/action-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../actions/semantic-target.js; ./contracts.js; node:crypto
+src/verification/contracts.ts,保留,src/verification/contracts.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,相对导入；package-lock 或 requirements-desktop
+src/verification/coordinator.ts,保留,src/verification/coordinator.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js; ./engine.js; ./follow-up.js; ./semantic-context.js
+src/verification/domain-evaluator.ts,保留,src/verification/domain-evaluator.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../contracts/facets.js; ../contracts/verifier-contributor.js; ./facet-binding.js
+src/verification/engine.ts,保留,src/verification/engine.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js
+src/verification/facet-binding.ts,保留,src/verification/facet-binding.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../contracts/facets.js; ../contracts/verifier-contributor.js
+src/verification/file-evidence.ts,保留,src/verification/file-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js; node:path
+src/verification/follow-up.ts,保留,src/verification/follow-up.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js
+src/verification/goal-file-coverage.ts,保留,src/verification/goal-file-coverage.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./file-evidence.js; node:path
+src/verification/host-shadow.ts,保留,src/verification/host-shadow.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../graph/state.js; ./contracts.js; ./planner-contract.js; node:crypto; node:fs; node:path
+src/verification/jev.ts,保留,src/verification/jev.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../runtime/model-budget.js; ./contracts.js
+src/verification/live-shadow.ts,保留,src/verification/live-shadow.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../agent/local-config.js; ./contracts.js; ./engine.js; ./jev.js; ./semantic-context.js; config/verification-shadow.json; node:fs; node:path; prompts/verification-semantic.md
+src/verification/manual-review.ts,保留,src/verification/manual-review.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../graph/state.js; ../verifier/hybrid-verifier.js
+src/verification/planner-contract.ts,保留,src/verification/planner-contract.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ./contracts.js
+src/verification/raw-evidence.ts,保留,src/verification/raw-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js; node:crypto; node:zlib
+src/verification/semantic-context.ts,保留,src/verification/semantic-context.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js
+src/verification/shadow.ts,保留,src/verification/shadow.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js; ./coordinator.js; ./follow-up.js
+src/verification/structured-rebind.ts,保留,src/verification/structured-rebind.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../verifier/verifier.js; ./structured-state.js
+src/verification/structured-state.ts,保留,src/verification/structured-state.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../verifier/verifier.js
+src/verification/task-contract-coverage.ts,保留,src/verification/task-contract-coverage.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../verifier/verifier.js; ./goal-file-coverage.js
+src/verification/task-evidence.ts,保留,src/verification/task-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../agent/task-planner.js; ../verifier/verifier.js; ./contracts.js; ./file-evidence.js; ./structured-state.js
+src/verification/task-outcome.ts,保留,src/verification/task-outcome.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../graph/state.js; ../verifier/hybrid-verifier.js
+src/verification/ui-evidence.ts,保留,src/verification/ui-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./contracts.js; ./raw-evidence.js; playwright
+src/verifier/hybrid-verifier.ts,保留,src/verifier/hybrid-verifier.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../agent/task-planner.js; ../contracts/facets.js; ../contracts/verifier-contributor.js; ../runtime/model-budget.js; ../verification/domain-evaluator.js; ../verification/structured-state.js; ./verifier.js; node:crypto
+src/verifier/verifier.ts,保留,src/verifier/verifier.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../contracts/verifier-contributor.js; ../verification/domain-evaluator.js; ../verification/structured-state.js
+src/workflows/distill.ts,保留,src/workflows/distill.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../actions/semantic-target.js; ../capabilities/registry.js; ../contracts/stores.js; ../graph/state.js; ./durable-contract.js; ./parameterization.js; ./schema.js; ./structured-evidence.js; node:crypto
+src/workflows/durable-contract.ts,保留,src/workflows/durable-contract.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../verifier/verifier.js; ./schema.js
+src/workflows/execution.ts,保留,src/workflows/execution.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../graph/state.js; ../runtime/desktop/desktop-runtime.js; ../verification/goal-file-coverage.js; ../verifier/verifier.js; ./distill.js; ./durable-contract.js; ./matcher.js; ./parameterization.js; ./recovery.js; ./schema.js
+src/workflows/matcher.ts,保留,src/workflows/matcher.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ./parameterization.js; ./schema.js; ./structured-evidence.js
+src/workflows/migration.ts,保留,src/workflows/migration.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,./schema.js; node:crypto
+src/workflows/parameterization.ts,保留,src/workflows/parameterization.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ./schema.js
+src/workflows/recovery.ts,保留,src/workflows/recovery.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../graph/state.js; ./distill.js; ./matcher.js; ./schema.js; node:crypto
+src/workflows/replay-model.ts,保留,src/workflows/replay-model.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../agent/model-adapter.js; ../graph/state.js; ../verifier/verifier.js; ./distill.js; ./matcher.js; ./schema.js
+src/workflows/schema.ts,保留,src/workflows/schema.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ../actions/semantic-target.js; ../capabilities/registry.js; ../verifier/verifier.js
+src/workflows/store.ts,保留,src/workflows/store.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/semantic-target.js; ./recovery.js; ./schema.js; node:sqlite
+src/workflows/structured-evidence.ts,保留,src/workflows/structured-evidence.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js; ./schema.js
+src/workflows/target-remap.ts,保留,src/workflows/target-remap.ts,核心、入口、动态注册、Worker 或提示词；用途不确定亦保留,../actions/schema.js
+testbench/Program.cs,保留,testbench/Program.cs,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/README.md,转成模板,testbench/README.md,测试台说明重写，移除旧验收数字,对应显式测试台入口
+testbench/Shopping.cs,保留,testbench/Shopping.cs,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/WindowsAgentTestBench.csproj,保留,testbench/WindowsAgentTestBench.csproj,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/browser-fixture/eval-tool.html,保留,testbench/browser-fixture/eval-tool.html,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/browser-fixture/saved.html,保留,testbench/browser-fixture/saved.html,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/browser-fixture/settings.html,保留,testbench/browser-fixture/settings.html,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/build.ps1,保留,testbench/build.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/oracle-bridge.ts,保留,testbench/oracle-bridge.ts,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,node:child_process; node:crypto; node:fs; node:fs/promises; node:path
+testbench/p4/README.md,转成模板,testbench/p4/README.md,测试台说明重写，移除旧验收数字,对应显式测试台入口
+testbench/p4/export-evidence.ts,保留,testbench/p4/export-evidence.ts,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,../../src/runtime/model-budget.js; ../../src/trace/sqlite-trace.js; ../../src/workflows/store.js; node:assert/strict; node:fs; node:path
+testbench/p4/recovery-harness.ts,保留,testbench/p4/recovery-harness.ts,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,../../src/composition/root.js; ../../src/composition/session-scope.js; ../../src/contracts/model-provider.js; ../../src/graph/state.js; ../../src/runtime/model-budget.js; ../../src/trace/sqlite-trace.js; ../../src/workflows/store.js; config/agent-desktop-apps.json; node:assert/strict; node:fs; node:path; node:sqlite
+testbench/p4/run-harness.ps1,保留,testbench/p4/run-harness.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/p5/README.md,转成模板,testbench/p5/README.md,测试台说明重写，移除旧验收数字,对应显式测试台入口
+testbench/p5/run-reboot-case.ps1,保留,testbench/p5/run-reboot-case.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/run.ps1,保留,testbench/run.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/scenarios.json,保留,testbench/scenarios.json,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/start-guest.ps1,保留,testbench/start-guest.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+testbench/todo-server.mjs,保留,testbench/todo-server.mjs,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,node:http
+testbench/verification/context-development-v1.json,保留,testbench/verification/context-development-v1.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verification/contract-supplement-v1.json,保留,testbench/verification/contract-supplement-v1.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verification/live/desktop-file-negative-trial.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/live/desktop-file-save-trial.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/live/desktop-file-tamper-trial.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/live/guest-file-rpc-smoke-20260928.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/live/r23-rpc-lock-watcher.ps1,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/live/r23-tamper-watcher.ps1,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/p7a/cases.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/p7a/run-snapshots.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/r23-file-cases.json,保留,testbench/verification/r23-file-cases.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verification/raw-ui-contracts-v1.json,保留,testbench/verification/raw-ui-contracts-v1.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verification/v1/README.md,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/v1/assets/desktop-context.png,转成模板,testbench/verification/v1/assets/desktop-context.png,原截图私有留存；重新生成纯色 PNG，保留尺寸/CRC/覆盖断言,raw-evidence 测试与合成 manifest
+testbench/verification/v1/assets/historical-window.png,转成模板,testbench/verification/v1/assets/synthetic-window.png,原截图私有留存；重新生成纯色 PNG，保留尺寸/CRC/覆盖断言,raw-evidence 测试与合成 manifest
+testbench/verification/v1/baseline-development.json,私有留存,,历史基线、真实 RPC、截图或现场 watcher；不迁入,历史实验专用
+testbench/verification/v1/development.json,转成模板,testbench/verification/v1/development.json,由保留的合成场景重新生成，不复制旧评测输出,build-verification-dataset.mjs
+testbench/verification/v1/holdout.json,转成模板,testbench/verification/v1/holdout.json,由保留的合成场景重新生成，不复制旧评测输出,build-verification-dataset.mjs
+testbench/verification/v1/manifest.json,转成模板,testbench/verification/v1/manifest.json,由保留的合成场景重新生成，不复制旧评测输出,build-verification-dataset.mjs
+testbench/verification/v1/raw-cases.json,保留,testbench/verification/v1/raw-cases.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verification/v1/scenarios.json,保留,testbench/verification/v1/scenarios.json,人工编写的合成评测输入；复核并重新生成 manifest,guest/input_control.py; src/actions/schema.ts; src/actions/semantic-target.ts; src/composition/shutdown.ts; src/desktop-session/control.ts; src/graph/graph.ts; src/runtime/browser/playwright-runtime.ts; src/runtime/desktop/guest-runtime.ts; src/runtime/desktop/window-manager.ts; src/runtime/desktop/worker.py; src/verifier/verifier.ts; src/workflows/recovery.ts; tests/desktop-control-regression.test.ts
+testbench/verification/v1/semantic-cases.json,保留,testbench/verification/v1/semantic-cases.json,人工编写的合成评测输入；复核并重新生成 manifest,离线评测脚本
+testbench/verify.ps1,保留,testbench/verify.ps1,必要浏览器/Windows 合成测试台、Oracle、恢复 harness,本地浏览器；Windows/VM 项显式执行
+tests/agent-loop.test.ts,保留,tests/agent-loop.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/resume.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; @langchain/langgraph; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/browser-form-rebind.test.ts,保留,tests/browser-form-rebind.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/runtime/browser/playwright-runtime.js; ../src/verification/structured-rebind.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/browser-resume.test.ts,保留,tests/browser-resume.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/resume.js; ../src/graph/state.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/browser.test.ts,保留,tests/browser.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; ../src/verification/host-shadow.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/capability-registry.test.ts,保留,tests/capability-registry.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/capabilities/registry.js; ../src/contracts/extension.js; ../src/extensions/netease/netease-extension.js; ../src/extensions/nte/nte-extension.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:os; node:path; node:sqlite; node:test
+tests/chat-completions-model.test.ts,保留,tests/chat-completions-model.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; ../src/graph/state.js; node:assert/strict; node:http; node:test
+tests/collector-candidate-budget.test.ts,保留,tests/collector-candidate-budget.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/observation/candidate-budget.js; ../src/runtime/browser/playwright-runtime.js; ../src/workflows/target-remap.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/composition-root.test.ts,保留,tests/composition-root.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/composition/root.js; ../src/composition/session-scope.js; ../src/contracts/model-provider.js; ../src/contracts/worker-client.js; ../src/desktop-session/session-manager.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:sqlite; node:test
+tests/crash-dispatch.test.ts,保留,tests/crash-dispatch.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,", ; ../src/agent/model-adapter.js; ../src/desktop-session/recovery.js; ../src/graph/graph.js; ../src/trace/sqlite-trace.js; ../src/workflows/recovery.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; @langchain/langgraph; node:assert/strict; node:child_process; node:events; node:fs; node:os; node:path; node:test"
+tests/dashboard.test.ts,保留,tests/dashboard.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/prompt-store.js; ../src/app/server.js; ../src/capabilities/registry.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:os; node:path; node:test; playwright
+tests/desktop-control-regression.test.ts,保留,tests/desktop-control-regression.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/desktop-session/control.js; ../src/desktop-session/session-manager.js; ../src/runtime/desktop/guest-runtime.js; node:assert/strict; node:fs/promises; node:http; node:os; node:path; node:test; ws
+tests/desktop-control.test.ts,保留,tests/desktop-control.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/desktop-session/control.js; ../src/desktop-session/session-manager.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs/promises; node:http; node:os; node:path; node:sqlite; node:test; playwright
+tests/desktop-recovery.test.ts,保留,tests/desktop-recovery.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/contracts/worker-error.js; ../src/desktop-session/control.js; ../src/desktop-session/recovery.js; ../src/desktop-session/session-manager.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:assert/strict; node:fs/promises; node:http; node:os; node:path; node:test
+tests/desktop-session.test.ts,保留,tests/desktop-session.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/desktop-session/session-manager.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test; playwright; ws
+tests/eval-oracle-assembly.test.ts,保留,tests/eval-oracle-assembly.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,node:assert/strict; node:fs; node:path; node:test; src/app/start.ts; src/composition/eval-oracle.ts
+tests/extension-registry.test.ts,保留,tests/extension-registry.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/task-routing.js; ../src/app/task-runner.js; ../src/contracts/extension.js; ../src/contracts/model-provider.js; ../src/contracts/worker-client.js; ../src/extensions/hearthstone/hearthstone-extension.js; ../src/extensions/netease/netease-extension.js; ../src/extensions/nte/nte-extension.js; ../src/extensions/testbench/testbench-extension.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/facet-contributor-matrix.test.ts,保留,tests/facet-contributor-matrix.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/contracts/facets.js; ../src/contracts/verifier-contributor.js; ../src/verification/domain-evaluator.js; ../src/verification/facet-binding.js; ../src/verifier/hybrid-verifier.js; node:assert/strict; node:test
+tests/fixture-gate.test.ts,保留,tests/fixture-gate.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留；候选已按合成输入/当前协议调整，私有原版本完整保留,../src/observation/fixture-gate.js; node:assert/strict; node:fs; node:os; node:path; node:sqlite; node:test
+tests/fixtures/crash-dispatch.ts,保留,tests/fixtures/crash-dispatch.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../../src/agent/model-adapter.js; ../../src/graph/graph.js; ../../src/graph/state.js; ../../src/trace/sqlite-trace.js; ../../src/workflows/recovery.js; ../../src/workflows/replay-model.js; node:fs; node:path
+tests/fixtures/verification-cases.ts,保留,tests/fixtures/verification-cases.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../../src/verification/contracts.js
+tests/focus-recovery.test.ts,保留,tests/focus-recovery.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/resume.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/generic-stages.test.ts,保留,tests/generic-stages.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/chat-completions-model.js; ../src/agent/model-adapter.js; ../src/agent/stage-workflow-model.js; ../src/app/task-profiles.js; ../src/extensions/index.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/host-shadow.js; ../src/verification/live-shadow.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/goal-file-coverage.test.ts,保留,tests/goal-file-coverage.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/goal-file-coverage.js; node:assert/strict; node:fs; node:test; testbench/verification/v1/development.json
+tests/grounding.test.ts,保留,tests/grounding.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/guest-control-epoch.test.py,保留,tests/guest-control-epoch.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,importlib.util; json; pathlib; socket; sys; tempfile; threading; types; unittest; urllib.error; urllib.request
+tests/guest-recovery.test.py,保留,tests/guest-recovery.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,importlib.util; json; pathlib; subprocess; sys; threading; types; unittest; urllib.error; urllib.request
+tests/guest-runtime.test.ts,保留,tests/guest-runtime.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/action-resolution.js; ../src/contracts/worker-error.js; ../src/runtime/desktop/guest-runtime.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/guest-startup.test.py,保留,tests/guest-startup.test.py,有效回归；历史样本替换为合成证据，原断言目的保留；候选已按合成输入/当前协议调整，私有原版本完整保留,guest/action-worker.py; importlib.util; json; pathlib; sys; threading; types; unittest; unittest.mock; urllib.error; urllib.request
+tests/guest-worker.test.py,保留,tests/guest-worker.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,PIL; importlib.util; os; pathlib; sys; threading; types; unittest; urllib.error; urllib.request
+tests/human-loop.test.ts,保留,tests/human-loop.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/resume.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; @langchain/langgraph-checkpoint-sqlite; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/hybrid-verifier.test.ts,保留,tests/hybrid-verifier.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verifier/hybrid-verifier.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/input-control.test.py,保留,tests/input-control.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,input_control; pathlib; sys; unittest
+tests/jd-product.test.ts,保留,tests/jd-product.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/contracts/facets.js; ../src/contracts/verifier-contributor.js; ../src/extensions/shop/jd-product.js; ../src/extensions/shop/shop-extension.js; ../src/verification/domain-evaluator.js; ../src/verification/facet-binding.js; node:assert/strict; node:test
+tests/jev-choice-model.test.ts,保留,tests/jev-choice-model.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/jev-choice-model.js; ../src/graph/state.js; node:assert/strict; node:http; node:test
+tests/kernel-independence.test.ts,保留,tests/kernel-independence.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,node:assert/strict; node:fs; node:path; node:test
+tests/legacy-criteria-adapter.test.ts,保留,tests/legacy-criteria-adapter.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/migration/legacy-criteria-adapter.js; node:assert/strict; node:test
+tests/manual-review.test.ts,保留,tests/manual-review.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/app/task-runner.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/manual-review.js; ../src/verification/task-outcome.js; ../src/verifier/hybrid-verifier.js; ../src/workflows/execution.js; ../src/workflows/schema.js; node:assert/strict; node:fs; node:os; node:path; node:sqlite; node:test
+tests/model-budget.test.ts,保留,tests/model-budget.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; ../src/agent/jev-choice-model.js; ../src/app/server.js; ../src/app/task-runner.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/model-budget.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; @langchain/langgraph; node:assert/strict; node:fs; node:http; node:os; node:path; node:test; playwright
+tests/observation-candidate-budget.test.ts,保留,tests/observation-candidate-budget.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/observation/candidate-budget.js; node:assert/strict; node:test
+tests/oracle-bridge.test.ts,保留,tests/oracle-bridge.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../testbench/oracle-bridge.js; node:assert/strict; node:child_process; node:crypto; node:fs; node:fs/promises; node:os; node:path; node:test; node:url
+tests/p7a-baseline.test.ts,私有留存,,断言旧真实快照、冻结源码或 A5 实验启动链；必须原样归档,历史实验专用
+tests/p7b-contract-coverage.test.ts,保留,tests/p7b-contract-coverage.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留；候选已按合成输入/当前协议调整，私有原版本完整保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/engine.js; ../src/verification/task-contract-coverage.js; @langchain/langgraph; node:assert/strict; node:child_process; node:fs; node:os; node:path; node:test; testbench/verification/v1/development.json
+tests/p9-a5-measurement.test.ts,保留,tests/p9-a5-measurement.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../measurement/p9-a5/execute-audit.js; ../measurement/p9-a5/readiness.js; ../measurement/p9-a5/request-meter.js; ../measurement/p9-a5/run-analysis.js; ../measurement/p9-a5/sidecar.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/p9-a5-runner.test.ts,私有留存,,断言旧真实快照、冻结源码或 A5 实验启动链；必须原样归档,历史实验专用
+tests/p9-a5-startup.test.ts,私有留存,,断言旧真实快照、冻结源码或 A5 实验启动链；必须原样归档,历史实验专用
+tests/powershell-scripts.test.ts,保留,tests/powershell-scripts.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,guest/install-action-worker.ps1; guest/install-worker-autostart.ps1; guest/python-command.ps1; guest/start-worker.ps1; guest/worker.ps1; node:assert/strict; node:child_process; node:path; node:test; scripts/agent-desktop-vm.ps1; scripts/copy-agent-desktop-guest.ps1; scripts/install-agent-desktop-host-autostart.ps1; scripts/start-agent-desktop-dashboard.ps1
+tests/prompt-store.test.ts,保留,tests/prompt-store.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/prompt-store.js; ../src/app/server.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/runtime-inspection.test.ts,保留,tests/runtime-inspection.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/composition/inspection.js; ../src/contracts/extension.js; cordis; node:assert/strict; node:path; node:test; playwright
+tests/semantic-target.test.ts,保留,tests/semantic-target.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/semantic-target.js; node:assert/strict; node:test
+tests/shutdown.test.ts,保留,tests/shutdown.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/composition/root.js; ../src/composition/session-scope.js; ../src/composition/shutdown.js; ../src/contracts/extension.js; ../src/contracts/model-provider.js; ../src/contracts/worker-client.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:sqlite; node:test; ws
+tests/stage-diagnosis.test.ts,保留,tests/stage-diagnosis.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/stage-navigation.test.ts,保留,tests/stage-navigation.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/agent/stage-workflow-model.js; ../src/extensions/hearthstone/hearthstone-extension.js; ../src/graph/graph.js; ../src/graph/resume.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/workflows/distill.js; ../src/workflows/store.js; @langchain/langgraph-checkpoint-sqlite; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/structured-acceptance.test.ts,保留,tests/structured-acceptance.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/agent/task-planner.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/task-evidence.js; ../src/verifier/hybrid-verifier.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/structured-browser-collector.test.ts,保留,tests/structured-browser-collector.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; ../src/verifier/hybrid-verifier.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/subprocess-rpc.test.py,保留,tests/subprocess-rpc.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,importlib.util; pathlib; subprocess; subprocess_rpc; sys; time; types; unittest
+tests/system-tools.test.ts,保留,tests/system-tools.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/runtime/desktop/app-catalog.js; ../src/runtime/system/file-tool.js; ../src/runtime/system/inspector.js; node:assert/strict; node:fs/promises; node:net; node:os; node:path; node:test
+tests/target-remap.test.ts,保留,tests/target-remap.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/workflows/target-remap.js; node:assert/strict; node:test
+tests/task-controls.test.ts,保留,tests/task-controls.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/app/task-runner.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/task-planner.test.ts,保留,tests/task-planner.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; ../src/agent/model-adapter.js; ../src/agent/task-planner.js; ../src/app/task-profiles.js; ../src/extensions/index.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/desktop/desktop-runtime.js; ../src/trace/sqlite-trace.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/task-routing.test.ts,保留,tests/task-routing.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/task-routing.js; ../src/extensions/index.js; node:assert/strict; node:test
+tests/test_desktop_readiness.py,保留,tests/test_desktop_readiness.py,有效回归；历史样本替换为合成证据，原断言目的保留,desktop_readiness; pathlib; sys; unittest
+tests/test_file_evidence.py,保留,tests/test_file_evidence.py,有效回归；历史样本替换为合成证据，原断言目的保留,file_evidence; importlib.util; json; pathlib; sys; tempfile; threading; types; unittest; urllib.error; urllib.request
+tests/test_native_file_dialog.py,保留,tests/test_native_file_dialog.py,有效回归；历史样本替换为合成证据，原断言目的保留,ast; pathlib; src/runtime/desktop/worker.py; types; unittest
+tests/todo-fixture-actions.test.ts,保留,tests/todo-fixture-actions.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/runtime/browser/playwright-runtime.js; ../src/verifier/hybrid-verifier.js; ../src/verifier/verifier.js; node:assert/strict; node:child_process; node:fs; node:http; node:os; node:path; node:test; node:timers/promises; testbench/todo-server.mjs
+tests/verification-action-evidence.test.ts,保留,tests/verification-action-evidence.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/actions/semantic-target.js; ../src/verification/action-evidence.js; ../src/verification/live-shadow.js; node:assert/strict; node:test
+tests/verification-capture.test.py,保留,tests/verification-capture.test.py,有效回归；历史样本替换为合成证据，原断言目的保留,ast; pathlib; src/runtime/desktop/worker.py; types; unittest
+tests/verification-contracts.test.ts,保留,tests/verification-contracts.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/engine.js; node:assert/strict; node:test
+tests/verification-dataset.test.ts,保留,tests/verification-dataset.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,node:assert/strict; node:crypto; node:fs; node:path; node:test
+tests/verification-file-evidence.test.ts,保留,tests/verification-file-evidence.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留；候选已按合成输入/当前协议调整，私有原版本完整保留,../src/verification/engine.js; ../src/verification/file-evidence.js; node:assert/strict; node:fs; node:path; node:test
+tests/verification-file-graph.test.ts,保留,tests/verification-file-graph.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/host-shadow.js; ../src/workflows/execution.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; @langchain/langgraph; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/verification-follow-up.test.ts,保留,tests/verification-follow-up.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/coordinator.js; ../src/verification/follow-up.js; config/verification-follow-up.json; node:assert/strict; node:fs; node:test
+tests/verification-generic-file-gate.test.ts,保留,tests/verification-generic-file-gate.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/goal-file-coverage.js; ../src/verification/task-contract-coverage.js; @langchain/langgraph; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/verification-host-shadow.test.ts,保留,tests/verification-host-shadow.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/graph/state.js; ../src/verification/host-shadow.js; node:assert/strict; node:test
+tests/verification-jev.test.ts,保留,tests/verification-jev.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/engine.js; ../src/verification/jev.js; ../src/verification/semantic-context.js; node:assert/strict; node:test
+tests/verification-live-shadow.test.ts,保留,tests/verification-live-shadow.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/live-shadow.js; node:assert/strict; node:test
+tests/verification-module.test.ts,保留,tests/verification-module.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/engine.js; ./fixtures/verification-cases.js; node:assert/strict; node:test
+tests/verification-planner-contract.test.ts,保留,tests/verification-planner-contract.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/verification/engine.js; ../src/verification/planner-contract.js; node:assert/strict; node:test
+tests/verification-raw.test.ts,保留,tests/verification-raw.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/engine.js; ../src/verification/raw-evidence.js; node:assert/strict; node:fs; node:test; testbench/verification/v1/assets/desktop-context.png
+tests/verification-shadow-isolation.test.ts,保留,tests/verification-shadow-isolation.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/host-shadow.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/verification-shadow.test.ts,保留,tests/verification-shadow.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/contracts.js; ../src/verification/coordinator.js; ../src/verification/shadow.js; node:assert/strict; node:test
+tests/verification-structured-rebind.test.ts,保留,tests/verification-structured-rebind.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/verification/structured-rebind.js; ../src/verifier/verifier.js; node:assert/strict; node:test
+tests/verification-task-evidence.test.ts,保留,tests/verification-task-evidence.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/verification/live-shadow.js; ../src/verification/task-evidence.js; node:assert/strict; node:test
+tests/verification-ui.test.ts,保留,tests/verification-ui.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/verification/ui-evidence.js; node:assert/strict; node:path; node:test; playwright
+tests/vision-model.test.ts,保留,tests/vision-model.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/vm-control-route.test.ts,保留,tests/vm-control-route.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留；候选已按合成输入/当前协议调整，私有原版本完整保留,../src/app/server.js; ../src/desktop-session/vm-control.js; node:assert/strict; node:fs; node:os; node:path; node:test; playwright
+tests/web-tasks.test.ts,保留,tests/web-tasks.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/app/server.js; ../src/app/task-runner.js; ../src/contracts/facets.js; ../src/contracts/verifier-contributor.js; ../src/extensions/index.js; ../src/extensions/netease/music-facet.js; ../src/extensions/netease/music-model.js; ../src/extensions/netease/netease-extension.js; ../src/extensions/nte/nte-extension.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verification/domain-evaluator.js; ../src/verification/facet-binding.js; ../src/verifier/verifier.js; node:assert/strict; node:fs; node:os; node:path; node:test; playwright
+tests/window-manager.test.ts,保留,tests/window-manager.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/runtime/desktop/desktop-runtime.js; ../src/runtime/desktop/window-manager.js; node:assert/strict; node:test
+tests/workbench.test.ts,保留,tests/workbench.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,node:assert/strict; node:fs; node:path; node:test; playwright
+tests/worker-reconnect.test.ts,保留,tests/worker-reconnect.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/desktop-session/connection-config.js; ../src/desktop-session/control.js; ../src/desktop-session/session-manager.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; config/desktop-connection.json; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/workflow-controller-recovery.test.ts,保留,tests/workflow-controller-recovery.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/action-resolution.js; ../src/app/task-runner.js; ../src/contracts/model-provider.js; ../src/contracts/worker-client.js; ../src/contracts/worker-error.js; ../src/desktop-session/recovery.js; ../src/runtime/model-budget.js; ../src/trace/sqlite-trace.js; ../src/workflows/schema.js; ../src/workflows/store.js; config/agent-desktop-apps.json; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-digit-sequence.test.ts,保留,tests/workflow-digit-sequence.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; ../src/workflows/distill.js; ../src/workflows/matcher.js; ../src/workflows/parameterization.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-durable-contract.test.ts,保留,tests/workflow-durable-contract.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/verifier/verifier.js; ../src/workflows/distill.js; ../src/workflows/durable-contract.js; ../src/workflows/execution.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-execution-router.test.ts,保留,tests/workflow-execution-router.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/browser/playwright-runtime.js; ../src/trace/sqlite-trace.js; ../src/workflows/execution.js; ../src/workflows/recovery.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; node:assert/strict; node:fs; node:http; node:os; node:path; node:test
+tests/workflow-execution.test.ts,保留,tests/workflow-execution.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/action-resolution.js; ../src/app/task-runner.js; ../src/contracts/model-provider.js; ../src/contracts/worker-client.js; ../src/desktop-session/recovery.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/workflows/execution.js; ../src/workflows/recovery.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; ../src/workflows/store.js; config/agent-desktop-apps.json; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-learning.test.ts,保留,tests/workflow-learning.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/agent/task-agent.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; ../src/workflows/distill.js; ../src/workflows/matcher.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-library.test.ts,保留,tests/workflow-library.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/app/server.js; ../src/graph/state.js; ../src/runtime/model-budget.js; ../src/trace/sqlite-trace.js; ../src/workflows/execution.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test; playwright
+tests/workflow-recovery.test.ts,保留,tests/workflow-recovery.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/model-adapter.js; ../src/agent/stage-workflow-model.js; ../src/desktop-session/recovery.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/trace/sqlite-trace.js; ../src/workflows/recovery.js; ../src/workflows/replay-model.js; ../src/workflows/schema.js; ../src/workflows/store.js; @langchain/langgraph; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-schema-v2.test.ts,保留,tests/workflow-schema-v2.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/workflows/migration.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-semantic.test.ts,保留,tests/workflow-semantic.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/chat-completions-model.js; ../src/workflows/schema.js; node:assert/strict; node:http; node:test
+tests/workflow-stage-recording.test.ts,保留,tests/workflow-stage-recording.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/agent/stage-workflow-model.js; ../src/app/workflow-view.js; ../src/contracts/stores.js; ../src/graph/state.js; ../src/workflows/distill.js; ../src/workflows/execution.js; ../src/workflows/matcher.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:sqlite; node:test
+tests/workflow-structured-conditions.test.ts,保留,tests/workflow-structured-conditions.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/workflows/distill.js; ../src/workflows/matcher.js; ../src/workflows/schema.js; ../src/workflows/structured-evidence.js; node:assert/strict; node:test
+tests/workflow-typed-inputs.test.ts,保留,tests/workflow-typed-inputs.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; ../src/workflows/distill.js; ../src/workflows/execution.js; ../src/workflows/parameterization.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-url-encoding.test.ts,保留,tests/workflow-url-encoding.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/actions/schema.js; ../src/agent/model-adapter.js; ../src/graph/graph.js; ../src/graph/state.js; ../src/runtime/runtime-adapter.js; ../src/trace/sqlite-trace.js; ../src/workflows/distill.js; ../src/workflows/matcher.js; ../src/workflows/replay-model.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tests/workflow-version-rollback.test.ts,保留,tests/workflow-version-rollback.test.ts,有效回归；历史样本替换为合成证据，原断言目的保留,../src/graph/state.js; ../src/workflows/execution.js; ../src/workflows/matcher.js; ../src/workflows/recovery.js; ../src/workflows/schema.js; ../src/workflows/store.js; node:assert/strict; node:fs; node:os; node:path; node:test
+tsconfig.json,保留,tsconfig.json,原版本锁及安装、noEmit 校验入口；仅补离线脚本,measurement/**/*.ts; scripts/migrate-workflow-targets.ts; src/**/*.d.ts; src/**/*.ts; testbench/oracle-bridge.ts; testbench/p4/**/*.ts; tests/**/*.ts

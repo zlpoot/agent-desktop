@@ -1,0 +1,5 @@
+{
+  "pollMs": 5000,
+  "timeoutMs": 5000,
+  "retryMaxMs": 30000
+}

@@ -1,0 +1,2 @@
+# Only the existing system inspector dependency; matched to this validation host.
+psutil==5.9.0

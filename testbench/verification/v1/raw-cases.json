@@ -1,0 +1,243 @@
+[
+  {
+    "id": "uia-wrong-tab",
+    "family": "raw-uia-wrong-tab",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "目标文档的修改已保存",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "已保存标记属于另一标签页，目标文档状态没有绑定。"
+    },
+    "raw": {
+      "uia": "TabItem | archive.txt. 未修改。\nTabItem | report.txt. 已修改。\nDocument | approved",
+      "activeDocumentId": null
+    },
+    "requiredFacts": [
+      "activeDocumentId",
+      "document.modified"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "uia-duplicate-label",
+    "family": "raw-uia-duplicate-label",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "提交按钮是唯一可定位目标",
+    "expected": {
+      "verdict": "fail",
+      "rationale": "存在两个同名可见按钮，不能安全绑定唯一目标。"
+    },
+    "raw": {
+      "uia": "Button | 提交 | container=dialog-A\nButton | 提交 | container=dialog-B"
+    },
+    "requiredFacts": [
+      "control.owner",
+      "control.visible",
+      "control.matchCount"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "dom-hidden-success",
+    "family": "raw-dom-hidden-success",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "当前提交已经成功",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "成功文案隐藏且属于上次请求。"
+    },
+    "raw": {
+      "html": "<div hidden data-request=\"old\">提交成功</div><div data-request=\"new\">处理中</div>"
+    },
+    "requiredFacts": [
+      "requestId",
+      "visible",
+      "terminalResult"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "dom-row-number",
+    "family": "raw-dom-row-number",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "读取 sku-42 当前数量 12",
+    "expected": {
+      "verdict": "pass",
+      "rationale": "绑定行键后，可从该行原始字段读取准确数值。"
+    },
+    "raw": {
+      "html": "<tr data-id=\"sku-24\"><td>21</td></tr><tr data-id=\"sku-42\"><td data-field=\"quantity\">12</td></tr>"
+    },
+    "requiredFacts": [
+      "rowKey",
+      "quantity"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "file-encoding",
+    "family": "raw-file-encoding",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "文件内容精确为中文和换行",
+    "expected": {
+      "verdict": "fail",
+      "rationale": "UTF-8 BOM 可识别；解码得到 approved 与要求的中文内容不同。必须正确处理编码后比较，不能把原始字节字符串当内容。"
+    },
+    "raw": {
+      "bytesHex": "efbbbf617070726f7665640d0a",
+      "requestedText": "通过\n"
+    },
+    "requiredFacts": [
+      "decodedContent",
+      "encoding",
+      "canonicalPath"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "api-pending",
+    "family": "raw-api-pending",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "请求处理已成功完成",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "202 Accepted 只确认接收，processing 仍非终态。"
+    },
+    "raw": {
+      "httpStatus": 202,
+      "body": {
+        "requestId": "R1",
+        "status": "processing"
+      }
+    },
+    "requiredFacts": [
+      "requestId",
+      "terminalState",
+      "result"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "save-dialog",
+    "family": "raw-save-dialog",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "报告保存到桌面",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "保存对话框显示桌面只说明意图，缺少完成后的文件证据。"
+    },
+    "raw": {
+      "uia": "Window | 另存为\nEdit | 文件名 | report.txt\nToolbar | 地址 | 桌面\nButton | 保存"
+    },
+    "requiredFacts": [
+      "file.exists",
+      "file.canonicalPath",
+      "file.content"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "legacy-window-frame",
+    "family": "raw-legacy-window-frame",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "本次截图包含完整 Guest 桌面",
+    "expected": {
+      "verdict": "fail",
+      "rationale": "原始图只覆盖记事本窗口，缺少桌面和任务栏。"
+    },
+    "raw": {
+      "image": {
+        "file": "assets/synthetic-window.png",
+        "sha256": "57c6800b5b5450c171684dae59862dec732403ddbe993c6a8532fbfdc497b6e6",
+        "width": 1536,
+        "height": 789
+      },
+      "captureType": "window",
+      "capturedAt": "2026-09-27T01:09:24Z"
+    },
+    "requiredFacts": [
+      "frame.coverage"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "desktop-context-frame",
+    "family": "raw-desktop-context-frame",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "截图包含完整 Guest 桌面及任务栏",
+    "expected": {
+      "verdict": "pass",
+      "rationale": "当前图可见桌面图标、应用窗口和任务栏。此判断不等于验证文件内容。"
+    },
+    "raw": {
+      "image": {
+        "file": "assets/desktop-context.png",
+        "sha256": "4968c09026cd757b50c0022072e6eaf7ef90cd2a7d2b657c57a23f312a71a36f",
+        "width": 2048,
+        "height": 1152
+      },
+      "captureType": "desktop",
+      "capturedAt": "2026-09-27T02:01:00Z",
+      "timePrecision": "approximate-display-time"
+    },
+    "requiredFacts": [
+      "frame.coverage"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  },
+  {
+    "id": "desktop-icon-is-not-content",
+    "family": "raw-desktop-icon-is-not-content",
+    "split": "development",
+    "tier": "raw",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "桌面文件包含今天日期且已持久化",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "图片中图标和编辑文字可见，但没有独立文件内容读取。"
+    },
+    "raw": {
+      "image": {
+        "file": "assets/desktop-context.png",
+        "sha256": "4968c09026cd757b50c0022072e6eaf7ef90cd2a7d2b657c57a23f312a71a36f",
+        "width": 2048,
+        "height": 1152
+      },
+      "referenceDate": "2026-09-27"
+    },
+    "requiredFacts": [
+      "file.canonicalPath",
+      "file.content",
+      "file.modified"
+    ],
+    "executionStatus": "blocked-no-raw-collector-adapter"
+  }
+]

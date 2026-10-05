@@ -1,0 +1,62 @@
+[
+  {
+    "id": "task1",
+    "name": "标准 UIA",
+    "mode": "normal",
+    "customer": "张三",
+    "goalTemplate": "在 Windows Agent TestBench 中找到客户“张三”，把手机号改成“{phone}”并保存。",
+    "verify": "task1",
+    "requiredInput": ["phone"],
+    "capabilities": ["windows.uia.observe", "windows.uia.act", "verify"]
+  },
+  {
+    "id": "task2",
+    "name": "UIA 与自绘混合",
+    "mode": "normal",
+    "customer": "张三",
+    "goalTemplate": "在 Windows Agent TestBench 中打开系统设置，把通知音量调到 60%，并开启自动保存。",
+    "verify": "task2",
+    "requiredInput": [],
+    "capabilities": ["windows.uia.observe", "windows.window.observe", "vision", "drag", "verify"]
+  },
+  {
+    "id": "task3",
+    "name": "跨能力订单处理",
+    "mode": "normal",
+    "customer": "张三",
+    "goalTemplate": "在 Windows Agent TestBench 中找到张三的订单，把配送方式改为加急，备注改为“周五前送达”，添加 PDF“{pdf}”，最后提交审核。",
+    "verify": "task3",
+    "requiredInput": ["pdf"],
+    "capabilities": ["windows.uia.observe", "clipboard", "file-dialog", "modal", "verify"]
+  },
+  {
+    "id": "task4",
+    "name": "恢复与阶段流程学习",
+    "mode": "ui-changed",
+    "customer": "李四",
+    "goalTemplate": "在 Windows Agent TestBench 中找到李四的订单，把配送方式改为加急，备注改为“周五前送达”，添加 PDF“{pdf}”，最后提交审核。",
+    "verify": "task3",
+    "requiredInput": ["pdf"],
+    "capabilities": ["pause", "resume", "reconcile", "workflow-replay", "workflow-explore", "verify"]
+  },
+  {
+    "id": "shop-search",
+    "name": "原生商城商品检索",
+    "scenario": "shopping",
+    "mode": "normal",
+    "goalTemplate": "在 Windows Agent TestBench - 模拟商城中搜索“32GB 内存条”，确认找到星云 32GB DDR5 笔记本内存条。",
+    "verify": "shop-search",
+    "requiredInput": [],
+    "capabilities": ["windows.uia.observe", "windows.uia.act", "wait", "verify"]
+  },
+  {
+    "id": "shop-paid",
+    "name": "原生商城完整购物",
+    "scenario": "shopping",
+    "mode": "normal",
+    "goalTemplate": "在 Windows Agent TestBench - 模拟商城中搜索 32GB 内存条，将星云 32GB DDR5 笔记本内存条加入购物车并调到 2 件，填写收货人张三、手机号 13912345678 和地址北京市海淀区测试路10号，提交订单，使用测试余额完成模拟支付，并确认订单已支付。",
+    "verify": "shop-paid",
+    "requiredInput": [],
+    "capabilities": ["windows.uia.observe", "windows.uia.act", "modal", "verify"]
+  }
+]

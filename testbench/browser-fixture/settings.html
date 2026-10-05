@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>设置</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; }
+  label { display: block; margin: 1rem 0; }
+  button { margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>设置</h1>
+<form id="settings-form">
+  <label>
+    <input type="checkbox" id="enable-reminders" aria-label="启用提醒">
+    启用提醒
+  </label>
+  <label for="theme-select">主题</label>
+  <select id="theme-select" aria-label="主题">
+    <option value="light">light</option>
+    <option value="dark">dark</option>
+    <option value="system">system</option>
+  </select>
+  <div>
+    <button type="submit" aria-label="保存设置">保存设置</button>
+  </div>
+</form>
+<script>
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var mode = params.get("mode") || "normal";
+  var enabled = localStorage.getItem("settings.enabled");
+  var theme = localStorage.getItem("settings.theme");
+  var checkbox = document.getElementById("enable-reminders");
+  var select = document.getElementById("theme-select");
+  if (enabled === "true") checkbox.checked = true;
+  if (theme && ["light", "dark", "system"].indexOf(theme) >= 0) select.value = theme;
+  document.getElementById("settings-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    if (mode !== "reject-save") {
+      localStorage.setItem("settings.enabled", checkbox.checked ? "true" : "false");
+      localStorage.setItem("settings.theme", select.value);
+    }
+    window.location.href = "saved.html";
+  });
+})();
+</script>
+</body>
+</html>

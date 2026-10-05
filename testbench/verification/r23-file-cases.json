@@ -1,0 +1,16 @@
+{
+  "version": "r23-file-boundary-v1",
+  "labelStatus": "assistant-authored-awaiting-independent-review",
+  "provenance": "Synthetic file snapshots and a common Notepad observation; no real Guest negative is implied.",
+  "cases": [
+    { "id": "action-intact", "layer": "action", "after": "hello", "expected": "pass" },
+    { "id": "action-wrong-content", "layer": "action", "after": "wrong", "expected": "fail" },
+    { "id": "action-file-missing", "layer": "action", "after": null, "expected": "fail" },
+    { "id": "action-rpc-missing", "layer": "action", "after": "rpc-unavailable", "expected": "unknown" },
+    { "id": "task-intact", "layer": "task", "current": "hello", "expected": "pass" },
+    { "id": "task-file-deleted", "layer": "task", "current": null, "expected": "fail" },
+    { "id": "task-file-modified", "layer": "task", "current": "changed", "expected": "fail" },
+    { "id": "task-rpc-missing", "layer": "task", "current": "rpc-unavailable", "expected": "unknown" },
+    { "id": "task-action-proof-missing", "layer": "task", "current": "hello", "proof": false, "expected": "unknown" }
+  ]
+}

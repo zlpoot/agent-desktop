@@ -1,0 +1,5 @@
+{
+  "mode": "off",
+  "confidenceThreshold": 0.8,
+  "timeoutMs": 5000
+}

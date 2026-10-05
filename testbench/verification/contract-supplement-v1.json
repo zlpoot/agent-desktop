@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "description": "Development-only input enrichment. Original requirements come from the frozen scenario catalog, never expected verdicts. State definitions are explicit domain contract data.",
+  "outcomes": [
+    {
+      "object": "result-A",
+      "field": "resultStatus",
+      "predicate": { "op": "outcome", "success": ["succeeded"], "failure": ["failed"], "pending": ["running", "queued"] }
+    }
+  ]
+}

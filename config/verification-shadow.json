@@ -1,0 +1,5 @@
+{
+  "mode": "off",
+  "maxModelBytes": 24000,
+  "modelTimeoutMs": 2500
+}

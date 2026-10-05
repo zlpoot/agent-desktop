@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>EVAL 工具</title>
+</head>
+<body id="eval-tool">
+<script>
+// 仅供独立 EVAL harness 使用：设置或读取 localStorage 持久值。
+// 生产 Core / Workflow / Verifier 永不访问本页（fixture 逻辑只存在于 testbench/ 与 EVAL harness）。
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  if (params.has("set")) {
+    var enabled = params.get("enabled") === "true" ? "true" : "false";
+    var theme = ["light", "dark", "system"].indexOf(params.get("theme") || "") >= 0
+      ? params.get("theme") : "light";
+    localStorage.setItem("settings.enabled", enabled);
+    localStorage.setItem("settings.theme", theme);
+    document.body.textContent = "SET enabled=" + enabled + " theme=" + theme;
+    return;
+  }
+  if (params.has("read")) {
+    var storedEnabled = localStorage.getItem("settings.enabled");
+    var storedTheme = localStorage.getItem("settings.theme");
+    document.body.textContent = "READ enabled=" + (storedEnabled || "null") +
+      " theme=" + (storedTheme || "null");
+    return;
+  }
+  document.body.textContent = "EVAL tool: use ?set=&enabled=&theme= or ?read=1";
+})();
+</script>
+</body>
+</html>

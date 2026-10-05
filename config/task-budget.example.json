@@ -1,0 +1,10 @@
+{
+  "deepseek": {
+    "maxCalls": 24,
+    "maxTokens": 60000
+  },
+  "jev": {
+    "maxCalls": 120,
+    "maxTokens": 300000
+  }
+}

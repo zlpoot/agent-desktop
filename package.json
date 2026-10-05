@@ -1,0 +1,52 @@
+{
+  "type": "module",
+  "scripts": {
+    "test:verification": "node --import tsx --test tests/verification-module.test.ts",
+    "oracle:check": "node scripts/request-oracle.mjs",
+    "test:verification-dataset": "node --import tsx --test tests/verification-dataset.test.ts",
+    "eval:verification": "node --import tsx scripts/evaluate-verification-dataset.mjs",
+    "bench:verification": "node --import tsx scripts/benchmark-verification.mjs",
+    "check": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs offline",
+    "test:browser": "node scripts/run-tests.mjs browser",
+    "browser:install": "node scripts/install-browser.mjs",
+    "grounding:stats": "tsx src/grounding-stats.ts",
+    "workflows:migrate-targets": "tsx scripts/migrate-workflow-targets.ts",
+    "dashboard": "tsx src/app/start.ts",
+    "dashboard:eval": "tsx src/app/start.ts --eval-oracle",
+    "demo": "tsx src/demo.ts",
+    "demo:browser": "tsx src/browser-demo.ts",
+    "demo:approval": "tsx src/approval-demo.ts",
+    "demo:task-a": "tsx src/task-a-demo.ts",
+    "demo:task-a:ai": "tsx src/task-a-ai.ts",
+    "demo:task-b:login": "tsx src/task-b-login.ts",
+    "demo:task-b:ai": "tsx src/task-b-ai.ts",
+    "demo:desktop": "tsx src/desktop-demo.ts",
+    "demo:desktop:ai": "tsx src/desktop-ai.ts",
+    "demo:jev:check": "tsx src/jev-check.ts",
+    "demo:nte:settings": "tsx src/nte-settings.ts",
+    "demo:hearthstone:settings": "tsx src/hearthstone-settings.ts",
+    "desktop:inspect": "tsx src/desktop-inspect.ts",
+    "demo:netease": "tsx src/netease-demo.ts",
+    "test:offline": "node scripts/run-tests.mjs offline",
+    "test:python": "python scripts/run-python-tests.py",
+    "test:all": "node scripts/run-tests.mjs all",
+    "demo:offline": "tsx src/demo.ts",
+    "eval:raw": "node --import tsx scripts/evaluate-raw-verification.mjs"
+  },
+  "dependencies": {
+    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",
+    "cordis": "4.0.0-rc.10",
+    "playwright": "^1.63.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "name": "agent-desktop",
+  "private": true
+}

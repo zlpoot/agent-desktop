@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "description": "Independent extraction contracts for offline replay. Session/time bindings are synthetic replay metadata, not recovered live capture metadata.",
+  "cases": {
+    "dom-hidden-success": {"scope":"[data-request=\"new\"]","fieldSelector":":scope","field":"status","predicate":{"op":"outcome","success":["提交成功"],"failure":["提交失败"],"pending":["处理中"]}},
+    "dom-row-number": {"wrapper":"table","scope":"tr[data-id=\"sku-42\"]","fieldSelector":"[data-field=\"quantity\"]","field":"quantity","predicate":{"op":"equals","expected":"12"}},
+    "uia-wrong-tab": {"query":{"role":"TabItem","selected":true},"field":"modified"},
+    "uia-duplicate-label": {"query":{"role":"Button","name":"提交"}},
+    "save-dialog": {"query":{"role":"Document"},"field":"file.content"}
+  }
+}

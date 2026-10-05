@@ -1,0 +1,6 @@
+{
+  "vmName": "YOUR_VM_NAME",
+  "guestRoot": "YOUR_GUEST_ROOT",
+  "workerUrl": "YOUR_EXPLICIT_WORKER_URL",
+  "dashboardPort": 4173
+}

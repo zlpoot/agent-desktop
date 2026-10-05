@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>任务执行 · Computer Use</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/workbench.css">
+  <script src="/workflow-library.js" defer></script>
+  <script src="/runtime-plugins.js" defer></script>
+  <script src="/workbench.js" defer></script>
+  <script src="/task-experience.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">◉</span><div><strong>Computer Use</strong><small>任务执行</small></div></div>
+      <div class="side-heading"><span>所有执行</span><button id="refresh" type="button" title="刷新">↻ 刷新</button></div>
+      <div id="run-list" class="run-list" aria-live="polite"></div>
+      <div class="side-foot">本机任务 · 每 5 秒更新</div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><span>任务工作台</span><div class="topbar-actions"><span id="last-update">等待数据</span><details id="prompt-editor" class="prompt-editor panel">
+        <summary>提示词设置</summary>
+        <div class="prompt-editor-body">
+          <p>保存后，后续模型调用使用新内容。</p>
+          <label for="prompt-select">选择提示词</label>
+          <select id="prompt-select"></select>
+          <label for="prompt-content">内容</label>
+          <textarea id="prompt-content" rows="12" spellcheck="false"></textarea>
+          <div class="prompt-actions"><button id="prompt-save" type="button">保存提示词</button><span id="prompt-message" role="status"></span></div>
+        </div>
+      </details></div></header>
+      <section class="composer panel">
+        <div class="composer-intro"><h2>有什么需要电脑完成的？</h2><p>描述目标，电脑会根据当前画面规划并执行。</p></div>
+        <form id="task-form">
+          <label class="sr-only" for="task-goal">描述任务</label>
+          <div class="task-composer">
+            <textarea id="task-goal" name="goal" rows="2" maxlength="300" required placeholder="告诉电脑你想完成什么……" autocomplete="off"></textarea>
+            <div class="task-composer-footer"><span>Enter 发送 · Shift+Enter 换行</span><button id="task-submit" type="submit">发送任务 <span aria-hidden="true">↗</span></button></div>
+          </div>
+          <details class="task-options"><summary>更多选项</summary><label class="admin-option"><input id="task-admin" type="checkbox"> 请求已支持任务的管理员权限（Windows 会弹出 UAC 确认）</label></details>
+        </form>
+        <p id="task-message" class="task-message" role="status">任务在本机执行，进度和截图显示在下方。</p>
+      </section>
+      <section class="desktop-panel panel" aria-label="Agent Desktop">
+        <div class="section-head"><h2>Agent Desktop</h2><span id="desktop-status">未连接</span></div>
+        <div class="desktop-controls"><span id="desktop-vm-state">虚拟机：读取中</span><button id="desktop-vm-start" type="button" hidden>启动虚拟机</button><button id="desktop-vm-console" type="button" hidden>打开虚拟机窗口</button><button id="desktop-view-actual" type="button" aria-pressed="true">原始大小</button><button id="desktop-view-fit" type="button" aria-pressed="false">适应窗口</button><span id="desktop-image-size">画面：—</span><span id="desktop-control-message" role="status"></span></div>
+        <div class="desktop-controls" id="desktop-ownership">
+          <strong id="desktop-control-state">输入冻结</strong>
+          <button type="button" data-desktop-command="pause">暂停</button>
+          <button type="button" data-desktop-command="take">接管桌面</button>
+          <button type="button" data-desktop-command="resume">交还 Agent</button>
+          <button type="button" data-desktop-command="stop">停止任务</button>
+          <button type="button" data-desktop-command="emergency">紧急停止</button>
+          <button type="button" data-desktop-command="reset">准备新任务</button>
+        </div>
+          <p id="desktop-connection-state" role="status"></p>
+          <p id="desktop-task-state" role="status"></p>
+        <div class="desktop-screen"><img id="desktop-frame" tabindex="0" draggable="false" alt="Agent Desktop 实时画面；接管后可点击、拖动、滚动和使用键盘" hidden><span id="desktop-placeholder">尚未连接 Desktop Session</span></div>
+        <div id="desktop-human-tools" hidden>
+          <label>发送文字（支持中文） <input id="desktop-human-text" maxlength="1000" autocomplete="off"></label>
+          <button id="desktop-send-text" type="button">输入到虚拟机</button>
+          <span>点击画面后使用键盘；拖动在松开时执行。组合键发送给虚拟机。</span>
+        </div>
+        <details><summary>最近控制事件</summary><pre id="desktop-control-events"></pre></details>
+        <div class="desktop-meta"><span id="desktop-session-id">Session：—</span><span id="desktop-vm-id">VM：—</span><span id="desktop-heartbeat">心跳：—</span></div>
+      </section>
+      <div id="empty" class="empty"><div class="empty-icon">⌁</div><h1>还没有执行记录</h1><p>在上方输入需求后，这里会显示计划、进度和结果。</p></div>
+      <div id="detail" class="detail" hidden>
+        <section class="hero panel">
+          <div class="eyebrow">任务目标 <span id="source-name"></span></div>
+          <div class="hero-title"><h1 id="goal"></h1><span id="status" class="status"></span></div>
+          <p id="summary" class="summary"></p>
+          <p id="goal-verification" class="goal-verification"></p>
+          <p id="goal-criteria" class="goal-verification"></p>
+          <p id="manual-review-record" class="goal-verification" hidden></p>
+          <p id="facet-state" class="goal-verification"></p>
+          <div id="task-controls" class="resume-controls" hidden>
+            <span id="task-control-note"></span>
+            <button id="task-pause" type="button">暂停任务</button>
+            <button id="task-continue" type="button" hidden>继续执行</button>
+          </div>
+          <div id="resume-controls" class="resume-controls" hidden>
+            <span id="resume-question"></span>
+            <input id="resume-answer" placeholder="请输入回答" aria-label="任务回答" hidden>
+            <button id="resume-approve" type="button">确认</button>
+            <button id="resume-reject" type="button">拒绝</button>
+          </div>
+          <div id="manual-review-controls" class="resume-controls" hidden>
+            <span id="manual-review-question">自动验收证据不足。请独立核对实际结果，再记录人工结论；此结论不会作为自动验收或 Workflow 晋级依据。</span>
+            <input id="manual-review-note" maxlength="500" placeholder="填写核对依据（3–500 字）" aria-label="人工验收依据">
+            <button id="manual-review-approve" type="button">人工确认完成</button>
+            <button id="manual-review-reject" type="button">暂不确认</button>
+          </div>
+          <div class="meta"><span id="task-id"></span><span id="updated-at"></span></div>
+        </section>
+        <section class="overview">
+          <div class="metric panel"><span>当前进度</span><strong id="progress-number"></strong><div class="progress-track"><div id="progress-fill"></div></div></div>
+          <div class="metric panel"><span>已执行动作</span><strong id="action-count"></strong><small>成功完成的动作</small></div>
+          <div class="metric panel"><span>任务总历时</span><strong id="elapsed-time"></strong><small id="active-time"></small></div>
+          <div class="metric panel"><span>模型 Token</span><strong id="token-count"></strong><small id="model-calls"></small></div>
+          <div class="metric panel"><span>运行结果</span><strong id="result-label"></strong><small id="result-note"></small></div>
+        </section>
+        <nav class="detail-tabs" aria-label="任务内容">
+          <button type="button" class="detail-tab active" data-tab="process" aria-controls="panel-process" aria-selected="true">执行过程</button>
+          <button type="button" class="detail-tab" data-tab="evidence" aria-controls="panel-evidence" aria-selected="false">步骤证据</button>
+          <button type="button" class="detail-tab" data-tab="analysis" aria-controls="panel-analysis" aria-selected="false">运行分析</button>
+        </nav>
+        <div id="panel-process" class="tab-panel process-layout" data-tab-panel="process">
+          <div class="process-side">
+            <section class="panel section"><div class="section-head"><h2>阶段进度</h2></div><div id="stage-list" class="stage-list"></div></section>
+            <section class="panel section"><div class="section-head"><h2>执行计划</h2><span id="plan-source"></span></div><ol id="plan-list" class="plan-list"></ol></section>
+          </div>
+          <section class="panel section flow-panel"><div class="section-head"><h2>执行流程图</h2><span>点击动作查看证据</span></div><div id="flow-chart" class="flow-chart"></div></section>
+        </div>
+        <div id="panel-evidence" class="tab-panel evidence-layout" data-tab-panel="evidence" hidden>
+          <section class="panel section step-list-panel"><div class="section-head"><h2>步骤轨迹</h2><span id="step-count"></span></div><div id="step-list" class="step-list"></div></section>
+          <section class="panel section evidence-detail"><div class="section-head"><h2>步骤证据</h2><span id="step-number"></span></div>
+            <nav class="step-tabs" aria-label="步骤详情">
+              <button type="button" class="step-tab active" data-step-tab="action" aria-selected="true">动作与验证</button>
+              <button type="button" class="step-tab" data-step-tab="screenshot" aria-selected="false">截图</button>
+              <button type="button" class="step-tab" data-step-tab="metrics" aria-selected="false">模型与耗时</button>
+            </nav>
+            <div class="step-tab-panel" data-step-panel="action"><div id="step-detail" class="step-detail"></div></div>
+            <div class="step-tab-panel" data-step-panel="screenshot" hidden><div id="screenshot" class="screenshot"></div></div>
+            <div class="step-tab-panel" data-step-panel="metrics" hidden><div id="step-metrics" class="step-metrics"></div></div>
+          </section>
+        </div>
+        <div id="panel-analysis" class="tab-panel analysis-layout" data-tab-panel="analysis" hidden>
+          <section class="panel section"><div class="section-head"><h2>流程检索与回退</h2></div><div id="workflow-events" class="stats"></div></section>
+          <section class="panel section"><div class="section-head"><h2>能力选择</h2></div><div id="capability-resolutions" class="stats"></div></section>
+          <section class="panel section"><div class="section-head"><h2>定位统计</h2></div><div id="grounding-stats" class="stats"></div></section>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

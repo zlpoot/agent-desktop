@@ -1,0 +1,2967 @@
+[
+  {
+    "id": "input-permission/pass",
+    "family": "input-permission",
+    "split": "holdout",
+    "category": "grounding",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "输入权限兼容且目标控件启用",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "input-permission",
+        "scope": "action",
+        "requirements": [
+          "permissionCompatible",
+          "enabled"
+        ],
+        "criteria": [
+          {
+            "id": "permissionCompatible",
+            "requirement": "permissionCompatible",
+            "object": "window-A",
+            "field": "permissionCompatible",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          },
+          {
+            "id": "enabled",
+            "requirement": "enabled",
+            "object": "control-A",
+            "field": "enabled",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "permissionCompatible",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "control-A",
+          "field": "enabled",
+          "value": true,
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "input-permission/fail",
+    "family": "input-permission",
+    "split": "holdout",
+    "category": "grounding",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "输入权限兼容且目标控件启用",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 enabled 为错误值 False，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "input-permission",
+        "scope": "action",
+        "requirements": [
+          "permissionCompatible",
+          "enabled"
+        ],
+        "criteria": [
+          {
+            "id": "permissionCompatible",
+            "requirement": "permissionCompatible",
+            "object": "window-A",
+            "field": "permissionCompatible",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          },
+          {
+            "id": "enabled",
+            "requirement": "enabled",
+            "object": "control-A",
+            "field": "enabled",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "permissionCompatible",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "control-A",
+          "field": "enabled",
+          "value": false,
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "input-permission/unknown",
+    "family": "input-permission",
+    "split": "holdout",
+    "category": "grounding",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "输入权限兼容且目标控件启用",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 enabled 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "input-permission",
+        "scope": "action",
+        "requirements": [
+          "permissionCompatible",
+          "enabled"
+        ],
+        "criteria": [
+          {
+            "id": "permissionCompatible",
+            "requirement": "permissionCompatible",
+            "object": "window-A",
+            "field": "permissionCompatible",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          },
+          {
+            "id": "enabled",
+            "requirement": "enabled",
+            "object": "control-A",
+            "field": "enabled",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "permissionCompatible",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "double-open/pass",
+    "family": "double-open",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "双击目标文档后打开的是该文档",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "double-open",
+        "scope": "action",
+        "requirements": [
+          "documentId"
+        ],
+        "criteria": [
+          {
+            "id": "documentId",
+            "requirement": "documentId",
+            "object": "document-window",
+            "field": "documentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "document-A"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "document-window",
+          "field": "documentId",
+          "value": "document-A",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "double-open/fail",
+    "family": "double-open",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "双击目标文档后打开的是该文档",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 documentId 为错误值 'document-B'，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "double-open",
+        "scope": "action",
+        "requirements": [
+          "documentId"
+        ],
+        "criteria": [
+          {
+            "id": "documentId",
+            "requirement": "documentId",
+            "object": "document-window",
+            "field": "documentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "document-A"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "document-window",
+          "field": "documentId",
+          "value": "document-B",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "double-open/unknown",
+    "family": "double-open",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "双击目标文档后打开的是该文档",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 documentId 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "double-open",
+        "scope": "action",
+        "requirements": [
+          "documentId"
+        ],
+        "criteria": [
+          {
+            "id": "documentId",
+            "requirement": "documentId",
+            "object": "document-window",
+            "field": "documentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "document-A"
+            }
+          }
+        ]
+      },
+      "evidence": []
+    }
+  },
+  {
+    "id": "text-append/pass",
+    "family": "text-append",
+    "split": "holdout",
+    "category": "text",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "在原内容后追加一行 World，原内容不被覆盖",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "text-append",
+        "scope": "action",
+        "requirements": [
+          "value"
+        ],
+        "criteria": [
+          {
+            "id": "value",
+            "requirement": "value",
+            "object": "editor-A",
+            "field": "value",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "Hello\nWorld"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "editor-A",
+          "field": "value",
+          "value": "Hello\nWorld",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "text-append/fail",
+    "family": "text-append",
+    "split": "holdout",
+    "category": "text",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "在原内容后追加一行 World，原内容不被覆盖",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 value 为错误值 'World'，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "text-append",
+        "scope": "action",
+        "requirements": [
+          "value"
+        ],
+        "criteria": [
+          {
+            "id": "value",
+            "requirement": "value",
+            "object": "editor-A",
+            "field": "value",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "Hello\nWorld"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "editor-A",
+          "field": "value",
+          "value": "World",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "text-append/unknown",
+    "family": "text-append",
+    "split": "holdout",
+    "category": "text",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "在原内容后追加一行 World，原内容不被覆盖",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 value 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "text-append",
+        "scope": "action",
+        "requirements": [
+          "value"
+        ],
+        "criteria": [
+          {
+            "id": "value",
+            "requirement": "value",
+            "object": "editor-A",
+            "field": "value",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "Hello\nWorld"
+            }
+          }
+        ]
+      },
+      "evidence": []
+    }
+  },
+  {
+    "id": "dialog-close/pass",
+    "family": "dialog-close",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Escape 后目标模态框关闭且焦点回到原窗口",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "dialog-close",
+        "scope": "action",
+        "requirements": [
+          "modalPresent",
+          "foreground"
+        ],
+        "criteria": [
+          {
+            "id": "modalPresent",
+            "requirement": "modalPresent",
+            "object": "window-A",
+            "field": "modalPresent",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "foreground",
+            "requirement": "foreground",
+            "object": "window-A",
+            "field": "foreground",
+            "sources": [
+              "window"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "modalPresent",
+          "value": false,
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "foreground",
+          "value": true,
+          "source": "window",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "dialog-close/fail",
+    "family": "dialog-close",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Escape 后目标模态框关闭且焦点回到原窗口",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 foreground 为错误值 False，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "dialog-close",
+        "scope": "action",
+        "requirements": [
+          "modalPresent",
+          "foreground"
+        ],
+        "criteria": [
+          {
+            "id": "modalPresent",
+            "requirement": "modalPresent",
+            "object": "window-A",
+            "field": "modalPresent",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "foreground",
+            "requirement": "foreground",
+            "object": "window-A",
+            "field": "foreground",
+            "sources": [
+              "window"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "modalPresent",
+          "value": false,
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "foreground",
+          "value": false,
+          "source": "window",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "dialog-close/unknown",
+    "family": "dialog-close",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Escape 后目标模态框关闭且焦点回到原窗口",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 foreground 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "dialog-close",
+        "scope": "action",
+        "requirements": [
+          "modalPresent",
+          "foreground"
+        ],
+        "criteria": [
+          {
+            "id": "modalPresent",
+            "requirement": "modalPresent",
+            "object": "window-A",
+            "field": "modalPresent",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "foreground",
+            "requirement": "foreground",
+            "object": "window-A",
+            "field": "foreground",
+            "sources": [
+              "window"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "window-A",
+          "field": "modalPresent",
+          "value": false,
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "choice-select/pass",
+    "family": "choice-select",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "指定选择控件选中正确选项",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "choice-select",
+        "scope": "action",
+        "requirements": [
+          "selectedId"
+        ],
+        "criteria": [
+          {
+            "id": "selectedId",
+            "requirement": "selectedId",
+            "object": "choice-A",
+            "field": "selectedId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "option-A"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "choice-A",
+          "field": "selectedId",
+          "value": "option-A",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "choice-select/fail",
+    "family": "choice-select",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "指定选择控件选中正确选项",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 selectedId 为错误值 'option-B'，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "choice-select",
+        "scope": "action",
+        "requirements": [
+          "selectedId"
+        ],
+        "criteria": [
+          {
+            "id": "selectedId",
+            "requirement": "selectedId",
+            "object": "choice-A",
+            "field": "selectedId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "option-A"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "choice-A",
+          "field": "selectedId",
+          "value": "option-B",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "choice-select/unknown",
+    "family": "choice-select",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "指定选择控件选中正确选项",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 selectedId 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "choice-select",
+        "scope": "action",
+        "requirements": [
+          "selectedId"
+        ],
+        "criteria": [
+          {
+            "id": "selectedId",
+            "requirement": "selectedId",
+            "object": "choice-A",
+            "field": "selectedId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "option-A"
+            }
+          }
+        ]
+      },
+      "evidence": []
+    }
+  },
+  {
+    "id": "drag-move/pass",
+    "family": "drag-move",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "拖动后目标对象属于指定目标容器",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "drag-move",
+        "scope": "action",
+        "requirements": [
+          "parentId"
+        ],
+        "criteria": [
+          {
+            "id": "parentId",
+            "requirement": "parentId",
+            "object": "item-A",
+            "field": "parentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "container-B"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "item-A",
+          "field": "parentId",
+          "value": "container-B",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "drag-move/fail",
+    "family": "drag-move",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "拖动后目标对象属于指定目标容器",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 parentId 为错误值 'container-A'，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "drag-move",
+        "scope": "action",
+        "requirements": [
+          "parentId"
+        ],
+        "criteria": [
+          {
+            "id": "parentId",
+            "requirement": "parentId",
+            "object": "item-A",
+            "field": "parentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "container-B"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "item-A",
+          "field": "parentId",
+          "value": "container-A",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "drag-move/unknown",
+    "family": "drag-move",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "拖动后目标对象属于指定目标容器",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 parentId 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "drag-move",
+        "scope": "action",
+        "requirements": [
+          "parentId"
+        ],
+        "criteria": [
+          {
+            "id": "parentId",
+            "requirement": "parentId",
+            "object": "item-A",
+            "field": "parentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "container-B"
+            }
+          }
+        ]
+      },
+      "evidence": []
+    }
+  },
+  {
+    "id": "file-overwrite/pass",
+    "family": "file-overwrite",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "覆盖保存后同一目标文件已经包含本次内容",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "file-overwrite",
+        "scope": "task",
+        "requirements": [
+          "canonicalPath",
+          "contentHash"
+        ],
+        "criteria": [
+          {
+            "id": "canonicalPath",
+            "requirement": "canonicalPath",
+            "object": "file-A",
+            "field": "canonicalPath",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "C:/Users/test/Desktop/output.txt"
+            }
+          },
+          {
+            "id": "contentHash",
+            "requirement": "contentHash",
+            "object": "file-A",
+            "field": "contentHash",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sha256-new"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "value": "C:/Users/test/Desktop/output.txt",
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "file-A",
+          "field": "contentHash",
+          "value": "sha256-new",
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "file-overwrite/fail",
+    "family": "file-overwrite",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "覆盖保存后同一目标文件已经包含本次内容",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 contentHash 为错误值 'sha256-old'，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "file-overwrite",
+        "scope": "task",
+        "requirements": [
+          "canonicalPath",
+          "contentHash"
+        ],
+        "criteria": [
+          {
+            "id": "canonicalPath",
+            "requirement": "canonicalPath",
+            "object": "file-A",
+            "field": "canonicalPath",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "C:/Users/test/Desktop/output.txt"
+            }
+          },
+          {
+            "id": "contentHash",
+            "requirement": "contentHash",
+            "object": "file-A",
+            "field": "contentHash",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sha256-new"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "value": "C:/Users/test/Desktop/output.txt",
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "file-A",
+          "field": "contentHash",
+          "value": "sha256-old",
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "file-overwrite/unknown",
+    "family": "file-overwrite",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "覆盖保存后同一目标文件已经包含本次内容",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 contentHash 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "file-overwrite",
+        "scope": "task",
+        "requirements": [
+          "canonicalPath",
+          "contentHash"
+        ],
+        "criteria": [
+          {
+            "id": "canonicalPath",
+            "requirement": "canonicalPath",
+            "object": "file-A",
+            "field": "canonicalPath",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "C:/Users/test/Desktop/output.txt"
+            }
+          },
+          {
+            "id": "contentHash",
+            "requirement": "contentHash",
+            "object": "file-A",
+            "field": "contentHash",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sha256-new"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "file-A",
+          "field": "canonicalPath",
+          "value": "C:/Users/test/Desktop/output.txt",
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download-ready/pass",
+    "family": "download-ready",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "下载结果为完整文件而非临时下载片段",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "download-ready",
+        "scope": "stage",
+        "requirements": [
+          "temporary",
+          "sizeBytes"
+        ],
+        "criteria": [
+          {
+            "id": "temporary",
+            "requirement": "temporary",
+            "object": "download-A",
+            "field": "temporary",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "sizeBytes",
+            "requirement": "sizeBytes",
+            "object": "download-A",
+            "field": "sizeBytes",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 1024
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "download-A",
+          "field": "temporary",
+          "value": false,
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "download-A",
+          "field": "sizeBytes",
+          "value": 1024,
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download-ready/fail",
+    "family": "download-ready",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "下载结果为完整文件而非临时下载片段",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 sizeBytes 为错误值 0，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "download-ready",
+        "scope": "stage",
+        "requirements": [
+          "temporary",
+          "sizeBytes"
+        ],
+        "criteria": [
+          {
+            "id": "temporary",
+            "requirement": "temporary",
+            "object": "download-A",
+            "field": "temporary",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "sizeBytes",
+            "requirement": "sizeBytes",
+            "object": "download-A",
+            "field": "sizeBytes",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 1024
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "download-A",
+          "field": "temporary",
+          "value": false,
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "download-A",
+          "field": "sizeBytes",
+          "value": 0,
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download-ready/unknown",
+    "family": "download-ready",
+    "split": "holdout",
+    "category": "persistence",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "下载结果为完整文件而非临时下载片段",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 sizeBytes 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "download-ready",
+        "scope": "stage",
+        "requirements": [
+          "temporary",
+          "sizeBytes"
+        ],
+        "criteria": [
+          {
+            "id": "temporary",
+            "requirement": "temporary",
+            "object": "download-A",
+            "field": "temporary",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          },
+          {
+            "id": "sizeBytes",
+            "requirement": "sizeBytes",
+            "object": "download-A",
+            "field": "sizeBytes",
+            "sources": [
+              "file"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 1024
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "download-A",
+          "field": "temporary",
+          "value": false,
+          "source": "file",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "extract-row/pass",
+    "family": "extract-row",
+    "split": "holdout",
+    "category": "extraction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "读取的是目标表格行的原始数值",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "extract-row",
+        "scope": "stage",
+        "requirements": [
+          "rowKey",
+          "quantity"
+        ],
+        "criteria": [
+          {
+            "id": "rowKey",
+            "requirement": "rowKey",
+            "object": "row-A",
+            "field": "rowKey",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sku-42"
+            }
+          },
+          {
+            "id": "quantity",
+            "requirement": "quantity",
+            "object": "row-A",
+            "field": "quantity",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 12
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "rowKey",
+          "value": "sku-42",
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "quantity",
+          "value": 12,
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "extract-row/fail",
+    "family": "extract-row",
+    "split": "holdout",
+    "category": "extraction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "读取的是目标表格行的原始数值",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 quantity 为错误值 21，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "extract-row",
+        "scope": "stage",
+        "requirements": [
+          "rowKey",
+          "quantity"
+        ],
+        "criteria": [
+          {
+            "id": "rowKey",
+            "requirement": "rowKey",
+            "object": "row-A",
+            "field": "rowKey",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sku-42"
+            }
+          },
+          {
+            "id": "quantity",
+            "requirement": "quantity",
+            "object": "row-A",
+            "field": "quantity",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 12
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "rowKey",
+          "value": "sku-42",
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "quantity",
+          "value": 21,
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "extract-row/unknown",
+    "family": "extract-row",
+    "split": "holdout",
+    "category": "extraction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "读取的是目标表格行的原始数值",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 quantity 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "extract-row",
+        "scope": "stage",
+        "requirements": [
+          "rowKey",
+          "quantity"
+        ],
+        "criteria": [
+          {
+            "id": "rowKey",
+            "requirement": "rowKey",
+            "object": "row-A",
+            "field": "rowKey",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sku-42"
+            }
+          },
+          {
+            "id": "quantity",
+            "requirement": "quantity",
+            "object": "row-A",
+            "field": "quantity",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 12
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "rowKey",
+          "value": "sku-42",
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "emergency-fence/pass",
+    "family": "emergency-fence",
+    "split": "holdout",
+    "category": "control",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "紧急停止后在途排队输入不能继续落到 Guest",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "emergency-fence",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "queuedInputAccepted"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "stopped"
+            }
+          },
+          {
+            "id": "queuedInputAccepted",
+            "requirement": "queuedInputAccepted",
+            "object": "guest-input",
+            "field": "queuedInputAccepted",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "stopped",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "queuedInputAccepted",
+          "value": false,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "emergency-fence/fail",
+    "family": "emergency-fence",
+    "split": "holdout",
+    "category": "control",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "紧急停止后在途排队输入不能继续落到 Guest",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 queuedInputAccepted 为错误值 True，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "emergency-fence",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "queuedInputAccepted"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "stopped"
+            }
+          },
+          {
+            "id": "queuedInputAccepted",
+            "requirement": "queuedInputAccepted",
+            "object": "guest-input",
+            "field": "queuedInputAccepted",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "stopped",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "queuedInputAccepted",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "emergency-fence/unknown",
+    "family": "emergency-fence",
+    "split": "holdout",
+    "category": "control",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "紧急停止后在途排队输入不能继续落到 Guest",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 queuedInputAccepted 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "emergency-fence",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "queuedInputAccepted"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "stopped"
+            }
+          },
+          {
+            "id": "queuedInputAccepted",
+            "requirement": "queuedInputAccepted",
+            "object": "guest-input",
+            "field": "queuedInputAccepted",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "stopped",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "shutdown-clean/pass",
+    "family": "shutdown-clean",
+    "split": "holdout",
+    "category": "recovery",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Host 关闭后 Guest 输入权已撤销且监听端口释放",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "shutdown-clean",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "listening"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "paused"
+            }
+          },
+          {
+            "id": "listening",
+            "requirement": "listening",
+            "object": "host-dashboard",
+            "field": "listening",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "paused",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "host-dashboard",
+          "field": "listening",
+          "value": false,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "shutdown-clean/fail",
+    "family": "shutdown-clean",
+    "split": "holdout",
+    "category": "recovery",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Host 关闭后 Guest 输入权已撤销且监听端口释放",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 listening 为错误值 True，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "shutdown-clean",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "listening"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "paused"
+            }
+          },
+          {
+            "id": "listening",
+            "requirement": "listening",
+            "object": "host-dashboard",
+            "field": "listening",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "paused",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "host-dashboard",
+          "field": "listening",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "shutdown-clean/unknown",
+    "family": "shutdown-clean",
+    "split": "holdout",
+    "category": "recovery",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "Host 关闭后 Guest 输入权已撤销且监听端口释放",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 listening 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "shutdown-clean",
+        "scope": "stage",
+        "requirements": [
+          "mode",
+          "listening"
+        ],
+        "criteria": [
+          {
+            "id": "mode",
+            "requirement": "mode",
+            "object": "guest-input",
+            "field": "mode",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "paused"
+            }
+          },
+          {
+            "id": "listening",
+            "requirement": "listening",
+            "object": "host-dashboard",
+            "field": "listening",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": false
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "guest-input",
+          "field": "mode",
+          "value": "paused",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "user-response/pass",
+    "family": "user-response",
+    "split": "holdout",
+    "category": "human",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "回答绑定当前任务和当前问题且非空",
+    "expected": {
+      "verdict": "pass",
+      "next": "complete",
+      "rationale": "当前目标对象的全部指定字段已由对应来源完整确认。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "user-response",
+        "scope": "action",
+        "requirements": [
+          "questionId",
+          "hasAnswer"
+        ],
+        "criteria": [
+          {
+            "id": "questionId",
+            "requirement": "questionId",
+            "object": "answer-A",
+            "field": "questionId",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "question-current"
+            }
+          },
+          {
+            "id": "hasAnswer",
+            "requirement": "hasAnswer",
+            "object": "answer-A",
+            "field": "hasAnswer",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "answer-A",
+          "field": "questionId",
+          "value": "question-current",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "answer-A",
+          "field": "hasAnswer",
+          "value": true,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "user-response/fail",
+    "family": "user-response",
+    "split": "holdout",
+    "category": "human",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "回答绑定当前任务和当前问题且非空",
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "当前可信证据明确显示 hasAnswer 为错误值 False，不满足目标。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "user-response",
+        "scope": "action",
+        "requirements": [
+          "questionId",
+          "hasAnswer"
+        ],
+        "criteria": [
+          {
+            "id": "questionId",
+            "requirement": "questionId",
+            "object": "answer-A",
+            "field": "questionId",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "question-current"
+            }
+          },
+          {
+            "id": "hasAnswer",
+            "requirement": "hasAnswer",
+            "object": "answer-A",
+            "field": "hasAnswer",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "answer-A",
+          "field": "questionId",
+          "value": "question-current",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "answer-A",
+          "field": "hasAnswer",
+          "value": false,
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "user-response/unknown",
+    "family": "user-response",
+    "split": "holdout",
+    "category": "human",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "回答绑定当前任务和当前问题且非空",
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "缺少 hasAnswer 的当前目标证据；其余条件成立也不能代替。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "user-response",
+        "scope": "action",
+        "requirements": [
+          "questionId",
+          "hasAnswer"
+        ],
+        "criteria": [
+          {
+            "id": "questionId",
+            "requirement": "questionId",
+            "object": "answer-A",
+            "field": "questionId",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "question-current"
+            }
+          },
+          {
+            "id": "hasAnswer",
+            "requirement": "hasAnswer",
+            "object": "answer-A",
+            "field": "hasAnswer",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": true
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "answer-A",
+          "field": "questionId",
+          "value": "question-current",
+          "source": "api",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "challenge/text-precision",
+    "family": "text-append",
+    "split": "holdout",
+    "category": "text",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "在原内容后追加一行 World，原内容不被覆盖",
+    "tags": [],
+    "expected": {
+      "verdict": "fail",
+      "next": "review",
+      "rationale": "追加内容差一个字符也不满足精确输入要求。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "text-append",
+        "scope": "action",
+        "requirements": [
+          "value"
+        ],
+        "criteria": [
+          {
+            "id": "value",
+            "requirement": "value",
+            "object": "editor-A",
+            "field": "value",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "Hello\nWorld"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "editor-A",
+          "field": "value",
+          "value": "Hello\nWor1d",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "challenge/drag-other-container",
+    "family": "drag-move",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "拖动后目标对象属于指定目标容器",
+    "tags": [],
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "其他容器发生变化，目标对象归属未证实。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "drag-move",
+        "scope": "action",
+        "requirements": [
+          "parentId"
+        ],
+        "criteria": [
+          {
+            "id": "parentId",
+            "requirement": "parentId",
+            "object": "item-A",
+            "field": "parentId",
+            "sources": [
+              "uia"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "container-B"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "other-item",
+          "field": "parentId",
+          "value": "container-B",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "challenge/numeric-visual-only",
+    "family": "extract-row",
+    "split": "holdout",
+    "category": "extraction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "读取的是目标表格行的原始数值",
+    "tags": [],
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "截图模型转录的数值不能冒充原始行字段。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "extract-row",
+        "scope": "stage",
+        "requirements": [
+          "rowKey",
+          "quantity"
+        ],
+        "criteria": [
+          {
+            "id": "rowKey",
+            "requirement": "rowKey",
+            "object": "row-A",
+            "field": "rowKey",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "sku-42"
+            }
+          },
+          {
+            "id": "quantity",
+            "requirement": "quantity",
+            "object": "row-A",
+            "field": "quantity",
+            "sources": [
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": 12
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "rowKey",
+          "value": "sku-42",
+          "source": "visual_model",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "e1-0",
+          "session": "session-A",
+          "object": "row-A",
+          "field": "quantity",
+          "value": 12,
+          "source": "visual_model",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "challenge/same-value-conflicting-sources",
+    "family": "choice-select",
+    "split": "holdout",
+    "category": "interaction",
+    "tier": "normalized",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "指定选择控件选中正确选项",
+    "tags": [],
+    "expected": {
+      "verdict": "unknown",
+      "next": "collect_evidence",
+      "rationale": "原始 DOM 和 UIA 对同一选择状态矛盾。"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "execution": "dispatched",
+      "contract": {
+        "id": "choice-select",
+        "scope": "action",
+        "requirements": [
+          "selectedId"
+        ],
+        "criteria": [
+          {
+            "id": "selectedId",
+            "requirement": "selectedId",
+            "object": "choice-A",
+            "field": "selectedId",
+            "sources": [
+              "uia",
+              "dom"
+            ],
+            "predicate": {
+              "op": "equals",
+              "expected": "option-A"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "e0-0",
+          "session": "session-A",
+          "object": "choice-A",
+          "field": "selectedId",
+          "value": "option-A",
+          "source": "uia",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        },
+        {
+          "id": "conflict",
+          "session": "session-A",
+          "object": "choice-A",
+          "field": "selectedId",
+          "value": "wrong-option",
+          "source": "dom",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download/success",
+    "family": "semantic-download",
+    "split": "holdout",
+    "category": "semantic",
+    "tier": "semantic",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "本次下载是否已完整完成？",
+    "text": "下载完成，完整性校验通过。",
+    "expected": {
+      "verdict": "pass",
+      "rationale": "明确完成和校验"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "contract": {
+        "id": "download/success",
+        "scope": "stage",
+        "requirements": [
+          "result"
+        ],
+        "criteria": [
+          {
+            "id": "result",
+            "requirement": "result",
+            "object": "request-A",
+            "field": "statusText",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "semantic",
+              "instruction": "本次下载是否已完整完成？"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "status",
+          "session": "session-A",
+          "object": "request-A",
+          "field": "statusText",
+          "source": "api",
+          "value": "下载完成，完整性校验通过。",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download/failed",
+    "family": "semantic-download",
+    "split": "holdout",
+    "category": "semantic",
+    "tier": "semantic",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "本次下载是否已完整完成？",
+    "text": "下载中止，文件校验失败。",
+    "expected": {
+      "verdict": "fail",
+      "rationale": "明确失败"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "contract": {
+        "id": "download/failed",
+        "scope": "stage",
+        "requirements": [
+          "result"
+        ],
+        "criteria": [
+          {
+            "id": "result",
+            "requirement": "result",
+            "object": "request-A",
+            "field": "statusText",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "semantic",
+              "instruction": "本次下载是否已完整完成？"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "status",
+          "session": "session-A",
+          "object": "request-A",
+          "field": "statusText",
+          "source": "api",
+          "value": "下载中止，文件校验失败。",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download/pending",
+    "family": "semantic-download",
+    "split": "holdout",
+    "category": "semantic",
+    "tier": "semantic",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "本次下载是否已完整完成？",
+    "text": "已接收 85%，继续下载中。",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "进度未完成"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "contract": {
+        "id": "download/pending",
+        "scope": "stage",
+        "requirements": [
+          "result"
+        ],
+        "criteria": [
+          {
+            "id": "result",
+            "requirement": "result",
+            "object": "request-A",
+            "field": "statusText",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "semantic",
+              "instruction": "本次下载是否已完整完成？"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "status",
+          "session": "session-A",
+          "object": "request-A",
+          "field": "statusText",
+          "source": "api",
+          "value": "已接收 85%，继续下载中。",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "download/wrong-object",
+    "family": "semantic-download",
+    "split": "holdout",
+    "category": "semantic",
+    "tier": "semantic",
+    "provenance": "synthetic",
+    "labelStatus": "assistant-authored-awaiting-independent-review",
+    "goal": "本次下载是否已完整完成？",
+    "text": "其他下载已完成，本次下载状态未知。",
+    "expected": {
+      "verdict": "unknown",
+      "rationale": "其他对象结果不能借用"
+    },
+    "input": {
+      "session": "session-A",
+      "now": 10000,
+      "notBefore": 9000,
+      "contract": {
+        "id": "download/wrong-object",
+        "scope": "stage",
+        "requirements": [
+          "result"
+        ],
+        "criteria": [
+          {
+            "id": "result",
+            "requirement": "result",
+            "object": "request-A",
+            "field": "statusText",
+            "sources": [
+              "api"
+            ],
+            "predicate": {
+              "op": "semantic",
+              "instruction": "本次下载是否已完整完成？"
+            }
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "status",
+          "session": "session-A",
+          "object": "request-A",
+          "field": "statusText",
+          "source": "api",
+          "value": "其他下载已完成，本次下载状态未知。",
+          "capturedAt": 9500,
+          "revision": "r1",
+          "complete": true
+        }
+      ]
+    }
+  }
+]

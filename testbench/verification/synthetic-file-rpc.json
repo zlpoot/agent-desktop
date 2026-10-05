@@ -1,0 +1,26 @@
+{
+  "source": "synthetic_guest_rpc",
+  "actionSource": "synthetic_fixture",
+  "graphActionVerified": false,
+  "expectedContent": "synthetic body",
+  "before": {
+    "path": "C:\\Fixture\\Desktop\\sample.txt",
+    "root": "C:\\Fixture\\Desktop",
+    "capturedAt": 1000,
+    "exists": false,
+    "complete": true
+  },
+  "after": {
+    "path": "C:\\Fixture\\Desktop\\sample.txt",
+    "root": "C:\\Fixture\\Desktop",
+    "capturedAt": 1100,
+    "exists": true,
+    "complete": true,
+    "kind": "file",
+    "size": 14,
+    "mtimeMs": 1050,
+    "sha256": "7d05d9f66d59403802e2971f902654f5723c91e90eab4e5722145089dcae1bd7",
+    "text": "synthetic body"
+  },
+  "localSha256": "7d05d9f66d59403802e2971f902654f5723c91e90eab4e5722145089dcae1bd7"
+}
