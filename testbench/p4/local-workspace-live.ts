@@ -52,10 +52,17 @@ try {
     assert(performance.now() < deadline, "Bounded scenario did not complete");
     await delay(200);
   }
-  const human = await input.transfer(agent, { kind: "human", clientId: "p4-live-viewer" });
+  input.assertAuthority(session, agent);
   // Private terminal only: bearer URL is never serialized into evidence.
-  console.log("Open this private Viewer immediately, keep it polling, perform only the proven controls, then Resume:");
-  console.log(provider.viewerUrl(session, human));
+  // Trusted gate backend bootstrap keeps the existing Agent heartbeat active while the Viewer opens.
+  console.log("Open this private Viewer and keep it polling. Wait for the gate to transfer to Human before using controls:");
+  console.log(backend!.viewerUrl());
+  const viewerReady = await terminal.question("Type READY only after the Viewer is open and polling (the existing 60-second D0 budget still applies). ");
+  assert.equal(viewerReady.trim(), "READY", "Viewer bootstrap unconfirmed");
+  assert.equal(input.current, agent, "Agent authority changed during Viewer bootstrap");
+  input.assertAuthority(session, agent);
+  await input.transfer(agent, { kind: "human", clientId: "p4-live-viewer" });
+  console.log("Human authority is active. Keep the Viewer polling, perform only the proven controls, then Resume:");
   await terminal.question("After Viewer Resume, press Enter (the existing 60-second D0 budget still applies). ");
   const resumed = input.current!;
   assert.equal(resumed.owner.kind, "agent"); input.assertAuthority(session, resumed);
