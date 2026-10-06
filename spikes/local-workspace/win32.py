@@ -64,6 +64,7 @@ class Api:
         for name, args, result in [
             ("GetCurrentThreadId", [], D), ("GetCurrentProcessId", [], D),
             ("GetCurrentProcess", [], H), ("GetModuleHandleW", [S], H),
+            ("GetProcessId", [H], D),
             ("ProcessIdToSessionId", [D, C.POINTER(D)], W.BOOL),
             ("CreateProcessW", [S, W.LPWSTR, V, V, W.BOOL, D, V, S, C.POINTER(STARTUPINFO), C.POINTER(PROCESSINFO)], W.BOOL),
             ("CloseHandle", [H], W.BOOL), ("ResumeThread", [H], D),

@@ -31,6 +31,40 @@ class MusicTests(unittest.TestCase):
         return {"id": "1", "run_id": "r", "owner": "agent", "epoch": 1,
                 "action": "script", "expires": time.monotonic() + 2, **changes}
 
+    def test_R2_viewer_context_uses_owned_uia_role_and_actual_mechanism_without_input(self):
+        self.control = {"owner": "human", "epoch": 2}; self.inputs.acknowledge(self.control)
+        def rect(_, pointer):
+            pointer._obj.left = pointer._obj.top = 0
+            pointer._obj.right = pointer._obj.bottom = 10
+            return True
+        self.api.u.GetWindowRect.side_effect = rect
+        editor = {"index": 0, "role": 50004, "auto_id": "search", "name": "search", "enabled": True,
+                  "offscreen": False, "rect": [0, 0, 5, 10]}
+        player = {"index": 1, "role": 50000, "auto_id": "btn_pc_minibar_play", "name": "play", "enabled": True,
+                  "offscreen": False, "rect": [5, 0, 10, 10]}
+        self.uia.observe.return_value = [editor, player]
+        event = {"kind": "click", "x": 1, "y": 1, "width": 10, "height": 10, "sequence": 1}
+        context = self.inputs.viewer_context(event)
+        self.assertEqual(context, {"capability": "input.semantic", "action": "viewer-click",
+            "targetRole": "search-editor", "mechanism": "uia-control-selection"})
+        self.assertFalse(self.inputs.selected)
+        context = self.inputs.viewer_context({**event, "x": 6})
+        self.assertEqual(context["targetRole"], "playback-button")
+        self.assertEqual(context["mechanism"], "owned-hwnd-message")
+        self.inputs.selected = True
+        self.assertEqual(self.inputs.viewer_context({"kind": "char", "value": "X"})["mechanism"], "uia-valuepattern")
+        self.api.send.assert_not_called(); self.uia.set_value.assert_not_called()
+        self.uia.observe.return_value = [editor, {**editor, "index": 2, "rect": [7, 0, 10, 10]}]
+        with self.assertRaises(Blocked): self.inputs.viewer_context(event)
+
+    def test_R1_neutral_drain_preserves_resume_reobservation_without_replaying_input(self):
+        self.inputs.started = self.inputs.done = True; self.inputs.progress = 4
+        for owner, epoch in (("human", 2), ("none", 3), ("agent", 4)):
+            self.control = {"owner": owner, "epoch": epoch}; self.inputs.acknowledge(self.control)
+        self.inputs.step()
+        self.assertEqual(self.inputs.resume_observation["epoch"], 4)
+        self.api.send.assert_not_called(); self.uia.set_value.assert_not_called()
+
     def test_exact_original_result_rejects_restored_player_cover_live_and_wrong_artist(self):
         for prefix in ("01", "play"):
             self.assertTrue(exact_song_row(f"{prefix} {SONG} jymaster Tag: 原唱 {ARTIST} 专辑 04:00", SONG, ARTIST))

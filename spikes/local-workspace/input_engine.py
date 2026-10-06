@@ -53,6 +53,22 @@ class Inputs:
         if self.api.text(self.edit) != predicted:
             raise Blocked("text_effect_mismatch")
 
+    def viewer_context(self, event):
+        validate_human_event(event)
+        self.check_input()
+        if self.owner != "human" or not self.fixture:
+            raise Blocked("human_fixture_required")
+        if event["kind"] == "char":
+            if not self.selected:
+                raise Blocked("click_editor_before_typing")
+            self.api.guard(self.edit, self.expected)
+            return {"capability": "input.targetedWindow", "action": "viewer-edit",
+                    "targetRole": "fixture-editor", "mechanism": "owned-hwnd-char"}
+        hwnd, _, _ = self.api.control_at(self.target, self.expected, event, [self.edit, *self.buttons])
+        return {"capability": "input.targetedWindow", "action": "viewer-click",
+                "targetRole": "fixture-editor" if hwnd == self.edit else "fixture-button",
+                "mechanism": "owned-hwnd-message"}
+
     def command(self, command):
         identifier = command.get("id")
         self.last = {"id": identifier, "result": "REJECTED"}
@@ -65,7 +81,9 @@ class Inputs:
             validate_epoch(command.get("owner"), command.get("epoch"), self.read_control())
             if (command.get("owner"), command.get("epoch")) != (self.owner, self.epoch):
                 raise Revoked("handoff_not_acknowledged")
-            if command.get("action") == "script" and self.owner == "agent":
+            if command.get("action") == "viewer-context" and self.owner == "human":
+                self.last["context"] = self.viewer_context(command.get("event"))
+            elif command.get("action") == "script" and self.owner == "agent":
                 if self.started or not self.initial_empty:
                     raise Blocked("script_started_or_nonempty_initial_target")
                 self.started = True
@@ -74,6 +92,8 @@ class Inputs:
                     raise Blocked("human_input_budget")
                 event = command.get("event")
                 validate_human_event(event)
+                if "context" in command and self.viewer_context(event) != command["context"]:
+                    raise Blocked("viewer_control_context_changed")
                 if event["kind"] == "char":
                     if not self.selected:
                         raise Blocked("click_editor_before_typing")

@@ -33,7 +33,7 @@ class MusicInputs:
             previous_owner = self.owner
             self.owner, self.epoch = control["owner"], control["epoch"]
             self.selected = False
-            if previous_owner == "human" and self.owner == "agent":
+            if previous_owner == "human" and self.owner in ("none", "agent"):
                 self.resume_observation_pending = True
             self.control_history = (self.control_history + [{"from": previous_owner, "owner": self.owner,
                                     "epoch": self.epoch, "agent_progress": self.progress,
@@ -107,6 +107,36 @@ class MusicInputs:
             if time.monotonic() >= deadline: raise Blocked("targeted_music_query_not_verified")
             time.sleep(0.05)
 
+    def viewer_context(self, event):
+        validate_human_event(event)
+        self.observe(); self.check_input()
+        if self.owner != "human": raise Blocked("human_music_required")
+        if event["kind"] == "char":
+            if not self.selected: raise Blocked("click_editor_before_typing")
+            self.editor()
+            return {"capability": "input.semantic", "action": "viewer-edit",
+                    "targetRole": "search-editor", "mechanism": "uia-valuepattern"}
+        node = self.viewer_click_node(event)
+        if node["role"] == 50004:
+            return {"capability": "input.semantic", "action": "viewer-click",
+                    "targetRole": "search-editor", "mechanism": "uia-control-selection"}
+        return {"capability": "input.targetedWindow", "action": "viewer-click",
+                "targetRole": "playback-button",
+                "mechanism": "owned-hwnd-message"}
+
+    def viewer_click_node(self, event):
+        from win32 import C, W
+        rect = W.RECT(); self.api.checked(self.api.u.GetWindowRect(self.target, C.byref(rect)), "music_window_rect")
+        if (rect.right-rect.left, rect.bottom-rect.top) != (event["width"], event["height"]): raise Blocked("frame_geometry_changed")
+        sx, sy = rect.left + event["x"], rect.top + event["y"]
+        candidates = [x for x in self.rows if x["enabled"] and not x["offscreen"] and
+            x["rect"][0] <= sx < x["rect"][2] and x["rect"][1] <= sy < x["rect"][3] and
+            (x["role"] == 50004 or x["auto_id"] in ("btn_pc_minibar_play", "btn_pc_minibar_pause"))]
+        if len(candidates) != 1: raise Blocked("human_music_control_not_allowed")
+        if candidates[0]["role"] == 50004 and candidates[0] != self.editor():
+            raise Blocked("music_search_editor_unavailable")
+        return candidates[0]
+
     def command(self, command):
         self.last = {"id": command.get("id"), "result": "REJECTED"}
         try:
@@ -118,12 +148,16 @@ class MusicInputs:
                 raise Blocked("stale_or_expired_command")
             validate_epoch(command.get("owner"), command.get("epoch"), self.read_control())
             self.check_input()
-            if command.get("action") == "script" and self.owner == "agent":
+            if command.get("action") == "viewer-context" and self.owner == "human":
+                self.last["context"] = self.viewer_context(command.get("event"))
+            elif command.get("action") == "script" and self.owner == "agent":
                 if self.started: raise Blocked("music_script_already_started")
                 self.started = True
             elif command.get("action") == "human" and self.owner == "human":
                 if self.human_actions >= 256: raise Blocked("human_input_budget")
                 event = command["event"]; validate_human_event(event)
+                if "context" in command and self.viewer_context(event) != command["context"]:
+                    raise Blocked("viewer_control_context_changed")
                 self.observe(); self.check_input()
                 if event["kind"] == "char":
                     if not self.selected: raise Blocked("click_editor_before_typing")
@@ -134,15 +168,7 @@ class MusicInputs:
                     self.uia.set_value(editor["index"], value)
                     self.pending_effect = False
                 else:
-                    from win32 import C, W
-                    rect = W.RECT(); self.api.checked(self.api.u.GetWindowRect(self.target, C.byref(rect)), "music_window_rect")
-                    if (rect.right-rect.left, rect.bottom-rect.top) != (event["width"], event["height"]): raise Blocked("frame_geometry_changed")
-                    sx, sy = rect.left + event["x"], rect.top + event["y"]
-                    candidates = [x for x in self.rows if x["enabled"] and not x["offscreen"] and
-                        x["rect"][0] <= sx < x["rect"][2] and x["rect"][1] <= sy < x["rect"][3] and
-                        (x["role"] == 50004 or x["auto_id"] in ("btn_pc_minibar_play", "btn_pc_minibar_pause"))]
-                    if len(candidates) != 1: raise Blocked("human_music_control_not_allowed")
-                    node = candidates[0]; self.selected = node["role"] == 50004
+                    node = self.viewer_click_node(event); self.selected = node["role"] == 50004
                     if not self.selected:
                         previous = self.playing
                         self.pending_effect = True
