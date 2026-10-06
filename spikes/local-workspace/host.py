@@ -166,7 +166,49 @@ class Controller:
                     self.enqueue("script")
             return self.snapshot()
 
-    def receive_input(self, run_id, epoch, event):
+    def managed_generation(self, run_id, epoch, owner):
+        """Trusted Provider handoff: neutral drain and activation each fence an epoch."""
+        with self.lock:
+            if owner not in ("none", "agent", "human"):
+                raise Blocked("unsupported_owner")
+            if owner == "none":
+                # Fence input even if the previous ACK or lease is unavailable.
+                if (run_id != self.record.get("run_id") or type(epoch) is not int or
+                        epoch != self.epoch or self.record["status"] != "ready"):
+                    raise Blocked("stale_or_inactive_run")
+            else:
+                self.ready_epoch(run_id, epoch, self.owner)
+            self.owner, self.epoch = owner, self.epoch + 1
+            self.record.update(owner=owner, epoch=self.epoch)
+            if self.real:
+                self.write_control(False)  # Fence per-message execution before removing queued files.
+            for path in (self.run_directory / "commands").glob("*.json*"):
+                path.unlink(missing_ok=True)
+            # A revoked, unaccepted command never gains a renewed observation
+            # deadline. Only an already accepted bounded intent may resume.
+            return self.snapshot()
+
+    def viewer_context(self, run_id, epoch, event):
+        """Ask the owned input worker to classify a control without emitting input."""
+        with self.lock:
+            self.ready_epoch(run_id, epoch, "human")
+            validate_human_event(event)
+            if not self.real:
+                raise Blocked("native_viewer_context_required")
+            identifier = self.enqueue("viewer-context", event=event)
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            with self.lock:
+                self.ready_epoch(run_id, epoch, "human")
+                last = self.snapshot().get("last_command", {})
+                if last.get("id") == identifier:
+                    if last.get("result") != "APPLIED" or not isinstance(last.get("context"), dict):
+                        raise Blocked("viewer_control_not_proven")
+                    return last["context"]
+            time.sleep(0.01)
+        raise Blocked("viewer_context_timeout")
+
+    def receive_input(self, run_id, epoch, event, context=None):
         with self.lock:
             self.ready_epoch(run_id, epoch, "human")
             validate_human_event(event)
@@ -180,7 +222,7 @@ class Controller:
                     raise Blocked("stale_frame_geometry")
                 if not max(0, frame.get("sequence", 0) - 10) <= event["sequence"] <= frame.get("sequence", 0):
                     raise Blocked("stale_frame_sequence")
-            command_id = self.enqueue("human", event=event)
+            command_id = self.enqueue("human", event=event, **({"context": context} if context is not None else {}))
             self.human_count += 1
             if not self.real:
                 self.record.update(human_actions=self.human_count, last_command={"id": command_id, "result": "SIMULATED"})
@@ -194,16 +236,18 @@ class Controller:
                     self.write_control(False)
             return self.snapshot()
 
-    def act(self, run_id, epoch=None):
+    def act(self, run_id, epoch=None, observation_deadline=None):
         with self.lock:
             self.ready_epoch(run_id, self.epoch if epoch is None else epoch, "agent")
             if self.record["app"] == "netease" and not self.snapshot().get("input_ready"):
                 raise Blocked("music_input_not_ready")
             if time.monotonic() >= self.lease or self.command_sent:
                 raise Blocked("expired_lease_or_script_already_sent")
+            if observation_deadline is not None and time.monotonic() >= observation_deadline:
+                raise Blocked("workspace_observation_expired")
             self.command_sent = True
             if self.real:
-                self.enqueue("script")
+                self.enqueue("script", **({"expires": observation_deadline} if observation_deadline is not None else {}))
             else:
                 self.record.update(input="SIMULATED", text_verified=True, click_verified=True)
             return self.snapshot()
@@ -369,11 +413,14 @@ class Controller:
 
     def close(self):
         self.closed.set()
-        self.stop("controller_close")
-        self.watchdog.join(4)
+        try:
+            self.stop("controller_close")
+        finally:
+            self.watchdog.join(4)
 
 
-def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=None, human_handler=None, managed=False):
+def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=None, human_handler=None,
+                managed=False, status_handler=None, frame_handler=None):
     token = secrets.token_urlsafe(32)
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -416,23 +463,31 @@ def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=Non
                 self.response(200, (HERE / name).read_bytes(), kind)
             elif not self.authorized():
                 self.response(403, {"error": "unauthorized"})
-            elif self.path == "/status":
-                snapshot = controller.snapshot()
-                if heartbeat_handler and not heartbeat_handler(snapshot.get("run_id"),
-                        snapshot.get("owner"), snapshot.get("epoch")):
-                    self.response(409, {"error": "input_authority_unconfirmed"})
-                    return
-                self.response(200, controller.ping())
-            elif self.path == "/frame":
-                frame, metadata = controller.frame_packet()
-                self.response(200 if frame else 204, frame or b"", "image/png", {
-                    "X-Frame-Sequence": metadata.get("sequence", 0), "X-Frame-Width": metadata.get("width", 0),
-                    "X-Frame-Height": metadata.get("height", 0)})
             else:
-                self.response(404, {"error": "unknown_route"})
+                try:
+                    if self.path == "/status":
+                        self.response(200, (status_handler or controller.snapshot)())
+                    elif self.path == "/frame":
+                        frame, metadata = (frame_handler or controller.frame_packet)()
+                        self.response(200 if frame else 204, frame or b"", "image/png", {
+                            "X-Frame-Sequence": metadata.get("sequence", 0), "X-Frame-Width": metadata.get("width", 0),
+                            "X-Frame-Height": metadata.get("height", 0)})
+                    else:
+                        self.response(404, {"error": "unknown_route"})
+                except Blocked:
+                    self.response(409, {"error": "viewer_request_blocked"})
+                except Exception:
+                    self.response(500, {"error": "viewer_callback_failed"})
 
         def do_POST(self):
             if not self.authorized():
+                # Drain a bounded request before closing: unread bytes can reset
+                # the socket on Windows before the client receives its 403.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if 0 < length <= 1024: self.rfile.read(length)
+                except (ValueError, OSError):
+                    pass
                 self.response(403, {"error": "unauthorized"})
                 return
             try:
@@ -446,12 +501,27 @@ def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=Non
                     result = controller.start(body["app"])
                 elif self.path == "/act" and set(body) == {"run_id", "epoch"}:
                     result = controller.act(body["run_id"], body["epoch"])
-                elif self.path == "/control" and set(body) == {"run_id", "epoch", "owner"}:
-                    result = (transfer_handler or controller.transfer)(body["run_id"], body["epoch"], body["owner"])
-                elif self.path == "/human" and set(body) == {"run_id", "epoch", "event"}:
-                    if human_handler and not human_handler(body["run_id"], body["epoch"]):
-                        raise Blocked("input_authority_unconfirmed")
-                    result = controller.receive_input(body["run_id"], body["epoch"], body["event"])
+                elif self.path == "/control" and set(body) == ({"run_id", "epoch", "owner", "control_token"} if managed else {"run_id", "epoch", "owner"}):
+                    if managed:
+                        if not transfer_handler: raise Blocked("provider_handler_required")
+                        result = transfer_handler(body["run_id"], body["epoch"], body["owner"], body["control_token"])
+                    else:
+                        result = controller.transfer(body["run_id"], body["epoch"], body["owner"])
+                elif self.path == "/heartbeat" and set(body) == ({"run_id", "epoch", "control_token"} if managed else {"run_id", "epoch"}):
+                    if managed:
+                        if not heartbeat_handler or not heartbeat_handler(body["run_id"], body["epoch"], body["control_token"]):
+                            raise Blocked("input_authority_unconfirmed")
+                        result = (status_handler or controller.snapshot)()
+                    else:
+                        self.controller_heartbeat(body)
+                        result = controller.ping()
+                elif self.path == "/human" and set(body) == ({"run_id", "epoch", "event", "control_token"} if managed else {"run_id", "epoch", "event"}):
+                    if managed:
+                        if not human_handler: raise Blocked("provider_handler_required")
+                        result = human_handler(body["run_id"], body["epoch"], body["event"], body["control_token"])
+                        if not isinstance(result, dict): raise Blocked("provider_input_authority_unconfirmed")
+                    else:
+                        result = controller.receive_input(body["run_id"], body["epoch"], body["event"])
                 elif self.path == "/stop" and set(body) == {"run_id"}:
                     if body["run_id"] != controller.record.get("run_id"):
                         raise Blocked("stale_run")
@@ -460,7 +530,13 @@ def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=Non
                     raise ValueError("unsupported_route_or_fields")
                 self.response(200, result)
             except (Blocked, ValueError, TypeError) as error:
-                self.response(409, {"error": str(error)})
+                self.response(409, {"error": "viewer_request_blocked" if managed else str(error)})
+            except Exception:
+                self.response(500, {"error": "viewer_callback_failed"})
+
+        def controller_heartbeat(self, body):
+            # Standalone D0 clients explicitly renew their current generation too.
+            controller.ready_epoch(body["run_id"], body["epoch"], controller.owner)
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     return server, token

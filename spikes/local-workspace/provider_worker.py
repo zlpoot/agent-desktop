@@ -10,7 +10,7 @@ import time
 import uuid
 
 from host import Controller, make_server
-from policy import Blocked
+from policy import Blocked, validate_human_event
 from storage import read_json
 
 
@@ -31,6 +31,14 @@ class ProviderWorker:
         self.backend_facts = None
         self.backend_instance_id = None
         self.stale = False
+        self.control_lock = threading.RLock()
+        self.grant = None
+        self.grant_epoch = 0
+        self.d0_epoch = None
+        self.retired_grants = set()
+        self.control_token = None
+        self.observation = None
+        self.bound_session = None
 
     def identity_facts(self):
         controller = self.controller
@@ -85,21 +93,64 @@ class ProviderWorker:
             raise Blocked("provider_input_authority_unconfirmed")
         return result.get("result")
 
-    def viewer_transfer(self, run_id, epoch, owner):
+    def assert_grant(self, authority, epoch=None, owner=None):
+        if not self.grant or authority != self.grant:
+            raise Blocked("workspace_grant_revoked")
+        state = self.controller.snapshot()
+        if state.get("epoch") != self.d0_epoch or epoch is not None and (type(epoch) is not int or epoch != self.d0_epoch):
+            raise Blocked("input_epoch_revoked")
+        self.controller.ready_epoch(self.run_id, self.d0_epoch, self.grant["owner"]["kind"])
+        if owner is not None and self.grant["owner"]["kind"] != owner:
+            raise Blocked("workspace_grant_owner_mismatch")
+        return state
+
+    def viewer_grant(self, run_id, epoch, control_token, owner=None):
         self.check_identity(self.backend_instance_id)
-        result = self.request_host("viewer_transfer", run_id=run_id, epoch=epoch, owner=owner)
+        if run_id != self.run_id or type(epoch) is not int or not self.control_token or control_token != self.control_token:
+            raise Blocked("stale_viewer_grant")
+        self.assert_grant(self.grant, epoch, owner)
+        return dict(self.grant)
+
+    def viewer_status(self):
+        self.check_identity(self.backend_instance_id)
+        with self.control_lock:
+            return {**self.public_state(), "provider_managed": True, "control_token": self.control_token}
+
+    def viewer_frame(self):
+        self.check_identity(self.backend_instance_id)
+        return self.controller.frame_packet()
+
+    def viewer_transfer(self, run_id, epoch, owner, control_token):
+        self.check_identity(self.backend_instance_id)
+        with self.control_lock:
+            authority = self.viewer_grant(run_id, epoch, control_token)
+        result = self.request_host("viewer_transfer", run_id=run_id, epoch=epoch, owner=owner, authority=authority)
         if not isinstance(result, dict) or result.get("owner") != owner or not result.get("control_ready"):
             raise Blocked("provider_transfer_ack_unconfirmed")
-        return result
+        return self.viewer_status()
 
-    def viewer_heartbeat(self, run_id, owner, epoch):
-        self.check_identity(self.backend_instance_id)
-        result = self.request_host("viewer_heartbeat", run_id=run_id, owner=owner, epoch=epoch)
-        return result is True
+    def viewer_heartbeat(self, run_id, epoch, control_token):
+        with self.control_lock:
+            authority = self.viewer_grant(run_id, epoch, control_token, "human")
+        result = self.request_host("viewer_heartbeat", run_id=run_id, owner="human", epoch=epoch, authority=authority)
+        with self.control_lock:
+            self.viewer_grant(run_id, epoch, control_token, "human")
+            if result is not True: raise Blocked("provider_input_authority_unconfirmed")
+            self.controller.ping()
+        return True
 
-    def viewer_input(self, run_id, epoch):
-        self.check_identity(self.backend_instance_id)
-        return self.request_host("viewer_input_authority", run_id=run_id, epoch=epoch, owner="human") is True
+    def viewer_input(self, run_id, epoch, event, control_token):
+        validate_human_event(event)  # No browser-supplied role/mechanism is accepted.
+        with self.control_lock:
+            authority = self.viewer_grant(run_id, epoch, control_token, "human")
+        context = self.controller.viewer_context(run_id, epoch, event)
+        result = self.request_host("viewer_input_authority", run_id=run_id, epoch=epoch, owner="human",
+                                   authority=authority, context=context, targetId=self.current_target_id())
+        with self.control_lock:
+            self.viewer_grant(run_id, epoch, control_token, "human")
+            if result is not True: raise Blocked("provider_input_authority_unconfirmed")
+            self.controller.receive_input(run_id, epoch, event, context=context)
+            return self.viewer_status()
 
     def start(self, args):
         if self.controller:
@@ -113,7 +164,8 @@ class ProviderWorker:
                                      expected_netease_version="3.1.40.205461" if app == "netease" else None)
         self.server, self.token = make_server(self.controller, transfer_handler=self.viewer_transfer,
                                               heartbeat_handler=self.viewer_heartbeat,
-                                              human_handler=self.viewer_input, managed=True)
+                                              human_handler=self.viewer_input, managed=True,
+                                              status_handler=self.viewer_status, frame_handler=self.viewer_frame)
         self.server_thread = threading.Thread(target=self.server.serve_forever,
             kwargs={"poll_interval": 0.1}, daemon=True)
         self.server_thread.start()
@@ -152,7 +204,8 @@ class ProviderWorker:
         allowed = ("status", "app", "run_id", "mode", "owner", "epoch", "control_ready", "agent_progress",
                    "agent_total", "input", "stage", "app_version", "desktop", "stop_reason", "reason",
                    "cleanup", "track_matches", "playing", "text_length", "clicks", "human_actions",
-                   "input_class", "uia_elements")
+                   "input_class", "uia_elements", "input_ready", "script_started", "human_remaining",
+                   "netease_available", "resume_observation", "resume_observation_pending")
         return {key: value[key] for key in allowed if key in value}
 
     def state(self, _args):
@@ -161,16 +214,7 @@ class ProviderWorker:
         return {"state": self.public_state(), "targetId": self.current_target_id(),
                 "windowsSessionId": self.windows_session_id, "backendInstanceId": self.backend_instance_id}
 
-    def set_owner(self, args):
-        if not self.controller or args.get("run_id") != self.run_id or args.get("owner") not in ("agent", "human"):
-            raise Blocked("stale_or_unsupported_workspace_owner")
-        before = self.controller.snapshot()
-        owner, epoch = args["owner"], before.get("epoch")
-        if before.get("status") != "ready":
-            raise Blocked("workspace_not_ready")
-        if before.get("owner") != owner:
-            self.controller.transfer(self.run_id, epoch, owner)
-            epoch += 1
+    def wait_epoch(self, owner, epoch):
         deadline = time.monotonic() + 4
         while time.monotonic() < deadline:
             state = self.controller.snapshot()
@@ -181,14 +225,62 @@ class ProviderWorker:
             time.sleep(0.05)
         raise Blocked("workspace_transfer_ack_timeout")
 
-    def frame(self, _args):
+    def activate_grant(self, args):
+        authority = args.get("authority")
+        if args.get("run_id") != self.run_id or not isinstance(authority, dict):
+            raise Blocked("invalid_workspace_grant")
+        required = ("providerId", "environmentId", "sessionId", "instanceId", "inputResourceId", "grantId")
+        owner = authority.get("owner", {})
+        if (any(not isinstance(authority.get(key), str) or not authority[key] for key in required) or
+                authority["instanceId"] != self.backend_instance_id or authority["providerId"] != "windows-local-workspace" or
+                authority["environmentId"] != "local-workspace:" + self.controller.record["app"] or
+                type(authority.get("epoch")) is not int or authority["epoch"] <= self.grant_epoch or
+                not isinstance(owner, dict) or owner.get("kind") not in ("agent", "human") or
+                not isinstance(owner.get("clientId"), str) or not owner["clientId"].strip()):
+            raise Blocked("invalid_workspace_grant")
+        session = tuple(authority[key] for key in required[:5])
+        with self.control_lock:
+            if self.grant or authority["grantId"] in self.retired_grants or len(self.retired_grants) >= 128:
+                raise Blocked("workspace_grant_not_drained")
+            if self.bound_session is not None and session != self.bound_session:
+                raise Blocked("workspace_session_mismatch")
+            self.bound_session = session
+            self.grant_epoch = authority["epoch"]
+            self.retired_grants.add(authority["grantId"])  # Failed activation cannot be retried.
+            self.observation = None
+            state = self.controller.managed_generation(self.run_id, self.controller.epoch, owner["kind"])
+            result = self.wait_epoch(owner["kind"], state["epoch"])
+            self.grant = json.loads(json.dumps(authority))
+            self.d0_epoch = state["epoch"]
+            self.control_token = uuid.uuid4().hex
+            return result
+
+    def revoke_grant(self, args):
+        with self.control_lock:
+            if args.get("run_id") != self.run_id:
+                raise Blocked("stale_workspace")
+            if not self.grant or args.get("authority") != self.grant:
+                raise Blocked("workspace_grant_revoked")
+            self.grant = self.control_token = self.observation = None
+            state = self.controller.managed_generation(self.run_id, self.controller.epoch, "none")
+            return self.wait_epoch("none", state["epoch"])
+
+    def frame(self, args):
+        with self.control_lock:
+            return self.granted_frame(args)
+
+    def granted_frame(self, args):
+        self.assert_grant(args.get("authority"), owner="agent")
         if not self.controller or self.controller.record.get("status") != "ready":
             raise Blocked("workspace_not_ready")
         image, metadata = self.controller.frame_packet()
         if not image or len(image) > 16 * 1024 * 1024:
             raise Blocked("workspace_frame_unavailable")
-        if time.monotonic() - metadata.get("heartbeat", 0) > 2:
+        expires = metadata.get("heartbeat", 0) + 2
+        if not 0 < expires - time.monotonic() <= 2:
             raise Blocked("workspace_frame_stale")
+        if type(metadata.get("sequence")) is not int or metadata["sequence"] < 1 or metadata.get("error"):
+            raise Blocked("workspace_frame_invalid")
         uia = []
         if self.controller.record.get("app") == "netease":
             path = self.controller.run_directory / "uia.json"
@@ -197,38 +289,67 @@ class ProviderWorker:
             uia = read_json(path, [])
             if not isinstance(uia, list) or not uia or len(uia) > 1000:
                 raise Blocked("workspace_uia_invalid")
-        return {"png": base64.b64encode(image).decode("ascii"), "metadata": metadata, "uia": uia}
+        token = uuid.uuid4().hex
+        self.observation = {"token": token, "instance": self.backend_instance_id, "target": self.current_target_id(),
+                            "run": self.run_id, "grant": self.grant, "epoch": self.controller.epoch,
+                            "sequence": metadata.get("sequence"), "expires": expires}
+        return {"png": base64.b64encode(image).decode("ascii"), "metadata": metadata, "uia": uia,
+                "observationToken": token, "validForMs": max(0, (expires - time.monotonic()) * 1000)}
 
     def act(self, args):
-        if not self.controller or args.get("run_id") != self.run_id:
+        if not self.controller or args.get("run_id") != self.run_id or type(args.get("epoch")) is not int:
             raise Blocked("stale_workspace")
-        state = self.controller.snapshot()
-        if args.get("epoch") != state.get("epoch") or state.get("owner") != "agent":
-            raise Blocked("input_epoch_revoked")
-        return self.public_state(self.controller.act(self.run_id, state["epoch"]))
+        with self.control_lock:
+            state = self.assert_grant(args.get("authority"), args.get("epoch"), "agent")
+            observed = self.observation
+            image, metadata = self.controller.frame_packet()
+            if (not observed or args.get("observationToken") != observed["token"] or
+                    observed["instance"] != self.backend_instance_id or observed["target"] != self.current_target_id() or
+                    observed["run"] != self.run_id or observed["grant"] != self.grant or observed["epoch"] != state["epoch"] or
+                    time.monotonic() >= observed["expires"] or not image or metadata.get("error") or
+                    type(metadata.get("sequence")) is not int or metadata["sequence"] < observed["sequence"] or
+                    not 0 <= time.monotonic() - metadata.get("heartbeat", 0) < 2):
+                raise Blocked("workspace_observation_revoked_or_expired")
+            self.observation = None
+            return self.public_state(self.controller.act(self.run_id, state["epoch"], observation_deadline=observed["expires"]))
 
-    def ping(self, _args):
+    def ping(self, args):
         if not self.controller:
             raise Blocked("workspace_not_started")
-        state = self.controller.snapshot()
-        if state.get("owner") != "agent" or state.get("status") != "ready":
-            raise Blocked("agent_does_not_own_workspace")
-        return self.public_state(self.controller.ping())
+        with self.control_lock:
+            self.assert_grant(args.get("authority"), owner="agent")
+            return self.public_state(self.controller.ping())
 
     def stop(self, _args):
+        with self.control_lock:
+            self.grant = self.control_token = self.observation = None
         if not self.controller:
             return {"status": "stopped", "cleanup": {"status": "PASS", "job_active": 0, "desktop_absent": True}}
         return self.public_state(self.controller.stop("provider_session_closed"))
 
     def close(self):
-        result = self.stop({})
+        failures = []
+        result = None
+        try:
+            result = self.stop({})
+            cleanup = (result or {}).get("cleanup", {})
+            if cleanup.get("status") != "PASS" or cleanup.get("job_active") != 0 or cleanup.get("desktop_absent") is not True:
+                failures.append("native_cleanup_unconfirmed")
+        except Exception:
+            failures.append("stop_failed")
         if self.server:
-            self.server.shutdown()
-            self.server.server_close()
+            for stage in (self.server.shutdown, self.server.server_close):
+                try: stage()
+                except Exception: failures.append("viewer_close_failed")
         if self.server_thread:
-            self.server_thread.join(2)
+            try:
+                self.server_thread.join(2)
+                if self.server_thread.is_alive(): failures.append("viewer_thread_remains")
+            except Exception: failures.append("viewer_join_failed")
         if self.controller:
-            self.controller.close()
+            try: self.controller.close()
+            except Exception: failures.append("controller_close_failed")
+        if failures: raise Blocked("workspace_close_unconfirmed:" + ",".join(failures))
         return result
 
     def dispatch(self, message):
@@ -243,11 +364,12 @@ class ProviderWorker:
         identity = message.get("id")
         try:
             method, args = message.get("method"), message.get("args", {})
-            if method in ("state", "set_owner", "frame", "act", "ping"):
+            if method in ("state", "activate_grant", "revoke_grant", "frame", "act", "ping"):
                 self.check_identity(message.get("identity"))
             if method == "start": result = self.start(args)
             elif method == "state": result = self.state(args)
-            elif method == "set_owner": result = self.set_owner(args)
+            elif method == "activate_grant": result = self.activate_grant(args)
+            elif method == "revoke_grant": result = self.revoke_grant(args)
             elif method == "frame": result = self.frame(args)
             elif method == "act": result = self.act(args)
             elif method == "ping": result = self.ping(args)

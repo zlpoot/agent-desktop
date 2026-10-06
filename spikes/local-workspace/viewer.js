@@ -29,7 +29,8 @@ function render() {
   const observation = state.resume_observation;
   el('resume-evidence').textContent = state.resume_observation_pending ? 'Resume 已确认，正在只读重新观察…' : observation ? `Resume 后重新观察 · 代次 ${observation.epoch} · ${observation.track_matches ? '指定歌曲匹配' : '指定歌曲不匹配'} · ${observation.playing ? '播放中' : '已暂停'} · 进度 ${observation.agent_progress}/4` : '';
   el('frame').setAttribute('aria-disabled', String(!humanReady()));
-  el('status').textContent = JSON.stringify(state, null, 2);
+  const { control_token, ...display } = state;
+  el('status').textContent = JSON.stringify(display, null, 2);
   if (!active) { el('frame').hidden = true; frame = undefined; pending = []; clearTimeout(delayed); }
 }
 async function command(path, body) {
@@ -40,8 +41,9 @@ async function command(path, body) {
 }
 function transfer(owner) {
   clearTimeout(delayed); pending = [];
-  return command('/control', { run_id: state.run_id, epoch: state.epoch, owner });
+  return command('/control', { run_id: state.run_id, epoch: state.epoch, owner, ...generation() });
 }
+function generation() { return state.provider_managed ? { control_token: state.control_token } : {}; }
 el('run').addEventListener('click', () => command('/run', { app: el('app').value }));
 el('act').addEventListener('click', () => command('/act', { run_id: state.run_id, epoch: state.epoch }));
 el('takeover').addEventListener('click', () => transfer('human'));
@@ -60,7 +62,7 @@ el('parallel').addEventListener('input', () => {
 function queue(event) {
   if (!humanReady()) return;
   if (pending.length >= 16) { el('notice').textContent = '输入队列已满；请等待后重试。'; return; }
-  pending.push({ run_id: state.run_id, epoch: state.epoch, event, deadline: performance.now() + 2000 });
+  pending.push({ run_id: state.run_id, epoch: state.epoch, event, ...generation(), deadline: performance.now() + 2000 });
   void drain();
 }
 async function drain() {
@@ -69,7 +71,8 @@ async function drain() {
   try {
     while (pending.length) {
       const { deadline, ...body } = pending.shift();
-      if (!humanReady() || body.run_id !== state.run_id || body.epoch !== state.epoch || performance.now() >= deadline) continue;
+      if (!humanReady() || body.run_id !== state.run_id || body.epoch !== state.epoch ||
+          state.provider_managed && body.control_token !== state.control_token || performance.now() >= deadline) continue;
       try { await request('/human', body); }
       catch (error) { pending = []; el('notice').textContent = error.message; }
     }
@@ -105,6 +108,10 @@ async function poll() {
     const nextState = await request('/status');
     // Never replace a newer control response with an older concurrent poll.
     if (!mutation && !(nextState.run_id === state.run_id && nextState.epoch < state.epoch)) { state = nextState; render(); }
+    if (!mutation && state.status === 'ready' && state.control_ready &&
+        (state.owner === 'human' || !state.provider_managed)) {
+      await request('/heartbeat', { run_id: state.run_id, epoch: state.epoch, ...generation() });
+    }
     if (['starting', 'ready'].includes(state.status)) {
       const run = state.run_id;
       const response = await fetch('/frame', { headers: { Authorization: `Bearer ${token}` } });
