@@ -8,4 +8,6 @@ Guest `guest/action-worker.py` 通过认证 RPC 及截图通道访问 Windows Wo
 
 Workflow schema、参数化、distill、匹配、回放、后置条件、版本摘要、迁移和恢复位于 `src/workflows`；SQLite trace 与 checkpoint 保存执行边界。断连后重新观察并验证，未知 dispatch 结果不能盲目重放写入。
 
+P1 新环境契约位于 `src/contracts/desktop-environment.ts`，独立资源输入权契约位于 `src/contracts/desktop-input-control.ts`；`src/desktop-provider` 提供 fail-closed 能力准入和 Fake Provider/backend/control fixtures。三层 scoped capability、evidence、readiness、共享资源仲裁和 immutable backend instance 均有合成测试。原 Hyper-V 管理契约及生产装配保持原路径，adapter 与 Task 绑定迁移留给 P2–P5。详见 [P1 契约与验证范围](desktop-provider-p1.md)。
+
 `prompts` 是现有提示词接口。`testbench` 提供合成本地网页、Windows 测试台和独立 Oracle 旁路；Oracle 仅显式 EVAL 装配，不能向 Agent 泄漏金标准。`measurement/p9-a5` 保留只读统计、ledger、模型请求与执行身份审计，使用当前源码和合成夹具，没有旧 Git/冻结源码启动链。

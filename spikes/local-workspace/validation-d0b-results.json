@@ -1,0 +1,96 @@
+{
+  "date": "2026-10-05",
+  "scope": "D0-B synthetic Win32 fixture only; explicitly authorized after incomplete D0-A",
+  "environment": {
+    "windows": "10.0.26200 x64",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "python": "3.11.5",
+    "chromium": "153.0.8010.12",
+    "other_versions": "NOT_VERIFIED"
+  },
+  "offline": {
+    "typecheck": "PASS",
+    "typescript": {
+      "pass": 422,
+      "fail": 0
+    },
+    "browser": {
+      "pass": 50,
+      "fail": 0
+    },
+    "python": {
+      "pass": 63,
+      "fail": 0,
+      "contract_files": 11,
+      "includes_spike": 33
+    },
+    "fake_viewer": {
+      "pass": 1,
+      "fail": 0
+    },
+    "symlink_creation_branch": "NOT_VERIFIED_SANDBOX_EPERM"
+  },
+  "real_fixture": {
+    "outcome": "AUTOMATED_SUBSET_PASS",
+    "paused_progress": 3,
+    "agent_total": 26,
+    "display_scale": 0.5,
+    "human_actions": 8,
+    "final_text_length": 30,
+    "final_clicks": 2,
+    "old_agent_epoch": "REJECTED",
+    "old_human_epoch": "REJECTED",
+    "resume": "CONTINUED_WITHOUT_REPLAY_PASS",
+    "repeated_handoff": "PASS",
+    "unsupported_modifier": "NO_FORWARD",
+    "parallel_text": "NO_FORWARD",
+    "disconnect_in_human_mode": "STOPPED_PASS",
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    }
+  },
+  "real_fault_regression": {
+    "normal": "AUTOMATED_SUBSET_PASS",
+    "disconnect": "PASS",
+    "target_exit": "PASS",
+    "capture_timeout": "PASS",
+    "worker_exit": "PASS",
+    "all_cleanup": "PASS",
+    "normal_fps": 5.03,
+    "normal_observed_frames": 24,
+    "initial_control_read_failures": "RETAINED_PRIVATELY; bounded-read fix and subsequent regression PASS"
+  },
+  "manual_d0b": {
+    "outcome": "PARTICIPANT_REPORTED_PASS",
+    "scope": "this synthetic fixture only",
+    "agent_pause": "PARTICIPANT_REPORTED_PASS",
+    "viewer_input_click": "PARTICIPANT_REPORTED_PASS",
+    "resume_preserves_edit": "PARTICIPANT_REPORTED_PASS",
+    "default_desktop_experience": "PARTICIPANT_REPORTED_PASS",
+    "duration_seconds": 60.02,
+    "human_actions": 18,
+    "agent_progress": 26,
+    "text_length": 37,
+    "clicks": 5,
+    "stop_reason": "duration_budget_exhausted",
+    "cleanup": "PASS",
+    "foreground_events": 0,
+    "cursor_changes": 935,
+    "samples": 5449,
+    "input_text_in_report": false
+  },
+  "notepad": "UNSUPPORTED_PACKAGED_NOTEPAD",
+  "full_d0_gate": "NOT_PASSED",
+  "provider_core_protocol_workflow": "UNCHANGED",
+  "source_authored_files": {
+    "checked": 624,
+    "changed": 0
+  },
+  "historical_a5_safety": "FAIL",
+  "historical_windows_experiments": "PAUSED",
+  "overall_project": "INCOMPLETE",
+  "remote_push": "NOT_RUN"
+}

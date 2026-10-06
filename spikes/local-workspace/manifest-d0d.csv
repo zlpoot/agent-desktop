@@ -1,0 +1,16 @@
+path,classification,reason,dependencies
+README.md,保留并更新,展示 D0 按限定能力完成收口及矩阵链接,D0-D Final Review
+docs/development.md,保留并更新,加入 D0-D 收口及 Provider 后续工作边界,既有测试入口
+spikes/local-workspace/README.md,保留并更新,增加 D0-D 入口说明与能力矩阵链接,各阶段验证文档
+spikes/local-workspace/netease_input.py,保留并更新,有限代次记录；复用只读观察，不增加输入动作,既有 policy/UIA/targeted 输入
+spikes/local-workspace/netease_worker.py,保留并更新,交接 ACK 先发布，观察证据随后记录,既有 Worker
+spikes/local-workspace/verify-netease.py,保留并更新,核对最终当前代次观察并输出脱敏记录,既有真实用例
+spikes/local-workspace/tests/test_netease.py,保留并更新,合成验证已完成任务恢复不重放输入及读到真实匹配状态,unittest/Mock
+spikes/local-workspace/viewer.html,保留并更新,仅增加观察结果显示区,viewer.js
+spikes/local-workspace/viewer.js,保留并更新,显示 Resume 后已记录的只读状态,既有 snapshot；无新输入路由
+spikes/local-workspace/capability-matrix.md,新增保留,正式列出已证/未证/禁止/未运行能力,D0-A/B/C/D 证据
+spikes/local-workspace/capability-matrix.json,新增保留,能力证据报告；不是 Provider 接口,同 Markdown 矩阵
+spikes/local-workspace/validation-d0d.md,新增保留,收口 Gate、实际通过/失败及未证边界,本轮记录
+spikes/local-workspace/validation-d0d-results.json,新增保留,公开脱敏结构化摘要,私有日志布尔值及计数
+spikes/local-workspace/manifest-d0d.csv,新增保留,本轮逐文件范围与依赖,白名单
+.artifacts/d0d-closure*/,私有留存,真实帧、配置、路径、账号 UI、令牌、IPC、详细日志,根忽略规则

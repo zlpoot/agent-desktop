@@ -122,6 +122,11 @@ export class DesktopControl implements DesktopControlHooks {
     if (this.closed || this.state.mode !== "AGENT_CONTROL") return undefined;
     return this.agentRevision;
   }
+  /** Infrastructure snapshot of the last validated handshake, never a grant to perform input. */
+  connectionIdentity(): { endpoint: string; recoveryEpoch: string } | undefined {
+    if (this.closed || !this.workerReady || !this.connectedEndpoint || !this.workerEpoch) return undefined;
+    return { endpoint: this.connectedEndpoint, recoveryEpoch: this.workerEpoch };
+  }
   private async humanCheckpoint() {
     try {
       const session = this.sessions.get(this.sessionId)!;

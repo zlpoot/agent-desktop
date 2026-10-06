@@ -4,6 +4,11 @@ import { createInterface } from "node:readline";
 import type { ActionResult, ComputerAction, GroundingResult, Observation } from "../../actions/schema.js";
 import type { ActionResolution } from "../../actions/action-resolution.js";
 import type { RuntimeAdapter } from "../runtime-adapter.js";
+import type { InputAuthority } from "../../contracts/desktop-input-control.js";
+
+export interface PhysicalHandshake { instanceId: string; inputResourceId: string; ready: boolean; }
+export interface PhysicalInputPolicy { readonly windowManagement: boolean; readonly executors: readonly string[]; }
+export class PhysicalWorkerTransportError extends Error {}
 
 export interface DesktopRuntimeOptions {
   windowTitle?: string;
@@ -57,6 +62,8 @@ export class DesktopRuntime implements RuntimeAdapter {
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private readonly process: ChildProcessWithoutNullStreams;
   private errors = "";
+  private physicalIdentity?: PhysicalHandshake;
+  private inputAuthority?: InputAuthority;
 
   private constructor(options: DesktopRuntimeOptions) {
     if (process.platform !== "win32") throw new Error("桌面运行时仅支持 Windows");
@@ -76,8 +83,14 @@ export class DesktopRuntime implements RuntimeAdapter {
     });
     this.process.stderr.on("data", (chunk: Buffer) => { this.errors = (this.errors + chunk.toString()).slice(-4000); });
     this.process.on("exit", (code) => {
-      for (const waiting of this.pending.values()) waiting.reject(new Error(
+      const ErrorType = this.physicalIdentity ? PhysicalWorkerTransportError : Error;
+      for (const waiting of this.pending.values()) waiting.reject(new ErrorType(
         `桌面运行时已退出（${code}）：${this.errors}`));
+      this.pending.clear();
+    });
+    this.process.on("error", error => {
+      for (const waiting of this.pending.values()) waiting.reject(this.physicalIdentity ?
+        new PhysicalWorkerTransportError(error.message) : error);
       this.pending.clear();
     });
   }
@@ -106,14 +119,45 @@ export class DesktopRuntime implements RuntimeAdapter {
   private call<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {
     const id = ++this.nextId;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-      this.process.stdin.write(JSON.stringify({ id, method, args }) + "\n", (error) => {
-        if (error) { this.pending.delete(id); reject(error); }
+      const managed = !!this.physicalIdentity || method.startsWith("physical_");
+      const timer = managed ? setTimeout(() => {
+        this.pending.delete(id); reject(new PhysicalWorkerTransportError("Physical Worker RPC timeout; instance unconfirmed"));
+        this.process.kill();
+      }, 30000) : undefined;
+      this.pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value as T); },
+        reject: error => { clearTimeout(timer); reject(error); } });
+      this.process.stdin.write(JSON.stringify({ id, method, args,
+        ...(this.physicalIdentity ? { physicalIdentity: this.physicalIdentity, inputAuthority: this.inputAuthority } : {}) }) + "\n", (error) => {
+        if (error) { this.pending.delete(id); clearTimeout(timer); reject(managed ? new PhysicalWorkerTransportError(error.message) : error); }
       });
     });
   }
 
   observe(screenCapture = false): Promise<Observation> { return this.call("observe", { screenCapture }); }
+  /** Managed Provider path; legacy attach/listWindows do not opt into this protocol extension. */
+  static async connectPhysical(policy: PhysicalInputPolicy, options: DesktopRuntimeOptions = {}): Promise<DesktopRuntime> {
+    const runtime = new DesktopRuntime(options);
+    try {
+      runtime.physicalIdentity = await runtime.physicalHandshake(policy);
+      return runtime;
+    } catch (error) { await runtime.close(); throw error; }
+  }
+  async physicalHandshake(policy: PhysicalInputPolicy): Promise<PhysicalHandshake> {
+    const value = await this.call<PhysicalHandshake>("physical_hello", { policy });
+    if (this.physicalIdentity && (value.instanceId !== this.physicalIdentity.instanceId ||
+      value.inputResourceId !== this.physicalIdentity.inputResourceId)) throw new Error("Physical Worker instance/resource changed");
+    return value;
+  }
+  async grantPhysical(authority: InputAuthority, expiresAt: number): Promise<void> {
+    await this.call("physical_grant", { authority, expiresAt }); this.inputAuthority = authority;
+  }
+  async revokePhysical(authority: InputAuthority): Promise<void> {
+    await this.call("physical_revoke", { authority }); this.inputAuthority = undefined;
+  }
+  async bindPhysical(options: DesktopRuntimeOptions): Promise<void> {
+    await this.call("init", { ...options, artifactDir: resolve(options.artifactDir ?? ".artifacts/desktop") });
+  }
+  windowsPhysical(filter: WindowFilter = {}): Promise<WindowInfo[]> { return this.call("list_windows", { ...filter }); }
   probe(focus = false): Promise<DesktopProbe> { return this.call("probe", { focus }); }
   async recoverFocus(): Promise<void> {
     const state = await this.probe(true);

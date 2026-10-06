@@ -36,6 +36,8 @@ from PIL import Image
 from pywinauto import Desktop
 from pywinauto import mouse as uia_mouse
 from vision import match_visual_template
+from physical_context import physical_context
+from physical_gate import PhysicalGate
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.05
@@ -47,6 +49,8 @@ ARTIFACT_DIR = None
 OBSERVATION_COUNT = 0
 CAPTURE_EPOCH = str(uuid.uuid4())
 LAST_ENUMERATION_COMPLETE = False
+PHYSICAL_INSTANCE_ID = str(uuid.uuid4())
+PHYSICAL_GATE = None
 
 
 def reply(request_id, result=None, error=None):
@@ -1046,6 +1050,23 @@ for line in sys.stdin:
         request = json.loads(line)
         method = request["method"]
         args = request.get("args", {})
+        if method == "physical_hello":
+            if PHYSICAL_GATE is None:
+                PHYSICAL_GATE = PhysicalGate(lambda: physical_context(PHYSICAL_INSTANCE_ID), args["policy"])
+            reply(request["id"], physical_context(PHYSICAL_INSTANCE_ID))
+            continue
+        if PHYSICAL_GATE is not None:
+            if method == "physical_grant":
+                PHYSICAL_GATE.install(args["authority"], args["expiresAt"])
+                reply(request["id"], True)
+                continue
+            if method == "physical_revoke":
+                PHYSICAL_GATE.revoke(args["authority"])
+                WINDOW = WINDOW_HANDLE = WINDOW_PID = WINDOW_PROCESS_PATH = None
+                reply(request["id"], True)
+                continue
+            if method != "close":
+                PHYSICAL_GATE.check(request.get("physicalIdentity"), request.get("inputAuthority"), method, args)
         if method == "init":
             ARTIFACT_DIR = Path(args["artifactDir"]).resolve()
             result = bind(args.get("windowTitle"), args.get("windowHandle"),

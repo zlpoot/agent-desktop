@@ -50,6 +50,7 @@ export function mountSessionScope(options: SessionScopeOptions): SessionScope {
   let active = true;
   let reconnectTimer: NodeJS.Timeout | undefined;
   let refreshTimer: NodeJS.Timeout | undefined;
+  let unregisterEnvironment: (() => Promise<void>) | undefined;
   const cleanup = controlBus.trackSession(async () => {
     active = false;
     clearInterval(refreshTimer);
@@ -59,7 +60,10 @@ export function mountSessionScope(options: SessionScopeOptions): SessionScope {
     controlBus.remove(sessionId);
     if (control) {
       try { await controller.releaseDesktopControl(control, sessionId); }
-      finally { await control.close(); }
+      finally {
+        try { await unregisterEnvironment?.(); }
+        finally { await control.close(); }
+      }
     }
   });
   // 登记会话（同步、幂等）必须先于 DesktopControl 构造：其构造会写控制状态并回写会话。
@@ -67,6 +71,7 @@ export function mountSessionScope(options: SessionScopeOptions): SessionScope {
   control = new DesktopControl(resolve(rootDir), provider, sessionId,
     token, controller, requireReconnect, config);
   const sessionControl = control;
+  unregisterEnvironment = root.get("hyperVCompatibility", false)?.registerControl(sessionId, sessionControl);
   const fiber = mountInspected(root, {
     name: `session:${sessionId}`,
     inject: ["desktopProvider", "taskController"],

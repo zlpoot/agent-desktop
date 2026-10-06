@@ -21,8 +21,8 @@ export interface DesktopSessionView {
   lastError: string | null;
 }
 
-/** 桌面发现、状态、启动与连接；Hyper-V 细节留在实现中。 */
-export interface DesktopProvider {
+/** Legacy Hyper-V management/transport contract; new environments use desktop-environment.ts. */
+export interface LegacyDesktopProvider {
   register(vmId: string, endpoint: string, sessionId?: string): DesktopSessionView;
   list(): DesktopSessionView[];
   get(id: string): DesktopSessionView | undefined;
@@ -40,6 +40,9 @@ export interface DesktopProvider {
   poll(): Promise<void>;
   close(): Promise<void>;
 }
+
+/** @deprecated Compatibility alias for existing consumers; not the environment Provider. */
+export type DesktopProvider = LegacyDesktopProvider;
 
 /** Agent/Human 输入所有权与租约边界；紧急停止与恢复由实现保持。 */
 export interface InputControl {

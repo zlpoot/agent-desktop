@@ -1,0 +1,235 @@
+{
+  "date": "2026-10-05",
+  "scope": "D0-D closure of existing limited NetEase and synthetic workspace evidence",
+  "decision": "CLOSED_CAPABILITY_SCOPED",
+  "gates": {
+    "D1_real_viewer_same_run_resume": "PASS",
+    "D2_deliberate_default_interference": "PASS_USER_REPORTED",
+    "D3_capability_matrix": "PASS",
+    "D4_final_review": "PASS_CAPABILITY_SCOPED"
+  },
+  "environment": {
+    "windows": "10.0.26200 x64",
+    "node": "24.21.0",
+    "npm": "11.19.0",
+    "python": "3.11.5",
+    "powershell": "7.6.5",
+    "chromium": "153.0.8010.12",
+    "netease": "3.1.40.205461",
+    "other_versions": "NOT_VERIFIED"
+  },
+  "offline": {
+    "typecheck": "PASS",
+    "typescript": {
+      "pass": 422,
+      "fail": 0,
+      "skip": 0
+    },
+    "python": {
+      "pass": 81,
+      "fail": 0,
+      "contract_files": 11,
+      "includes_spike": 51
+    },
+    "browser": {
+      "pass": 50,
+      "fail": 0,
+      "skip": 0
+    },
+    "fake_viewer": {
+      "pass": 1,
+      "fail": 0
+    }
+  },
+  "automatic": {
+    "outcome": "AUTOMATED_SUBSET_PASS",
+    "input": "PASS",
+    "agent_progress": 4,
+    "track_matches": true,
+    "playing": true,
+    "takeover": {
+      "status": "PASS",
+      "paused_progress": 1,
+      "human_actions": 5,
+      "edit_and_backspace_verified": true,
+      "old_epoch_rejected": true,
+      "budget_preserved": true,
+      "play_pause_verified": true
+    },
+    "resume_observation": {
+      "epoch": 5,
+      "observed_at": 510072.593,
+      "track_matches": true,
+      "playing": true,
+      "agent_progress": 4,
+      "task_completed": true
+    },
+    "control_history": [
+      {
+        "from": null,
+        "owner": "agent",
+        "epoch": 1,
+        "agent_progress": 0,
+        "human_actions": 0,
+        "acknowledged_at": 510035.187
+      },
+      {
+        "from": "agent",
+        "owner": "human",
+        "epoch": 2,
+        "agent_progress": 1,
+        "human_actions": 0,
+        "acknowledged_at": 510037.593
+      },
+      {
+        "from": "human",
+        "owner": "agent",
+        "epoch": 3,
+        "agent_progress": 1,
+        "human_actions": 3,
+        "acknowledged_at": 510047.859
+      },
+      {
+        "from": "agent",
+        "owner": "human",
+        "epoch": 4,
+        "agent_progress": 4,
+        "human_actions": 3,
+        "acknowledged_at": 510065.359
+      },
+      {
+        "from": "human",
+        "owner": "agent",
+        "epoch": 5,
+        "agent_progress": 4,
+        "human_actions": 5,
+        "acknowledged_at": 510071.265
+      }
+    ],
+    "disconnect": {
+      "status": "PASS",
+      "stop_reason": "viewer_disconnected_or_lease_expired"
+    },
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    },
+    "monitor": {
+      "foreground_events": 6,
+      "cursor_changes": 1057,
+      "samples": 3907,
+      "human_parallel_input": "NOT_RUN",
+      "sampling_limit": "cursor samples cannot attribute movement",
+      "foreground_final_equals_initial": true,
+      "cursor_final_equals_initial": false,
+      "input_desktop": "Default"
+    }
+  },
+  "human": {
+    "date": "2026-10-05",
+    "status": "REPORTED_PASS",
+    "statement": "我确认了，没问题",
+    "scope": "D0-D same-run real Viewer Resume and requested deliberate Default Desktop interference checklist",
+    "detail_level": "overall confirmation; no itemized observations supplied",
+    "gate_D1": "PASS: same-run ACK history and fresh observation plus user confirmation",
+    "gate_D2": "PASS_USER_REPORTED: requested deliberate interference and five UX checks; counters are not attribution evidence"
+  },
+  "instrumentation": "bounded ownership history and existing read-only observation after ACK; no new input action",
+  "limits": {
+    "duration_seconds": 60,
+    "lease_seconds": 3,
+    "control_history_items": 16,
+    "provider_guest_workflow": "UNCHANGED",
+    "new_app_input_uia_wgc_raw": "NONE",
+    "a5_safety": "FAIL historical",
+    "historical_windows": "PAUSED",
+    "overall": "INCOMPLETE",
+    "license": "UNDECIDED",
+    "push": "NOT_RUN"
+  },
+  "first_probe": {
+    "outcome": "BLOCKED",
+    "reason": "Resume ACK timeout while observation preceded ACK",
+    "cleanup": "PASS"
+  },
+  "source_preservation": {
+    "protected_files": 624,
+    "changed": []
+  },
+  "acceptance": "D0 LOCAL WORKSPACE — ACCEPTED",
+  "full_virtual_desktop": "NOT_PROVEN",
+  "human_run": {
+    "status": "stopped",
+    "input": "PASS",
+    "agent_progress": 4,
+    "agent_total": 4,
+    "human_actions": 2,
+    "owner_ack": "agent",
+    "epoch_ack": 3,
+    "stop_reason": "duration_budget_exhausted",
+    "track_matches": true,
+    "playing": true,
+    "cleanup": {
+      "status": "PASS",
+      "job_active": 0,
+      "desktop_absent": true
+    },
+    "monitor": {
+      "foreground_events": 3,
+      "cursor_changes": 1312,
+      "samples": 5332,
+      "human_parallel_input": "NOT_RUN",
+      "sampling_limit": "cursor samples cannot attribute movement",
+      "foreground_final_equals_initial": true,
+      "cursor_final_equals_initial": false,
+      "input_desktop": "Default"
+    },
+    "run_seconds": 60.05,
+    "control_history": [
+      {
+        "from": null,
+        "owner": "agent",
+        "epoch": 1,
+        "agent_progress": 0,
+        "human_actions": 0
+      },
+      {
+        "from": "agent",
+        "owner": "human",
+        "epoch": 2,
+        "agent_progress": 4,
+        "human_actions": 0
+      },
+      {
+        "from": "human",
+        "owner": "agent",
+        "epoch": 3,
+        "agent_progress": 4,
+        "human_actions": 2
+      }
+    ],
+    "resume_observation": {
+      "epoch": 3,
+      "track_matches": true,
+      "playing": true,
+      "agent_progress": 4,
+      "task_completed": true,
+      "after_ack_ms": 1157
+    },
+    "resume_observation_pending": false
+  },
+  "final_review": {
+    "result": "ACCEPTED_CAPABILITY_SCOPED",
+    "criteria": "Per user D0-D closure scope; Notepad and raw input are compatibility/research cases, not closure blockers",
+    "same_run_real_resume": "PASS",
+    "deliberate_default_interference": "USER_REPORTED_PASS",
+    "finite_task_resumed_observation": "PASS; input already completed before manual takeover; no new or replayed input",
+    "cleanup": "PASS; budget exhaustion, not manual Stop",
+    "viewer_service": "STOPPED; associated processes 0",
+    "core_protocol_schema_budget": "UNCHANGED",
+    "private_evidence": "PRESERVED_IGNORED",
+    "next_step": "P0 LocalWorkspaceProvider design only; no Provider implementation authorized by closure",
+    "generic_apps_and_raw_input": "NOT_PROVEN"
+  }
+}

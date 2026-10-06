@@ -4,7 +4,7 @@
 
 **当前整体未完成。历史 A5 challenge-set 的结论是 `safety FAIL`，Windows 实验继续暂停。** 本仓库的离线回归只验证合成场景与接口契约，不能推翻该结论，也不能证明无人值守实机安全。实验启动链、真实结果及完整私有开发现场留在原工程，未迁入此仓库。
 
-本轮仅创建本地候选工程和新的 Git 历史。没有推送、修改远端可见性或选择项目许可证；来源与授权待确认，暂不按已授权开源项目发布。
+提取阶段建立了新的 Git 历史，随后按用户授权推送到 GitHub。没有修改远端可见性或选择项目许可证；来源与授权待确认，暂不按已授权开源项目发布。
 
 ## 安装与校验
 
@@ -54,6 +54,8 @@ npm run dashboard
 ## 示例、评测与现场入口
 
 `demo` / `demo:offline` 使用现有 FakeModel + FakeRuntime；网址仅是模拟数据。`demo:browser` 使用脚本模型及临时 localhost 表单。`demo:approval -- start` 及 `resume <任务 ID> approve|reject` 保留本机浏览器批准恢复示例；它生成自己的临时浏览器状态。
+
+独立的 [D0 隐藏工作区 Spike](spikes/local-workspace/README.md) 验证同一 Windows Session 的另一 Desktop。`demo:local-workspace` 默认使用 Fake Viewer；`test:local-workspace` 是离线安全契约。`:windows` 入口显式执行受控实机实验，仅操作本次隐藏窗口。合成夹具、D0-B 接管子集和 D0-C 网易云启动、指定歌曲检索/播放及有限接管已接受；D0-D 补齐同一次真实 Viewer Resume 观察和人工专项并行干扰报告，**D0 LOCAL WORKSPACE — ACCEPTED（有限能力范围）**，见 [D0-D 验证](spikes/local-workspace/validation-d0d.md) 和 [能力矩阵](spikes/local-workspace/capability-matrix.md)。打包版 Notepad 仍为 `UNSUPPORTED`，原完整 D0-A 未通过的历史记录保留；RAW 输入、任意应用及完整虚拟电脑未证。该实验不修改 Provider、不接入 Agent/Workflow，也不恢复历史 A5 Windows 实验。
 
 `eval:verification`、`eval:raw`、`bench:verification` 保留可复用评测，输入为合成场景。`node scripts/build-verification-dataset.mjs` 可重新生成夹具及指纹。标签是人工编写的预期值，未获得独立裁定；评测未知/未运行项不得计为通过。`workflows:migrate-targets` 是显式迁移入口，先阅读 `docs/development.md` 并备份自行提供的数据库。
 

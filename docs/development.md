@@ -11,3 +11,5 @@
 新增或调整测试时保留反例目的：错误目标、过期证据、unknown、未确定 dispatch、恢复版本边界不得改成成功。合成图片只测试解析及几何边界，不证明真实截图采集/语义识别。评测输入不得向模型暴露预期标签。
 
 验证记录区分安装下载、离线测试、本地浏览器与现场实验；失败必须记录，修复后可复验，但不得删除历史实验 FAIL。现场入口仅显式执行，本地脚本名包含 smoke 并不自动意味着离线安全。
+
+D0-A/B/C/D 是 `spikes/local-workspace` 中独立的受控实验。修改该目录后增加 `npm run test:local-workspace` 和 `npm run test:local-workspace:browser`；前者也由 `test:python` 纳入。带 `:windows` 的入口会启动真实隐藏桌面应用，单独授权、执行和记录，不计入离线通过数字。网易云入口需要显式安装路径，使用真实应用的普通用户配置与第三方音乐服务；与无账户离线示例分开。根提取分类清单记录提取时的基线，本轮新增 Spike 的来源、范围和后续验证见其 README、各阶段 validation 文档和 Capability Matrix。D0-D 只收口人工同次 Resume 与刻意并行干扰；Provider 设计是后续独立工作。

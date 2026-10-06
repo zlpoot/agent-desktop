@@ -32,7 +32,16 @@
     "test:python": "python scripts/run-python-tests.py",
     "test:all": "node scripts/run-tests.mjs all",
     "demo:offline": "tsx src/demo.ts",
-    "eval:raw": "node --import tsx scripts/evaluate-raw-verification.mjs"
+    "eval:raw": "node --import tsx scripts/evaluate-raw-verification.mjs",
+    "demo:local-workspace": "python spikes/local-workspace/host.py --fake",
+    "demo:local-workspace:windows": "python spikes/local-workspace/host.py --real",
+    "test:local-workspace": "python -m unittest discover -s spikes/local-workspace/tests -v",
+    "test:local-workspace:browser": "node --test spikes/local-workspace/tests/viewer.test.mjs",
+    "test:local-workspace:windows": "python spikes/local-workspace/verify.py --real --faults",
+    "test:local-workspace:viewer:windows": "node spikes/local-workspace/verify-viewer.mjs --real",
+    "test:local-workspace:takeover:windows": "node spikes/local-workspace/verify-viewer.mjs --real --takeover",
+    "demo:local-workspace:netease": "python spikes/local-workspace/host.py --real",
+    "test:local-workspace:netease:windows": "python spikes/local-workspace/verify-netease.py --real --takeover"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.17",
