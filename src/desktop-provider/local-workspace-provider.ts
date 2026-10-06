@@ -6,9 +6,10 @@ import { resolve } from "node:path";
 import { inflateSync } from "node:zlib";
 import type { Observation } from "../actions/schema.js";
 import type { CapabilityContext, CapabilityDeclaration, CapabilityScope, CapabilityState, DesktopCapabilities, DesktopCapability,
-  DesktopProvider, DesktopSession, DesktopSessionIdentity, DesktopSessionStatus } from "../contracts/desktop-environment.js";
+  DesktopProvider, DesktopSession, DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
+  DesktopReadiness } from "../contracts/desktop-environment.js";
 import type { DesktopInputArbiter, DesktopInputControl, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
-import { deny, sameSession } from "./admission.js";
+import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
 
 export type LocalWorkspaceAppConfig =
   | { app: "fixture" }
@@ -26,10 +27,11 @@ export interface LocalWorkspaceFrame {
 export interface LocalWorkspaceConnection {
   state: LocalWorkspaceState; targetId: string | null; viewerPort: number; viewerToken: string;
   windowsSessionId: number;
+  backendInstanceId: string;
 }
 export interface LocalWorkspaceBackend {
   start(config: LocalWorkspaceAppConfig): Promise<LocalWorkspaceConnection>;
-  state(): Promise<{ state: LocalWorkspaceState; targetId: string | null; windowsSessionId: number }>;
+  state(): Promise<{ state: LocalWorkspaceState; targetId: string | null; windowsSessionId: number; backendInstanceId: string }>;
   setOwner(runId: string, owner: "agent" | "human"): Promise<LocalWorkspaceState>;
   frame(): Promise<LocalWorkspaceFrame>;
   act(runId: string, epoch: number): Promise<LocalWorkspaceState>;
@@ -41,10 +43,15 @@ export interface LocalWorkspaceBackend {
 }
 export type LocalWorkspaceBackendFactory = (directory: string) => LocalWorkspaceBackend;
 export interface LocalWorkspaceRuntime {
+  bind(): Promise<LocalWorkspaceTarget>;
   observe(): Promise<Observation>;
   /** Only the prevalidated D0 scenario for this configured app can be started. */
   runValidatedScenario(): Promise<LocalWorkspaceState>;
   close(): Promise<void>;
+}
+export interface LocalWorkspaceTarget extends DesktopTargetBinding {
+  readonly capabilities: DesktopCapabilities;
+  readonly readiness: DesktopReadiness;
 }
 interface Binding {
   identity: DesktopSessionIdentity;
@@ -116,7 +123,8 @@ class D0WorkspaceBackend implements LocalWorkspaceBackend {
         this.pending.delete(id); reject(new WorkspaceBackendError(`D0 provider ${method} timeout`)); this.process.kill();
       }, timeoutMs);
       this.pending.set(id, { resolve: resolveResult, reject, timer });
-      this.process.stdin.write(JSON.stringify({ id, method, args }) + "\n", error => {
+      const identity = this.connection?.backendInstanceId;
+      this.process.stdin.write(JSON.stringify({ id, method, args, ...(identity ? { identity } : {}) }) + "\n", error => {
         if (error) { this.pending.delete(id); clearTimeout(timer); reject(new WorkspaceBackendError("D0 provider transport failed")); }
       });
     });
@@ -130,12 +138,13 @@ class D0WorkspaceBackend implements LocalWorkspaceBackend {
       { app: "netease", netease: { path: config.path, song: config.song, artist: config.artist } };
     const raw = await this.request<LocalWorkspaceConnection>("start", args, 45000);
     if (!Number.isInteger(raw.viewerPort) || raw.viewerPort < 1 || raw.viewerPort > 65535 ||
-      typeof raw.viewerToken !== "string" || !raw.viewerToken || !Number.isInteger(raw.windowsSessionId)) {
+      typeof raw.viewerToken !== "string" || !raw.viewerToken || !Number.isInteger(raw.windowsSessionId) ||
+      typeof raw.backendInstanceId !== "string" || !raw.backendInstanceId) {
       throw new WorkspaceBackendError("D0 provider handshake invalid");
     }
     this.connection = raw; return raw;
   }
-  state() { return this.request<{ state: LocalWorkspaceState; targetId: string | null; windowsSessionId: number }>("state"); }
+  state() { return this.request<{ state: LocalWorkspaceState; targetId: string | null; windowsSessionId: number; backendInstanceId: string }>("state"); }
   async setOwner(runId: string, owner: "agent" | "human"): Promise<LocalWorkspaceState> {
     return this.request("set_owner", { run_id: runId, owner });
   }
@@ -208,10 +217,11 @@ function inspectD0Png(bytes: Buffer): { width: number; height: number } | undefi
 
 /** Bridges the capability-scoped D0 controller; it does not become a generic desktop executor. */
 export class LocalWorkspaceDesktopProvider implements DesktopProvider {
-  readonly id = "local-workspace";
+  readonly id = "windows-local-workspace";
   readonly kind = "local-workspace" as const;
   readonly inputControl: DesktopInputControl;
   private readonly bindings = new Map<string, Binding>();
+  private readonly opening = new Set<Promise<DesktopSession>>();
   private closed = false;
   private closing?: Promise<void>;
   private readonly environmentId: string;
@@ -226,13 +236,15 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     available = process.platform === "win32") {
     this.inputControl = input;
     this.available = available && !!config;
-    this.config = config ?? { app: "fixture" };
+    this.config = Object.freeze({ ...(config ?? { app: "fixture" as const }) });
     if (this.config.app !== "fixture" && this.config.app !== "netease")
       throw new Error("Local Workspace supports only the validated fixture or NetEase app");
     if (this.config.app === "netease" && (typeof this.config.path !== "string" || !this.config.path.trim() ||
         typeof this.config.song !== "string" || !this.config.song.trim() ||
         typeof this.config.artist !== "string" || !this.config.artist.trim()))
       throw new Error("Local Workspace NetEase requires an explicit executable, song, and artist");
+    if (this.config.app === "netease" && (this.config.song !== "我怀念的" || this.config.artist !== "孙燕姿"))
+      throw new Error("Local Workspace NetEase supports only the D0 validated song/artist");
     this.app = this.config.app === "fixture" ? "d0-synthetic-fixture" : "netease-cloud-music";
     this.appVersion = this.config.app === "fixture" ? FIXTURE_VERSION : NETEASE_VERSION;
     this.environmentId = `local-workspace:${this.config.app}`;
@@ -272,6 +284,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       const owner = record.authority?.owner.kind ?? "agent";
       if (current.state.status !== "ready" || current.state.run_id !== record.runId ||
           current.state.desktop !== record.desktopName || current.targetId !== record.targetId ||
+          current.backendInstanceId !== record.identity.instanceId ||
           current.windowsSessionId !== record.windowsSessionId || current.state.epoch !== record.d0Epoch ||
           current.state.owner !== owner || this.config.app === "netease" && current.state.app_version !== NETEASE_VERSION) {
         this.invalidate(record); deny("local-workspace-identity-drift");
@@ -301,7 +314,9 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       scope.mechanism = [capability === "input.semantic" ? "uia-valuepattern" : "uia-owned-descendants"];
       if (this.config.app !== "netease") state = "not-proven";
     }
-    if (capability === "input.targetedWindow") scope.mechanism = ["owned-hwnd-message", "uia-valuepattern"];
+    if (capability === "input.targetedWindow") { scope.mechanism = ["owned-hwnd-message"]; scope.action = ["run-validated-scenario", "viewer-click"]; }
+    if (capability === "input.semantic") scope.action = ["viewer-edit"];
+    if (capability.startsWith("observation.")) scope.action = ["observe"];
     if (capability === "isolation.separateDesktop") scope.mechanism = ["win32-hidden-desktop"];
     if (capability === "isolation.separateOs" || capability === "isolation.sharedUserSession")
       scope.mechanism = ["same-windows-session"];
@@ -316,11 +331,25 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       "control.leaseProtected", "isolation.separateDesktop", "isolation.separateOs", "isolation.sharedUserSession"];
     return Object.fromEntries(keys.map(key => [key, this.declarations(key)])) as DesktopCapabilities;
   }
+  private async admit(capability: DesktopCapability, action: string, mechanism: string): Promise<void> {
+    const provider = await this.capabilities();
+    const target = localWorkspaceTargetCapabilities(provider, this.app, this.appVersion);
+    const ready = { [capability]: { state: "ready" as const } };
+    assertDesktopCapabilities([capability], { providerId: this.id, environmentKind: this.kind,
+      application: this.app, applicationVersion: this.appVersion, targetRole: "owned-main-window", action, mechanism },
+    { provider, session: provider, target }, { session: ready, target: ready });
+  }
   async discover() {
     if (this.closed) deny("provider-closed");
     return this.available ? [{ providerId: this.id, environmentId: this.environmentId, kind: this.kind }] : [];
   }
-  async open(environmentId: string): Promise<DesktopSession> {
+  open(environmentId: string): Promise<DesktopSession> {
+    const opening = this.openWorkspace(environmentId);
+    this.opening.add(opening);
+    void opening.finally(() => this.opening.delete(opening)).catch(() => {});
+    return opening;
+  }
+  private async openWorkspace(environmentId: string): Promise<DesktopSession> {
     if (!this.available || this.closed) deny("local-workspace-unavailable");
     if (environmentId !== this.environmentId) deny("unknown-local-workspace-environment");
     const sessionId = randomUUID();
@@ -333,7 +362,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     const state = connection.state;
     if (state.status !== "ready" || state.control_ready !== true || state.owner !== "agent" ||
       !Number.isSafeInteger(state.epoch) || !state.run_id || !state.desktop?.startsWith("AgentD0_") ||
-      !connection.targetId || !Number.isInteger(connection.windowsSessionId) ||
+      !connection.targetId || !Number.isInteger(connection.windowsSessionId) || !connection.backendInstanceId ||
       this.config.app === "netease" && state.app_version !== NETEASE_VERSION) {
       const stopped = await backend.stop().catch(() => undefined);
       await backend.close().catch(() => {});
@@ -342,12 +371,13 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     }
     const inputResourceId = `local-workspace-input:${createHash("sha256").update(
       `${process.env.COMPUTERNAME ?? "windows"}\0${connection.windowsSessionId}\0${state.desktop}`).digest("hex")}`;
-    const identity = Object.freeze({ providerId: this.id, environmentId, sessionId, instanceId: state.run_id,
+    const identity = Object.freeze({ providerId: this.id, environmentId, sessionId, instanceId: connection.backendInstanceId,
       inputResourceId });
-    const record: Binding = { identity, state: "open", config: this.config, appVersion: this.appVersion,
+    const record: Binding = { identity, state: this.closed ? "closed" : "open", config: this.config, appVersion: this.appVersion,
       backend, targetId: connection.targetId, runId: state.run_id, desktopName: state.desktop!,
       windowsSessionId: connection.windowsSessionId, d0Epoch: state.epoch!, transitioning: false, scenarioStarted: false };
     this.bindings.set(sessionId, record);
+    if (this.closed) { await this.cleanup(record); deny("provider-closed"); }
     backend.setEventHandler(event => this.handleEvent(record, event));
     return Object.freeze({ ...identity,
       capabilities: async () => { this.record(identity); return this.capabilities(); },
@@ -392,6 +422,11 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     if (event.run_id !== record.runId || event.epoch !== record.d0Epoch) deny("stale-local-workspace-viewer-event");
     const authority = record.authority;
     if (!authority) deny("local-workspace-input-unowned");
+    this.input.assertAuthority(record.identity, authority);
+    if (event.event === "viewer_input_authority") {
+      if (event.owner !== "human" || authority.owner.kind !== "human") deny("human-authority-required");
+      return true;
+    }
     if (event.event === "viewer_heartbeat") {
       if (event.owner !== "human" || authority.owner.kind !== "human") deny("viewer-heartbeat-without-human-owner");
       if (!this.input.renewAuthority) deny("input-authority-renewal-unavailable");
@@ -444,7 +479,8 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     const record = this.record(session); this.input.assertAuthority(session, authority);
     if (authority.owner.kind !== "agent" || record.authority !== authority) deny("agent-authority-required");
     if (record.runtime) deny("local-workspace-runtime-busy");
-    let closed = false, observed = false, activeOperations = 0, closing: Promise<void> | undefined;
+    let closed = false, bound = false, observedAt = -Infinity, lastFrameSequence = -1,
+      activeOperations = 0, closing: Promise<void> | undefined;
     let drained: (() => void) | undefined;
     const check = () => {
       if (closed) deny("local-workspace-runtime-closed");
@@ -462,10 +498,21 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       check();
     };
     const runtime: LocalWorkspaceRuntime = {
+      bind: async () => {
+        const leave = enter();
+        try {
+          await confirm(); bound = true; observedAt = -Infinity;
+          return Object.freeze({ ...session, targetId: record.targetId,
+            capabilities: localWorkspaceTargetCapabilities(await this.capabilities(), this.app, this.appVersion),
+            readiness: (await session.status()).readiness });
+        } finally { leave(); }
+      },
       observe: async () => {
         const leave = enter();
         try {
+          if (!bound) deny("local-workspace-rebind-required");
           await confirm();
+          await this.admit("observation.pixels", "observe", "d0-local-workspace");
           const frame = await record.backend.frame();
           if (typeof frame.png !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(frame.png))
             deny("local-workspace-frame-encoding-invalid");
@@ -473,6 +520,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
           const hash = createHash("sha256").update(image).digest("hex");
           const inspected = inspectD0Png(image);
           if (!inspected || hash !== frame.metadata.sha256 || !Number.isSafeInteger(frame.metadata.sequence) ||
+              frame.metadata.sequence <= lastFrameSequence ||
               frame.metadata.width <= 0 || frame.metadata.width > 2048 ||
               frame.metadata.height <= 0 || frame.metadata.height > 2048 ||
               frame.metadata.width !== inspected.width || frame.metadata.height !== inspected.height)
@@ -501,25 +549,26 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
             structured: record.config.app === "netease" ? { source: "uia", complete: true, items } : undefined,
             accessibility: record.config.app === "netease" ? JSON.stringify(items) : undefined,
           };
-          await confirm(); observed = true; return observation;
+          await confirm(); lastFrameSequence = frame.metadata.sequence; observedAt = performance.now(); return observation;
         } catch (error) { if (!(closed && record.state === "open")) this.invalidate(record); throw error; }
         finally { leave(); }
       },
       runValidatedScenario: async () => {
         const leave = enter();
-        if (!observed || record.scenarioStarted) {
+        if (!bound || performance.now() - observedAt > 2000 || record.scenarioStarted) {
           leave(); deny("fresh-observation-or-single-run-required");
         }
         try {
-          record.scenarioStarted = true; observed = false;
+          record.scenarioStarted = true; observedAt = -Infinity;
           await confirm();
+          await this.admit("input.targetedWindow", "run-validated-scenario", "owned-hwnd-message");
           const state = await record.backend.act(record.runId, record.d0Epoch);
           await confirm(); return state;
         } catch (error) { if (!(closed && record.state === "open")) this.invalidate(record); throw error; }
         finally { leave(); }
       },
       close: () => closing ??= (async () => {
-        closed = true; observed = false;
+        closed = true; bound = false; observedAt = -Infinity;
         if (activeOperations) await new Promise<void>(resolveDrain => { drained = resolveDrain; });
         if (record.runtime?.authority === authority) record.runtime = undefined;
       })(),
@@ -530,6 +579,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
   close(): Promise<void> { return this.closing ??= this.shutdown(); }
   private async shutdown(): Promise<void> {
     this.closed = true;
+    await Promise.allSettled([...this.opening]);
     for (const record of this.bindings.values()) if (record.state === "open") record.state = "closed";
     const results = await Promise.allSettled([...this.bindings.values()].map(record => this.cleanup(record)));
     const errors = results.filter(result => result.status === "rejected").map(result => result.reason);
@@ -544,4 +594,18 @@ export function createD0WorkspaceBackendFactory(projectRoot: string, pythonPath?
 
 export function localWorkspaceVersion(config: LocalWorkspaceAppConfig): string {
   return config.app === "fixture" ? FIXTURE_VERSION : NETEASE_VERSION;
+}
+
+/** Target reports cannot widen the configured Provider's app/version/action evidence. */
+export function localWorkspaceTargetCapabilities(provider: DesktopCapabilities,
+  application: string, applicationVersion: string): DesktopCapabilities {
+  return Object.fromEntries(Object.entries(provider).map(([key, declarations]) => [key, declarations!.map(item => {
+    const matches = item.scope.application?.includes(application) && item.scope.applicationVersion?.includes(applicationVersion);
+    const state = matches ? item.state : application === "packaged-notepad" ? "unsupported" : "not-proven";
+    const scope = { ...item.scope, application: [application], applicationVersion: [applicationVersion],
+      ...(key === "input.targetedWindow" ? { action: ["run-validated-scenario"] } : {}),
+      ...(key === "input.semantic" ? { targetRole: ["search-editor"] } : {}) };
+    // Prohibitions remain prohibitions even for an unknown target.
+    return { ...item, state: item.state === "forbidden" ? "forbidden" : state, scope };
+  })])) as DesktopCapabilities;
 }

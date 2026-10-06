@@ -12,6 +12,7 @@ interface Resource {
   expiresAt: number;
   serial: Promise<void>;
   blocked: boolean;
+  blockedGeneration: number;
 }
 interface Participant {
   validate(binding: DesktopSessionIdentity): boolean;
@@ -48,7 +49,7 @@ export class ResourceInputControl implements DesktopInputArbiter {
   private resource(id: string): Resource {
     let resource = this.resources.get(id);
     if (!resource) {
-      resource = { epoch: 0, expiresAt: 0, serial: Promise.resolve(), blocked: false };
+      resource = { epoch: 0, expiresAt: 0, serial: Promise.resolve(), blocked: false, blockedGeneration: 0 };
       this.resources.set(id, resource);
     }
     return resource;
@@ -65,6 +66,8 @@ export class ResourceInputControl implements DesktopInputArbiter {
       owner: Object.freeze({ ...owner }), epoch, grantId: randomUUID() });
   }
   private async install(resource: Resource, authority: InputAuthority): Promise<InputAuthority> {
+    this.valid(authority);
+    const generation = resource.blockedGeneration;
     resource.grant = authority; resource.epoch = authority.epoch; resource.expiresAt = this.now() + this.leaseMs;
     resource.blocked = true; // The next owner is not usable until every matching backend ACKs activation.
     const failures: unknown[] = [];
@@ -72,6 +75,11 @@ export class ResourceInputControl implements DesktopInputArbiter {
       try { await participant.activate(authority); }
       catch (error) { failures.push(error); }
     }
+    try {
+      this.valid(authority);
+      if (resource.blockedGeneration !== generation || resource.expiresAt <= this.now())
+        deny("resource-drain-unconfirmed");
+    } catch (error) { failures.push(error); }
     if (failures.length) {
       resource.grant = undefined; resource.expiresAt = -Infinity; resource.epoch++; // Never retry this epoch.
       for (const participant of this.participants) {
@@ -84,6 +92,7 @@ export class ResourceInputControl implements DesktopInputArbiter {
     return authority;
   }
   private async revoke(resource: Resource, successor?: InputAuthority): Promise<void> {
+    const generation = resource.blockedGeneration;
     const previous = resource.grant;
     // Disable both owners before drain. Failure permanently blocks new grants until explicit infrastructure recovery.
     resource.grant = undefined; resource.epoch++; resource.blocked = true;
@@ -93,6 +102,7 @@ export class ResourceInputControl implements DesktopInputArbiter {
       catch (error) { failures.push(error); }
     }
     if (failures.length) throw new AggregateError(failures, "Input resource drain failed");
+    if (resource.blockedGeneration !== generation) deny("resource-drain-unconfirmed");
     resource.blocked = false;
   }
   private grant(resource: Resource, binding: DesktopSessionIdentity, owner: InputClient): InputAuthority {
@@ -167,5 +177,6 @@ export class ResourceInputControl implements DesktopInputArbiter {
     resource.expiresAt = -Infinity;
     resource.epoch++;
     resource.blocked = true;
+    resource.blockedGeneration++;
   }
 }

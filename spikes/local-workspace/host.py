@@ -373,7 +373,7 @@ class Controller:
         self.watchdog.join(4)
 
 
-def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=None):
+def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=None, human_handler=None, managed=False):
     token = secrets.token_urlsafe(32)
     class Handler(BaseHTTPRequestHandler):
         def setup(self):
@@ -440,6 +440,8 @@ def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=Non
                 if not 0 < length <= 1024:
                     raise ValueError("bounded_json_required")
                 body = json.loads(self.rfile.read(length))
+                if managed and self.path in ("/run", "/act"):
+                    raise Blocked("provider_runtime_required")
                 if self.path == "/run" and set(body) == {"app"}:
                     result = controller.start(body["app"])
                 elif self.path == "/act" and set(body) == {"run_id", "epoch"}:
@@ -447,6 +449,8 @@ def make_server(controller, port=0, transfer_handler=None, heartbeat_handler=Non
                 elif self.path == "/control" and set(body) == {"run_id", "epoch", "owner"}:
                     result = (transfer_handler or controller.transfer)(body["run_id"], body["epoch"], body["owner"])
                 elif self.path == "/human" and set(body) == {"run_id", "epoch", "event"}:
+                    if human_handler and not human_handler(body["run_id"], body["epoch"]):
+                        raise Blocked("input_authority_unconfirmed")
                     result = controller.receive_input(body["run_id"], body["epoch"], body["event"])
                 elif self.path == "/stop" and set(body) == {"run_id"}:
                     if body["run_id"] != controller.record.get("run_id"):

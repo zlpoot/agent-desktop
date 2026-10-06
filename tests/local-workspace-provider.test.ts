@@ -4,11 +4,14 @@ import { readFileSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import { LocalWorkspaceDesktopProvider, type LocalWorkspaceBackend, type LocalWorkspaceAppConfig,
+  localWorkspaceTargetCapabilities,
   type LocalWorkspaceConnection, type LocalWorkspaceFrame, type LocalWorkspaceState } from "../src/desktop-provider/local-workspace-provider.js";
 import { ResourceInputControl } from "../src/desktop-provider/resource-input-control.js";
 import type { InputAuthority } from "../src/contracts/desktop-input-control.js";
+import { assertDesktopCapabilities } from "../src/desktop-provider/admission.js";
+import { createRootAssembly } from "../src/composition/root.js";
 
 const agent = { kind: "agent", clientId: "p4-agent" } as const;
 const human = { kind: "human", clientId: "p4-viewer" } as const;
@@ -27,6 +30,7 @@ class FakeWorkspace implements LocalWorkspaceBackend {
   current = state();
   target = targetId;
   windowsSession = 7;
+  instance = "bridge-worker-job-instance-1";
   image = frame();
   failStop = false;
   failTransition = false;
@@ -39,9 +43,10 @@ class FakeWorkspace implements LocalWorkspaceBackend {
   handler?: (event: Record<string, unknown>) => Promise<unknown>;
   async start(_config: LocalWorkspaceAppConfig): Promise<LocalWorkspaceConnection> {
     return { state: structuredClone(this.current), targetId: this.target, viewerPort: 19101,
-      viewerToken: "local-test-token", windowsSessionId: this.windowsSession };
+      viewerToken: "local-test-token", windowsSessionId: this.windowsSession, backendInstanceId: this.instance };
   }
-  async state() { return { state: structuredClone(this.current), targetId: this.target, windowsSessionId: this.windowsSession }; }
+  async state() { return { state: structuredClone(this.current), targetId: this.target, windowsSessionId: this.windowsSession,
+    backendInstanceId: this.instance }; }
   async setOwner(_id: string, owner: "agent" | "human") {
     if (this.failTransition) throw new Error("unconfirmed D0 owner transition");
     if (this.current.owner !== owner) this.current = { ...this.current, owner, epoch: (this.current.epoch ?? 0) + 1 };
@@ -83,12 +88,13 @@ async function opened(f: ReturnType<typeof fixture>) {
   const session = await f.provider.open("local-workspace:" + (f.backend.current.app === "netease" ? "netease" : "fixture"));
   const authority = await f.arbiter.acquire(session, agent);
   const runtime = f.provider.connectRuntime(session, authority, join(f.root, "artifacts"));
+  await runtime.bind();
   return { session, authority, runtime };
 }
 
 test("capabilities remain exact-app scoped and preserve D0 historical boundaries", async () => {
   const fixtureProvider = fixture();
-  const neteaseProvider = fixture({ app: "netease", path: "C:\\validated\\cloudmusic.exe", song: "title", artist: "artist" });
+  const neteaseProvider = fixture({ app: "netease", path: "synthetic/cloudmusic.exe", song: "我怀念的", artist: "孙燕姿" });
   try {
     const fSession = await fixtureProvider.provider.open("local-workspace:fixture");
     const fCaps = await fSession.capabilities();
@@ -114,7 +120,7 @@ test("capabilities remain exact-app scoped and preserve D0 historical boundaries
 });
 
 test("target, desktop, process target, instance and owner epoch drift permanently stale old bindings", async () => {
-  for (const drift of ["target", "desktop", "process", "instance", "epoch", "owner"] as const) {
+  for (const drift of ["target", "desktop", "process", "instance", "worker-job", "epoch", "owner"] as const) {
     const f = fixture();
     try {
       const { session, runtime } = await opened(f);
@@ -122,11 +128,12 @@ test("target, desktop, process target, instance and owner epoch drift permanentl
       if (drift === "target" || drift === "process") f.backend.target = "replacement-target-pid-hwnd";
       if (drift === "desktop") f.backend.current = { ...f.backend.current, desktop: "AgentD0_replacement" };
       if (drift === "instance") f.backend.current = { ...f.backend.current, run_id: "replacement-run" };
+      if (drift === "worker-job") f.backend.instance = "replacement-worker-job";
       if (drift === "epoch") f.backend.current = { ...f.backend.current, epoch: 2 };
       if (drift === "owner") f.backend.current = { ...f.backend.current, owner: "human" };
       assert.equal((await session.status()).state, "stale", drift);
       // Reverting the backend must not revive a Session, its runtime, or its old observation.
-      f.backend.current = state(); f.backend.target = targetId;
+      f.backend.current = state(); f.backend.target = targetId; f.backend.instance = "bridge-worker-job-instance-1";
       await assert.rejects(runtime.observe(), /stale-session|runtime-closed/);
       await assert.rejects(runtime.runValidatedScenario(), /stale-session|runtime-closed/);
       await assert.rejects(session.capabilities(), /stale-session/);
@@ -168,12 +175,119 @@ test("shared InputControl gates Agent to Human takeover and requires fresh obser
     assert.equal(f.backend.current.owner, "agent");
     const resumed = f.provider.connectRuntime(session, resumedAuthority, join(f.root, "artifacts"));
     await assert.rejects(resumed.runValidatedScenario(), /fresh-observation/);
+    await resumed.bind();
     assert.equal(f.backend.acts, 1);
     const newObservation = await resumed.observe();
     assert.equal(newObservation.capture?.sequence, (oldObservation.capture?.sequence ?? 0) + 1);
     await assert.rejects(resumed.runValidatedScenario(), /single-run-required/);
     assert.equal(f.backend.acts, 1);
   } finally { await f.dispose(); }
+});
+
+test("discover/open expose backend-bound identities, target narrowing and fail-closed admission", async () => {
+  const f = fixture();
+  try {
+    assert.deepEqual(await f.provider.discover(), [{ providerId: "windows-local-workspace",
+      environmentId: "local-workspace:fixture", kind: "local-workspace" }]);
+    const { session, runtime } = await opened(f);
+    assert.equal(session.instanceId, f.backend.instance);
+    assert.equal(session.providerId, "windows-local-workspace");
+    assert.equal(Object.isFrozen(session), true);
+    assert.match(session.inputResourceId!, /^local-workspace-input:/);
+    const target = await runtime.bind();
+    assert.equal(target.instanceId, session.instanceId);
+    const provider = await f.provider.capabilities(), sessionCaps = await session.capabilities();
+    const context = { providerId: session.providerId, environmentKind: "local-workspace" as const,
+      application: "d0-synthetic-fixture", applicationVersion: "d0-synthetic-fixture-v1",
+      targetRole: "owned-main-window", action: "run-validated-scenario", mechanism: "owned-hwnd-message" };
+    const ready = { "input.targetedWindow": { state: "ready" as const } };
+    const layers = { provider, session: sessionCaps, target: target.capabilities };
+    assertDesktopCapabilities(["input.targetedWindow"], context, layers, { session: ready, target: ready });
+    assert.throws(() => assertDesktopCapabilities(["input.targetedWindow"], { ...context, action: "viewer-click" },
+      layers, { session: ready, target: ready }), /target:.*scope-mismatch/);
+    for (const [application, expected] of [["arbitrary-app", "not-proven"], ["packaged-notepad", "unsupported"]]) {
+      const caps = localWorkspaceTargetCapabilities(provider, application!, "unknown");
+      assert.equal(caps["input.targetedWindow"]?.[0].state, expected);
+      assert.equal(caps["input.globalInput"]?.[0].state, "forbidden");
+      assert.throws(() => assertDesktopCapabilities(["input.targetedWindow"], { ...context, application: application!,
+        applicationVersion: "unknown" }, { ...layers, target: caps }, { session: ready, target: ready }), /scope-mismatch/);
+    }
+    for (const capability of ["input.rawIsolated", "input.globalInput"] as const) {
+      const mechanism = capability === "input.globalInput" ? "system-input" : "raw-hidden-desktop-input";
+      assert.throws(() => assertDesktopCapabilities([capability], { ...context, mechanism }, layers,
+        { session: ready, target: ready }), /not-proven|forbidden/);
+    }
+  } finally { await f.dispose(); }
+});
+
+test("fresh frames expire and old/replayed frame sequences cannot authorize input", async () => {
+  const f = fixture();
+  let clock = 0;
+  const timer = mock.method(performance, "now", () => clock);
+  try {
+    const { runtime } = await opened(f);
+    await runtime.observe(); clock = 2001;
+    await assert.rejects(runtime.runValidatedScenario(), /fresh-observation/);
+    assert.equal(f.backend.acts, 0);
+    await runtime.observe();
+    f.backend.sequence = 1;
+    await assert.rejects(runtime.observe(), /frame-integrity/);
+    assert.equal(f.backend.acts, 0);
+  } finally { timer.mock.restore(); await f.dispose(); }
+});
+
+test("Viewer events share the resource arbiter and stale epochs cannot take authority", async () => {
+  const f = fixture();
+  try {
+    const { session, authority } = await opened(f);
+    const viewerHandler = f.backend.handler!;
+    const second = await f.provider.open("local-workspace:fixture");
+    await assert.rejects(f.arbiter.acquire(second, human), /input-resource-busy/);
+    await viewerHandler({ event: "viewer_transfer", run_id: runId, epoch: 1, owner: "human" });
+    assert.throws(() => f.arbiter.assertAuthority(session, authority), /invalid-input-authority/);
+    await assert.rejects(viewerHandler({ event: "viewer_transfer", run_id: runId, epoch: 1, owner: "agent" }), /stale/);
+    await viewerHandler({ event: "viewer_heartbeat", run_id: runId, epoch: 2, owner: "human" });
+    assert.equal(await viewerHandler({ event: "viewer_input_authority", run_id: runId, epoch: 2, owner: "human" }), true);
+    assert.deepEqual(f.arbiter.view(session), f.arbiter.view(second));
+    await second.close();
+  } finally { await f.dispose(); }
+});
+
+test("Root exposes dormant Local Workspace with no Task routing or native startup", async () => {
+  const root = mkdtempSync(join(tmpdir(), "p4-root-"));
+  try {
+    const assembly = await createRootAssembly({ rootDir: root,
+      model: { createModel() { throw new Error("no model execution"); } } });
+    try {
+      assert.deepEqual(assembly.environmentProviders.map(provider => provider.kind),
+        ["virtual-machine", "physical", "local-workspace"]);
+      const workspace = assembly.environmentProviders[2]!;
+      assert.deepEqual(await workspace.discover(), []);
+      await assert.rejects(workspace.open("local-workspace:fixture"), /unavailable/);
+    } finally { await assembly.dispose(); }
+    assert.throws(() => new LocalWorkspaceDesktopProvider(new ResourceInputControl(),
+      { app: "netease", path: "synthetic", song: "other-song", artist: "孙燕姿" }, root, process.cwd()), /validated song/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("Provider shutdown waits for pending startup and never returns a live late Session", async () => {
+  const f = fixture();
+  let release!: () => void, started!: () => void;
+  const reachedStart = new Promise<void>(resolve => { started = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const original = f.backend.start.bind(f.backend);
+  f.backend.start = async config => { started(); await gate; return original(config); };
+  try {
+    const opening = f.provider.open("local-workspace:fixture");
+    const rejected = assert.rejects(opening, /provider-closed/);
+    await reachedStart;
+    let closed = false;
+    const closing = f.provider.close().then(() => { closed = true; });
+    await Promise.resolve(); assert.equal(closed, false);
+    release(); await rejected; await closing;
+    assert.equal(f.backend.closeCalls, 1);
+    assert.ok(f.backend.stopCalls > 0);
+  } finally { release(); await f.dispose(); }
 });
 
 test("handoff drains a pending observation before changing the backend owner epoch", async () => {

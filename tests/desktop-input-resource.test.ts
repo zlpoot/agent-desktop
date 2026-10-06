@@ -4,6 +4,7 @@ import type { DesktopInputArbiter } from "../src/contracts/desktop-input-control
 import { FakeDesktopBackend, FakeDesktopProvider, FakeDesktopRuntime } from "../src/desktop-provider/fake-provider.js";
 import { FakeInputControl } from "../src/desktop-provider/fake-input-control.js";
 import { capabilities, definition, fixture } from "./fixtures/desktop-provider.js";
+import { ResourceInputControl } from "../src/desktop-provider/resource-input-control.js";
 
 test("two Sessions contend for one resource; release ACK permits the next owner and rejects old grants", async () => {
   const f = await fixture();
@@ -181,4 +182,38 @@ test("closing one Session does not destroy another input resource", async () => 
   await first.session.close();
   second.input.assertAuthority(second.session, second.authority);
   second.runtime.execute(second.request);
+});
+
+test("closed Session or terminal block during backend activation cannot receive a late grant ACK", async () => {
+  for (const failure of ["closed", "blocked"] as const) {
+    const input = new ResourceInputControl(() => 0);
+    const identity = { providerId: "test", environmentId: "test", sessionId: "s", instanceId: "i", inputResourceId: "r" };
+    let live = true, entered!: () => void, finish!: () => void, drains = 0;
+    const activated = new Promise<void>(done => { entered = done; });
+    const gate = new Promise<void>(done => { finish = done; });
+    input.registerBackend(() => live, async () => { drains++; }, async () => { entered(); await gate; });
+    const acquiring = input.acquire(identity, { kind: "agent", clientId: "a" });
+    await activated;
+    if (failure === "closed") live = false;
+    else input.blockResource(identity);
+    finish();
+    await assert.rejects(acquiring, /activation unconfirmed/);
+    live = true;
+    await assert.rejects(input.acquire(identity, { kind: "agent", clientId: "b" }), /resource-drain-unconfirmed/);
+    assert.equal(drains, 1);
+  }
+});
+
+test("terminal block during drain is not cleared by a late successful revoke ACK", async () => {
+  const input = new ResourceInputControl(() => 0);
+  const identity = { providerId: "test", environmentId: "test", sessionId: "s", instanceId: "i", inputResourceId: "r" };
+  let entered!: () => void, finish!: () => void;
+  const draining = new Promise<void>(done => { entered = done; });
+  const gate = new Promise<void>(done => { finish = done; });
+  input.registerBackend(() => true, async () => { entered(); await gate; });
+  const authority = await input.acquire(identity, { kind: "agent", clientId: "a" });
+  const releasing = input.release(authority); await draining;
+  input.blockResource(identity); finish();
+  await assert.rejects(releasing, /resource-drain-unconfirmed/);
+  await assert.rejects(input.acquire(identity, { kind: "agent", clientId: "b" }), /resource-drain-unconfirmed/);
 });
