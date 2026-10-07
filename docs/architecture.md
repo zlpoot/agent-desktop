@@ -1,5 +1,7 @@
 # 架构
 
+P5-B 的统一桌面选择和执行器装配见 [P5-B 实现与验证边界](desktop-provider-p5-b.md)。Task/Workflow 明确选择 Provider 与环境；Physical 输入默认关闭，Local Workspace 保持有限场景边界。
+
 Host 控制台 `src/app` 接收目标、显示轨迹、管理批准/暂停/接管。`src/composition` 创建 Cordis Root 和 Session 作用域，按契约注入模型、存储、Worker 和扩展；业务扩展仍由 `src/extensions` 动态登记，核心不硬编码业务。
 
 `src/graph` 的 LangGraph 循环经过观察、决策、grounding、执行和独立验证。`src/capabilities` 与 `src/actions` 决定可用 provider、目标及风险边界；完成声明必须有独立证据。`src/runtime/model-budget.ts` 持久化调用预算，缺失用量不能假装零成本。关闭辅助模型不关闭风险门或规则完成验证。

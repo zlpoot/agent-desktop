@@ -1,0 +1,6 @@
+{
+  "physicalInputPolicy": {
+    "windowManagement": false,
+    "executors": []
+  }
+}

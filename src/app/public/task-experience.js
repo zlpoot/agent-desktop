@@ -1,21 +1,64 @@
+// Shared by Task drafts and fixed-version Workflow execution. Values carry both identity dimensions.
+window.createDesktopSelection = function (select, includeBrowser, changed) {
+  let environments = [], loaded = false, error = '';
+  const key = item => JSON.stringify([item.providerId, item.environmentId]);
+  const option = (value, label, disabled = false) => {
+    const node = [...select.options].find(item => item.value === value) || document.createElement('option');
+    node.value = value; node.textContent = label; node.disabled = disabled;
+    if (!node.parentElement) select.append(node);
+  };
+  if (includeBrowser) option('browser', '浏览器');
+  else option('', '请选择执行桌面');
+  const ready = fetch('/api/desktop/environments').then(async response => {
+    const data = await response.json();
+    if (!response.ok || !Array.isArray(data.environments)) throw new Error('无法读取桌面选择');
+    const keys = new Set();
+    for (const item of data.environments) {
+      if (!item || typeof item.providerId !== 'string' || !item.providerId.trim() ||
+          typeof item.environmentId !== 'string' || !item.environmentId.trim() ||
+          typeof item.executable !== 'boolean' || keys.has(key(item))) throw new Error('桌面选择数据无效');
+      keys.add(key(item));
+    }
+    environments = data.environments; loaded = true;
+    const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
+    for (const item of environments) option(key(item), `${labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.kind === 'local-workspace' ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable);
+  }).catch(failure => { error = failure.message; option('unavailable', '桌面列表读取失败，请刷新', true); }).finally(changed);
+  return {
+    ready,
+    restore(value) {
+      if (![...select.options].some(item => item.value === value)) option(value, '此前选择的桌面不可用，请重新选择', true);
+      select.value = value; changed();
+    },
+    selected: () => environments.find(item => key(item) === select.value),
+    problem() {
+      if (includeBrowser && select.value === 'browser') return '';
+      if (!loaded) return error || '正在读取执行桌面';
+      const item = this.selected();
+      if (!item) return '请选择可用的执行桌面';
+      if (!item.executable) return item.kind === 'local-workspace'
+        ? 'Local Workspace 仅支持有限的已验证场景，暂不支持通用任务或 Workflow。'
+        : item.blockedReason === 'physical-task-policy-required' ? '本机桌面尚未配置输入策略。' : '该桌面没有可用的任务执行器。';
+      return '';
+    },
+    payload() {
+      const problem = this.problem(); if (problem) throw new Error(problem);
+      const item = this.selected();
+      return item ? { destination: 'desktop', desktopTarget: { providerId: item.providerId, environmentId: item.environmentId } }
+        : { destination: 'browser' };
+    },
+  };
+};
+
 window.createTaskExperience = function () {
   const $ = id => document.getElementById(id);
   const el = (tag, text, cls = '') => { const e = document.createElement(tag); e.textContent = text; e.className = cls; return e; };
   const form = $('task-form');
   const targetLabel = el('label', '执行位置');
   const target = el('select', ''); target.id = 'task-destination';
-  for (const [value, label] of [['guest', '当前虚拟桌面'], ['host', '宿主机（本机应用）']]) {
-    const option = el('option', label); option.value = value; target.append(option);
-  }
   targetLabel.append(target); form.prepend(targetLabel);
   const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
   const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
   form.before(readiness);
-  const resolveReadiness = el('button', '查看桌面连接'); resolveReadiness.type = 'button'; resolveReadiness.hidden = true; readiness.append(resolveReadiness);
-  resolveReadiness.onclick = () => {
-    if (state?.taskId) document.dispatchEvent(new CustomEvent('workbench:open-run', { detail: `web-tasks.sqlite/${state.taskId}` }));
-    else window.Workbench.navigate('desktop');
-  };
   $('task-goal').maxLength = 2000;
   const advanced = el('details', '', 'task-options'); advanced.append(el('summary', '完成条件、操作限制与单次预算（可选）'));
   const fields = { goal: $('task-goal'), destination: target };
@@ -53,33 +96,39 @@ window.createTaskExperience = function () {
   recorded.append(evidenceTitle, evidenceCaption, evidenceImage, missingEvidence, evidenceLink);
   let evidenceUrl = '';
   evidenceImage.onerror = () => { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '截图文件不可读取，请查看执行记录中的文字证据。'; };
-  let state = null, touched = false, busy = false, currentRun = null, budgetReady = false;
-  const storageKey = 'agent-desktop.task-draft.v1';
-  try { const draft = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); if (draft) { for (const [key, field] of Object.entries(fields)) if (typeof draft[key] === 'string') field.value = draft[key]; touched = true; } } catch {}
+  let busy = false, currentRun = null, budgetReady = false;
+  const storageKey = 'agent-desktop.task-draft.v2';
+  let draftDestination;
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(storageKey) || sessionStorage.getItem('agent-desktop.task-draft.v1') || 'null');
+    if (draft) {
+      for (const [key, field] of Object.entries(fields)) if (key !== 'destination' && typeof draft[key] === 'string') field.value = draft[key];
+      draftDestination = draft.destination;
+    }
+  } catch {}
+  const selection = window.createDesktopSelection(target, true, update);
+  if (typeof draftDestination === 'string') selection.restore(draftDestination);
   function save() { try { sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])))); } catch {} }
   function update() {
-    const guest = target.value === 'guest';
-    const unavailable = !state || state.mode === 'unavailable' || state.workerReady !== true;
-    const blocked = guest && (unavailable || state.taskId || state.mode !== 'PAUSED');
+    const problem = selection.problem();
+    const blocked = !!problem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
-    resolveReadiness.hidden = !blocked;
-    resolveReadiness.textContent = state?.mode === 'STOPPED' ? '前往桌面准备新任务' : state?.taskId ? '处理当前任务' : '查看桌面连接与控制';
-    heading.textContent = !budgetReady ? '任务预算服务未就绪' : !guest ? '执行位置：宿主机' : unavailable ? '虚拟桌面尚未就绪' : state.mode === 'STOPPED' ? '任务已停止，请准备新任务' : state.taskId ? '请先处理当前任务' : state.mode === 'HUMAN_CONTROL' ? '当前由人工控制' : state.mode !== 'PAUSED' ? '暂时不能开始新任务' : '虚拟桌面已就绪，可以开始';
-    hint.textContent = !budgetReady ? '请重启 Host Dashboard 后刷新页面，确保新任务的预算实际生效。' : !guest ? '任务将操作宿主机应用；可提交，应用是否可用将在执行时检查。' : unavailable ? '请确认虚拟机已启动、Windows 已登录，等待 Worker 连接。' : state.mode === 'STOPPED' ? '原任务已移入任务记录。前往“桌面”点击“准备新任务”，确认输入权重置后再提交。' : blocked ? '请完成或停止保留任务、交还人工控制。' : '直接填写目标并发送任务，无需先启用 Agent。';
+    heading.textContent = problem ? '执行桌面不可用' : !budgetReady ? '任务预算服务未就绪' : `执行位置：${target.selectedOptions[0]?.textContent || ''}`;
+    hint.textContent = problem || (!budgetReady ? '任务预算服务暂不可用。' : target.value === 'browser' ? '在浏览器中执行任务。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。');
   }
   fetch('/api/settings/task-budget').then(response => response.ok ? response.json() : Promise.reject(new Error('预算服务不可用')))
     .then(result => { budgetReady = !!result.budget; update(); }).catch(() => { budgetReady = false; update(); });
-  form.addEventListener('input', () => { touched = true; save(); update(); });
-  target.addEventListener('change', () => { touched = true; save(); update(); });
+  form.addEventListener('input', () => { save(); update(); });
+  target.addEventListener('change', () => { save(); update(); });
   retry.onclick = () => {
     if (!currentRun) return;
-    fields.goal.value = currentRun.goal.replace(/^VM:\s*/i, '');
-    target.value = /^VM:/i.test(currentRun.goal) ? 'guest' : 'host';
-    fields.criteria.value = ''; fields.constraints.value = ''; touched = true; save();
+    fields.goal.value = currentRun.goal;
+    selection.restore(currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : currentRun.desktopTargetRequired ? 'legacy-desktop-target-required' : 'browser');
+    fields.criteria.value = ''; fields.constraints.value = ''; save();
     window.Workbench.navigate('live'); update(); fields.goal.focus();
   };
   return {
-    control(next) { state = next; if (!touched) target.value = next.mode === 'unavailable' ? 'host' : 'guest'; update(); },
+    control() { update(); },
     submitting(value) { busy = value; update(); },
     payload() {
       update(); if ($('task-submit').disabled && !busy) throw new Error(hint.textContent);
@@ -92,7 +141,7 @@ window.createTaskExperience = function () {
           budget[kind] = Object.fromEntries(entries.map(([key, value]) => [key, Number(value)]));
         }
       }
-      return { destination: target.value, criteria: fields.criteria.value.trim(), constraints: fields.constraints.value.trim(),
+      return { ...selection.payload(), criteria: fields.criteria.value.trim(), constraints: fields.constraints.value.trim(),
         ...(Object.keys(budget).length ? { budget } : {}) };
     },
     submitted() { fields.goal.value = ''; fields.criteria.value = ''; fields.constraints.value = '';

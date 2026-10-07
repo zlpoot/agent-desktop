@@ -151,6 +151,9 @@ export class DesktopRuntime implements RuntimeAdapter {
   async grantPhysical(authority: InputAuthority, expiresAt: number): Promise<void> {
     await this.call("physical_grant", { authority, expiresAt }); this.inputAuthority = authority;
   }
+  async renewPhysical(authority: InputAuthority, expiresAt: number): Promise<void> {
+    await this.call('physical_renew', { authority, expiresAt });
+  }
   async revokePhysical(authority: InputAuthority): Promise<void> {
     await this.call("physical_revoke", { authority }); this.inputAuthority = undefined;
   }

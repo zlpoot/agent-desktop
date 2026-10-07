@@ -1060,6 +1060,10 @@ for line in sys.stdin:
                 PHYSICAL_GATE.install(args["authority"], args["expiresAt"])
                 reply(request["id"], True)
                 continue
+            if method == "physical_renew":
+                PHYSICAL_GATE.renew(args["authority"], args["expiresAt"])
+                reply(request["id"], True)
+                continue
             if method == "physical_revoke":
                 PHYSICAL_GATE.revoke(args["authority"])
                 WINDOW = WINDOW_HANDLE = WINDOW_PID = WINDOW_PROCESS_PATH = None

@@ -4,6 +4,7 @@ import { mountSessionScope } from "../composition/session-scope.js";
 import { createShutdown } from "../composition/shutdown.js";
 import { startEvalOracleBridge } from "../composition/eval-oracle.js";
 import type { Server } from "node:http";
+import { loadDesktopEnvironmentConfig } from '../composition/desktop-environment-config.js';
 
 const port = Number(process.env.DASHBOARD_PORT ?? 4173);
 if (process.env.AGENT_DESKTOP_VM_ID && !process.env.AGENT_DESKTOP_TOKEN) {
@@ -11,7 +12,8 @@ if (process.env.AGENT_DESKTOP_VM_ID && !process.env.AGENT_DESKTOP_TOKEN) {
 }
 
 // 集中装配：Root Context + 基础设施服务 + 任务控制器（失败自动回收已创建资源）。
-const assembly = await createRootAssembly({ rootDir: process.cwd() });
+const assembly = await createRootAssembly({ rootDir: process.cwd(),
+  ...loadDesktopEnvironmentConfig(process.env.AGENT_DESKTOP_ENVIRONMENT_CONFIG) });
 let server: Server | undefined;
 try {
   const sessionId = process.env.AGENT_DESKTOP_SESSION_ID ?? "agent-desktop-default";
