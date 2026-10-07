@@ -57,6 +57,8 @@ test("evidence and scope are required; contradictory declarations and empty exec
     { state: "supported", scope: { action: ["edit"] } },
     { state: "supported", scope: { action: ["edit"] }, evidence: [] },
     { state: "supported", scope: { action: ["edit"] }, evidence: [{ source: "", description: "fake" }] },
+    { state: "supported", scope: { action: ["edit"] }, evidence: Array(1) },
+    { state: "supported", scope: { action: [...Array(1), "edit"] }, evidence: declaration().evidence },
   ];
   for (const value of malformed) {
     assert.throws(() => assertDesktopCapabilities([semantic], context,
