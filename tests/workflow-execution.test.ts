@@ -1,4 +1,5 @@
-﻿import assert from 'node:assert/strict';
+import { fixtureDesktopSessions, fixtureDesktopTarget } from './fixtures/task-desktop.js';
+import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -91,13 +92,13 @@ test('唯一结构化窗口的指定流程直接回放，不调用规划或截�
     async execute(){dispatched++;page='A';return {ok:true,message:'changed',effect:'dispatched'};},
     async close(){}} as WorkerClient;
   const controller=new DesktopTaskController(dir,{modelProvider:{createModel:()=>model},
-    workerClientFactory:async()=>worker});
+    desktopSessions: fixtureDesktopSessions(async()=>worker)});
   controller.setDesktopControl({assertTaskAllowed(){},workerEndpoint:()=> 'fixture',
     async beginTask(){},async finishTask(){return false;}});
   const trace=new SqliteTrace(join(dir,'web-tasks.sqlite'));
   try {
     const id=controller.submitWorkflow({id:workflow.id,version:1,definitionHash:workflowDigest(saved),
-      values:{value:'A'},destination:'windows'});
+      values:{value:'A'},destination:'windows'}, undefined, fixtureDesktopTarget);
     const deadline=Date.now()+10000;
     while(!['done','failed'].includes(trace.load(id)?.status??'')&&Date.now()<deadline)
       await new Promise(resolve=>setTimeout(resolve,20));
@@ -132,7 +133,7 @@ test('Workflow 已存 URL 成功条件在动作派发前绑定为影子后置条
   if(workflow.steps[0].action.kind==='click')assert.equal(workflow.steps[0].action.postcondition,undefined);
 });
 
-for (const trial of [false, true]) for (const restart of [false, true]) test(`${trial ? '候选试运行' : '指定版本执行'}固定参数与验收条件，新增版本不影响${restart ? '重启恢复' : '首次执行'}`, async () => {
+for (const trial of [false, true]) for (const restart of [false, true]) test(`${trial ? '候选试运行' : '指定版本执行'}固定参数与验收条件，新增版本不影响${restart ? '同一绑定恢复' : '首次执行'}`, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fixed-workflow-'));
   mkdirSync(join(dir, 'config')); writeFileSync(join(dir, 'config/agent-desktop-apps.json'), '[]');
   const store = new WorkflowStore(join(dir, 'workflows.sqlite'));
@@ -160,28 +161,29 @@ for (const trial of [false, true]) for (const restart of [false, true]) test(`${
       page = 'A'; return { ok: true, message: 'changed', effect: 'dispatched' }; }, async close() {},
   } as WorkerClient;
   let pauseOnce = restart;
-  const options = { modelProvider: { createModel: () => model }, workerClientFactory: async () => worker,
+  const options = { modelProvider: { createModel: () => model }, desktopSessions: fixtureDesktopSessions(async () => worker),
     traceStore: (path: string) => { const log = new SqliteTrace(path); const save = log.save.bind(log);
       log.save = (node, state) => { save(node, state);
         if (pauseOnce && node === 'verify') { pauseOnce = false; log.requestPause(state.taskId); }
       }; return log;
     } };
-  let controller = new DesktopTaskController(dir, options);
   const control = { assertTaskAllowed() {}, workerEndpoint: () => 'fixture',
     async beginTask() { begun++; }, async finishTask() { return false; } };
+  options.desktopSessions = fixtureDesktopSessions(async () => worker, control);
+  const controller = new DesktopTaskController(dir, options);
   controller.setDesktopControl(control);
   const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
   try {
-    const id = controller.submitWorkflow({ ...request, ...(trial ? { trial: true } : {}) });
+    const id = controller.submitWorkflow({ ...request, ...(trial ? { trial: true } : {}) }, undefined, fixtureDesktopTarget);
     store.addCandidate({ ...definition, status: 'candidate', steps: [{ ...definition.steps[0], action: { kind: 'keypress', keys: 'wrong-version' } }] });
     store.recordReplay('fixed', 2, 'seed-2', true);
     const end = Date.now() + 10000;
     while (!['done', 'failed', 'waiting_user', 'paused'].includes(trace.load(id)?.status ?? '') && Date.now() < end) await new Promise(r => setTimeout(r, 20));
     if (restart) {
-      assert.equal(trace.load(id)?.status, 'paused'); await controller.close();
+      assert.equal(trace.load(id)?.status, 'paused');
       if (trial) assert.equal(store.get('fixed', 1)?.status, 'candidate', '暂停不能晋级');
       recoverDesktopTasks(dir);
-      controller = new DesktopTaskController(dir, options); controller.setDesktopControl(control);
+      // The same execution Session is retained across checkpoint recovery.
       controller.continue(id);
       const deadline = Date.now() + 10000;
       while (trace.load(id)?.status !== 'done' && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));

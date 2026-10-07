@@ -11,6 +11,8 @@ import { GuestDesktopRuntime } from "../src/runtime/desktop/guest-runtime.js";
 import { singleProvider } from "../src/actions/action-resolution.js";
 import { createRootAssembly } from "../src/composition/root.js";
 import { mountSessionScope } from "../src/composition/session-scope.js";
+import { TaskDesktopSessions } from '../src/app/task-desktop-sessions.js';
+import { desktopTarget } from '../src/contracts/task-desktop.js';
 
 const png = Buffer.from("89504e470d0a1a0a", "hex");
 const action = { kind: "keypress", keys: "escape" } as const;
@@ -128,6 +130,50 @@ test("missing authority, unknown environment and incompatible/unready Workers fa
     f.remote.compatible = true; f.remote.id = "other";
     await assert.rejects(f.provider.open("vm:vm"), /incompatible-worker/);
     assert.equal(f.remote.effects, 0); assert.equal(f.remote.inputs, 0);
+  } finally { await f.close(); }
+});
+
+test('Task binding uses the existing Hyper-V handshake, survives release and refuses backend replacement', async () => {
+  const f = await fixture();
+  const sessions = new TaskDesktopSessions([f.provider], new Map([[f.provider.id, f.provider]]));
+  const target = desktopTarget(f.provider.id, 'vm:vm');
+  let binding: import('../src/contracts/task-desktop.js').TaskDesktopExecutionBinding | undefined;
+  try {
+    const entry = await sessions.acquire('task', { taskBindingVersion: 1, desktopTarget: target }, value => { binding = value; });
+    assert.equal(binding?.sessionId, entry.session.sessionId);
+    assert.notEqual(binding?.sessionId, 'legacy');
+    assert.equal(sessions.usesControl('task', f.control), true);
+    await entry.control.beginTask('task');
+    const runtime = await entry.executor.connectRuntime(entry.session, f.dir);
+    await runtime.attach({ windowHandle: 7 }); await runtime.observe();
+    await runtime.close(); await entry.control.finishTask('task', 'paused');
+    assert.equal((await sessions.acquire('task', { taskBindingVersion: 1, desktopTarget: target,
+      desktopExecutionBinding: binding }, () => assert.fail())).session, entry.session);
+    f.remote.epoch = 'new-backend';
+    await assert.rejects(sessions.acquire('task', { taskBindingVersion: 1, desktopTarget: target,
+      desktopExecutionBinding: binding }, () => assert.fail()), /stale-desktop-binding/);
+    assert.equal(f.remote.effects, 0);
+  } finally { await sessions.close(); await f.close(); }
+});
+
+test('manual completion uses the original binding without granting input and fences competing Sessions', async () => {
+  const f = await fixture();
+  try {
+    const session = await f.provider.open('vm:vm');
+    const control = f.provider.taskControl(session);
+    await control.beginTask('task'); await control.finishTask('task', 'waiting_user');
+    const observer = await f.provider.open('vm:vm');
+    const entered = deferred(), release = deferred();
+    let first = true;
+    f.remote.stateHook = async () => { if (first) { first = false; entered.resolve(); await release.promise; } };
+    const completing = f.provider.completeTask(session, 'task');
+    await entered.promise;
+    await assert.rejects(f.provider.taskControl(observer).beginTask('other'), /input-resource-busy/);
+    release.resolve();
+    await completing;
+    assert.equal(f.control.view().taskId, null); assert.equal(f.remote.mode, 'paused');
+    assert.equal(f.remote.effects, 0); assert.equal(f.remote.inputs, 0);
+    assert.ok(f.remote.calls.every(call => call.method !== 'execute'));
   } finally { await f.close(); }
 });
 

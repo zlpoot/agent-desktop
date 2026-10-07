@@ -125,7 +125,7 @@ test('Dashboard 人工验收只更新指定通用任务并保存审计事件', a
     assert.equal((await post('other', { approved: true, note: '错误的阶段' })).status, 400);
     assert.equal((await post('reviewable', { approved: true, note: '重新打开并核对保存值' })).status, 200);
     assert.equal((await post('guest-review', { approved: true, note: '独立 Oracle 显示保存值一致' })).status, 200);
-    assert.deepEqual(finished, [{ taskId: 'guest-review', status: 'done' }]);
+    assert.deepEqual(finished, [], 'goal text cannot choose a desktop control');
     assert.equal((await post('reviewable', { approved: true, note: '重复确认' })).status, 400);
     const after = await (await fetch(`${base}/api/runs/web-tasks.sqlite/reviewable`)).json();
     assert.equal(after.status, 'done');

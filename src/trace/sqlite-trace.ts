@@ -1,3 +1,4 @@
+import { assertTaskDesktopUnchanged, validateTaskDesktop } from '../contracts/task-desktop.js';
 import { DatabaseSync } from "node:sqlite";
 import type { GroundingAttempt } from "../actions/schema.js";
 import type { ActionResolution } from "../actions/action-resolution.js";
@@ -77,16 +78,31 @@ export class SqliteTrace {
     // 写边界 fail-closed：任何新写入都不得携带历史商品/媒体旧键。
     // load() 已在读取时把旧键迁移为 domainChecks，因此恢复旧任务后的再保存不会触发。
     assertNoLegacyCriteriaKeys(state.completionCriteria);
-    const now = new Date().toISOString();
-    const payload = JSON.stringify(state);
-    this.db.prepare(`INSERT INTO tasks (task_id, goal, status, step, state_json, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(task_id) DO UPDATE SET status=excluded.status, step=excluded.step,
-      state_json=excluded.state_json, updated_at=excluded.updated_at`).run(
-      state.taskId, state.goal, state.status, state.step, payload, now,
-    );
-    this.db.prepare(`INSERT INTO events (task_id, step, node, payload_json, created_at)
-      VALUES (?, ?, ?, ?, ?)`).run(state.taskId, state.step, node, payload, now);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const previous = this.load(state.taskId);
+      if (previous && !previous.desktopTarget && state.desktopTarget && previous.taskBindingVersion !== 1 &&
+          (node !== 'desktop_compatibility_selected' ||
+            state.desktopCompatibility?.desktopVmId !== previous.desktopVmId)) {
+        throw new Error('explicit-desktop-compatibility-required');
+      }
+      if (previous) assertTaskDesktopUnchanged(previous, state);
+      else validateTaskDesktop(state);
+      const now = new Date().toISOString();
+      const payload = JSON.stringify(state);
+      this.db.prepare(`INSERT INTO tasks (task_id, goal, status, step, state_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET status=excluded.status, step=excluded.step,
+        state_json=excluded.state_json, updated_at=excluded.updated_at`).run(
+        state.taskId, state.goal, state.status, state.step, payload, now,
+      );
+      this.db.prepare(`INSERT INTO events (task_id, step, node, payload_json, created_at)
+        VALUES (?, ?, ?, ?, ?)`).run(state.taskId, state.step, node, payload, now);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   load(taskId: string): ComputerState | undefined {
@@ -111,7 +127,8 @@ export class SqliteTrace {
         if (adaptation.adapted) state.completionCriteria = adaptation.criteria;
         return state;
       })
-      .filter(state => /^VM:\s*\S/i.test(state.goal));
+      .filter(state => !!state.desktopTarget || !!state.desktopVmId || !!state.desktopBinding ||
+        state.taskContract?.environment === "windows");
   }
 
   requestPause(taskId: string): void {

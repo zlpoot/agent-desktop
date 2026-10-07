@@ -22,8 +22,10 @@ import type { Observation } from "../src/actions/schema.js";
 test('任务提交明确执行位置，保留要求并拒绝冲突', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'task-destination-'));
   const goals: string[] = [];
+  const targets: unknown[] = [];
+  const target = { providerId: 'fixture', environmentId: 'env' };
   const controller: TaskController = {
-    submit(goal) { goals.push(goal); return 'test'; }, resume() {}, pause() {}, continue() {},
+    submit(goal, options) { goals.push(goal); targets.push(options?.desktopTarget); return 'test'; }, resume() {}, pause() {}, continue() {},
   };
   const server = createDashboardServer(dir, controller);
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
@@ -33,16 +35,17 @@ test('任务提交明确执行位置，保留要求并拒绝冲突', async () =>
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   try {
-    assert.equal((await post({ goal: '整理文档', destination: 'guest', criteria: '保留原文件', constraints: '不发送邮件' })).status, 202);
-    assert.equal(goals[0], 'VM: 整理文档\n完成条件：保留原文件\n操作限制：不发送邮件');
+    assert.equal((await post({ goal: '整理文档', destination: 'guest', desktopTarget: target, criteria: '保留原文件', constraints: '不发送邮件' })).status, 202);
+    assert.equal(goals[0], '整理文档\n完成条件：保留原文件\n操作限制：不发送邮件');
     assert.equal((await post({ goal: '整理文档', destination: 'host' })).status, 202);
     assert.equal(goals[1], '整理文档');
-    for (const body of [{ goal: 'VM: 测试', destination: 'host' }, { goal: '测试', destination: 'invalid' },
+    for (const body of [{ goal: '测试', destination: 'guest' }, { goal: '测试', destination: 'host', desktopTarget: target }, { goal: '测试', desktopTarget: { providerId: '' } }, { goal: '测试', destination: 'invalid' },
       { goal: '测试', constraints: 42 }, { goal: '字'.repeat(4001) }]) {
       assert.equal((await post(body)).status, 400);
     }
     assert.equal(goals.length, 2);
-    assert.equal((await post({ goal: '字'.repeat(1500), destination: 'guest' })).status, 202);
+    assert.deepEqual(targets, [target, undefined]);
+    assert.equal((await post({ goal: '字'.repeat(1500), destination: 'guest', desktopTarget: target })).status, 202);
   } finally {
     await new Promise<void>(done => server.close(() => done()));
     rmSync(dir, { recursive: true, force: true });

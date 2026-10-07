@@ -1,3 +1,5 @@
+import { TaskDesktopSessions } from './task-desktop-sessions.js';
+import { desktopTarget, taskDesktopFields, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -12,12 +14,9 @@ import {writeHostShadow} from '../verification/host-shadow.js';
 import {configuredLiveShadow} from '../verification/live-shadow.js';
 import { continuePausedTask, resumeSavedTask } from "../graph/resume.js";
 import { initialState } from "../graph/state.js";
-import { DesktopRuntime } from "../runtime/desktop/desktop-runtime.js";
-import { GuestDesktopRuntime } from "../runtime/desktop/guest-runtime.js";
 import { restartedDesktopState } from "../desktop-session/recovery.js";
 import { DesktopVisionRuntime } from "../runtime/desktop/vision-runtime.js";
-import { WindowManager } from "../runtime/desktop/window-manager.js";
-import { registeredApps, registeredGuestApps } from "../runtime/desktop/app-catalog.js";
+import { registeredGuestApps } from "../runtime/desktop/app-catalog.js";
 import { PlaywrightRuntime } from "../runtime/browser/playwright-runtime.js";
 import { SqliteTrace } from "../trace/sqlite-trace.js";
 import { WorkflowStore } from "../workflows/store.js";
@@ -29,7 +28,7 @@ import { ExtensionRegistry } from "../contracts/extension.js";
 import type { InputControl } from "../contracts/desktop-provider.js";
 import type { ModelProvider } from "../contracts/model-provider.js";
 import type { TraceStore, WorkflowStore as WorkflowStoreContract } from "../contracts/stores.js";
-import type { WorkerClient, WorkerClientFactory } from "../contracts/worker-client.js";
+import type { WorkerClient } from "../contracts/worker-client.js";
 import { routeTask } from "./task-routing.js";
 import { taskContract, taskProfile } from "./task-profiles.js";
 import { WorkerConnectionError, GuestAppSetupError } from "../contracts/worker-error.js";
@@ -43,8 +42,8 @@ import { createTaskBudget, isBudgetExceeded, parseBudgetOverride, readTaskBudget
   type BudgetOverride } from '../runtime/model-budget.js';
 
 export interface TaskController {
-  submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride): string;
-  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride }): string;
+  submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
+  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget }): string;
   resume(taskId: string, response: { approved?: boolean; answer?: string }): void;
   pause(taskId: string): void;
   continue(taskId: string): void;
@@ -53,13 +52,15 @@ export interface TaskController {
 
 /** 任务执行器的显式依赖；核心不直接读取全局配置或创建业务扩展。 */
 export interface DesktopTaskControllerOptions {
+  desktopSessions?: TaskDesktopSessions;
+  /** Infrastructure validates structured legacy provenance, never the goal text. */
+  legacyDesktopTarget?: (state: import("../graph/state.js").ComputerState, environment: string, target: TaskDesktopTarget) => boolean;
   acceptanceVerifier?: import('../verifier/hybrid-verifier.js').AcceptanceVerifier;
   /** 业务扩展注册表；不传则使用空注册表（全部业务禁用，通用任务仍可运行）。 */
   registry?: ExtensionRegistry;
   modelProvider?: ModelProvider;
   traceStore?: (path: string) => TraceStore;
   workflowStore?: (path: string) => WorkflowStoreContract;
-  workerClientFactory?: WorkerClientFactory;
   /** 扩展 facet provider，观察后采集域证据；不传则不产出任何业务 facet。 */
   facetProviders?: import("../contracts/facets.js").ObservationFacetProvider[];
   /** 域条件求值器；不传时 domainChecks 一律 UNKNOWN（fail-closed）。 */
@@ -74,10 +75,8 @@ export class DesktopTaskController implements TaskController {
   private readonly modelProvider: ModelProvider;
   private readonly traceStore: (path: string) => TraceStore;
   private readonly workflowStore: (path: string) => WorkflowStoreContract;
-  private readonly workerClientFactory: WorkerClientFactory;
   private desktopControl?: InputControl;
   private desktopControlOwner?: string;
-  private desktopRequired = false;
   private readonly retiredControls = new WeakSet<InputControl>();
   private activeTask?: { id: string; control?: InputControl; done: Promise<void> };
   /**
@@ -96,14 +95,13 @@ export class DesktopTaskController implements TaskController {
     }
     this.desktopControl = control;
     this.desktopControlOwner = owner;
-    this.desktopRequired = true;
   }
   /** Keep a running task's control alive until it reaches its existing pause boundary. */
   async releaseDesktopControl(control: InputControl, owner: string): Promise<void> {
     this.retiredControls.add(control);
     const active = this.activeTask;
     try {
-      if (active?.control === control) {
+      if (active && (active.control === control || this.options.desktopSessions?.usesControl(active.id, control))) {
         try { this.requestShutdownPause(active.id); }
         finally { await active.done; }
       }
@@ -112,13 +110,6 @@ export class DesktopTaskController implements TaskController {
   private requestShutdownPause(taskId: string) {
     const trace = this.traceStore(this.tracePath);
     try { trace.requestPause(taskId); } finally { trace.close(); }
-  }
-  private taskControl(): InputControl | undefined {
-    const control = this.desktopControl;
-    if (this.desktopRequired && (!control || this.retiredControls.has(control))) {
-      throw new Error("Desktop Session 正在关闭或已卸载");
-    }
-    return control;
   }
   /** 只读：当前任务控制绑定（测试与装配层观察用）。 */
   getDesktopControl(): InputControl | undefined { return this.desktopControl; }
@@ -137,7 +128,10 @@ export class DesktopTaskController implements TaskController {
     this.closed = true;
     this.closePromise = (async () => {
       try { if (this.activeTask?.control) this.requestShutdownPause(this.activeTask.id); }
-      finally { await this.queue; }
+      finally {
+        try { await this.queue; }
+        finally { await this.options.desktopSessions?.close(); }
+      }
     })();
     return this.closePromise;
   }
@@ -151,14 +145,62 @@ export class DesktopTaskController implements TaskController {
     this.modelProvider = options.modelProvider ?? configuredModelProvider();
     this.traceStore = options.traceStore ?? ((path) => new SqliteTrace(path));
     this.workflowStore = options.workflowStore ?? ((path) => new WorkflowStore(path));
-    this.workerClientFactory = options.workerClientFactory ?? GuestDesktopRuntime.connect;
   }
 
-  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride } = {}): string {
+  private requireDesktopSessions(): TaskDesktopSessions {
+    if (!this.options.desktopSessions) throw new Error('desktop-task-executor-unavailable');
+    return this.options.desktopSessions;
+  }
+  private assertTaskCompatibility(state: import('../graph/state.js').ComputerState, environment: string | null): void {
+    if (state.desktopTarget) return;
+    if (state.taskBindingVersion === 1 && !state.desktopVmId && !state.desktopBinding &&
+        environment !== 'windows' && environment !== 'agent_desktop') return;
+    if (environment === 'browser' && !state.desktopVmId && !state.desktopBinding) return;
+    throw new Error('legacy-desktop-target-required: explicitly select compatibility target or submit a new task');
+  }
+  private assertSavedTaskCompatibility(state: import('../graph/state.js').ComputerState): void {
+    const db = this.routeDb();
+    try {
+      const row = db.prepare('SELECT environment FROM generic_routes WHERE task_id = ?').get(state.taskId) as
+        { environment: string | null } | undefined;
+      if (row) this.assertTaskCompatibility(state, row.environment);
+    } finally { db.close(); }
+  }
+  /** Explicit compatibility selection. No model, goal parsing, input or fallback is involved. */
+  adoptLegacyDesktopTask(taskId: string, selected: TaskDesktopTarget): void {
+    this.assertOpen();
+    const target = this.requireDesktopSessions().assertTarget(selected);
+    const trace = this.traceStore(this.tracePath);
+    const db = this.routeDb();
+    try {
+      const state = trace.load(taskId);
+      const row = db.prepare('SELECT environment FROM generic_routes WHERE task_id = ?').get(taskId) as
+        { environment: string | null } | undefined;
+      if (!state || !['paused', 'waiting_user'].includes(state.status) || state.taskBindingVersion ||
+          state.desktopTarget || state.desktopExecutionBinding ||
+          !row || !['windows', 'agent_desktop'].includes(row.environment ?? '')) {
+        throw new Error('legacy-desktop-compatibility-ineligible');
+      }
+      if (!this.options.legacyDesktopTarget?.(state, row.environment!, target)) {
+        throw new Error('legacy-desktop-target-mismatch-or-unproven');
+      }
+      trace.save('desktop_compatibility_selected', { ...state, taskBindingVersion: 1, desktopTarget: target,
+        status: 'paused', recoveryRequired: true,
+        summary: '显式兼容选择已记录；继续时重新观察与状态对齐，旧批准不重放',
+        desktopCompatibility: { source: 'legacy-route', environment: row.environment as 'windows' | 'agent_desktop',
+          ...(state.desktopVmId ? { desktopVmId: state.desktopVmId } : {}) } });
+    } finally { db.close(); trace.close(); }
+  }
+
+  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget } = {}): string {
     this.assertOpen();
     const budget = parseBudgetOverride(options.budget);
-    const route = routeTask(goal, options, this.registry);
-    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget);
+    const target = options.desktopTarget !== undefined ? this.requireDesktopSessions().assertTarget(options.desktopTarget) : undefined;
+    const route = routeTask(goal, { ...options, desktopTarget: target }, this.registry);
+    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget, target);
+    // Legacy specialized desktop executors cannot bypass explicit Session binding.
+    // Binding them to new Provider routes is outside P5-A.
+    if (route.request.environment === 'windows') throw new Error('desktop-target-required');
     if (budget) throw new Error('专用能力任务暂不支持预算覆盖');
     // submit is synchronous; the queued microtask sees the returned persistent ID.
     let taskId: string;
@@ -166,13 +208,14 @@ export class DesktopTaskController implements TaskController {
     return taskId;
   }
 
-  submitWorkflow(request: WorkflowExecutionRequest, budget?: BudgetOverride): string {
+  submitWorkflow(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string {
     this.assertOpen();
-    if (!this.taskControl()) throw new Error('未配置 Desktop Session，不能执行指定流程');
+    if (!target) throw new Error('desktop-target-required');
+    target = this.requireDesktopSessions().assertTarget(target);
     const store = this.workflowStore(resolve(this.rootDir, 'workflows.sqlite'));
     try {
       const prepared = prepareWorkflowExecution(store.get(request.id, request.version), request);
-      return this.submitGeneric(prepared.goal, prepared.ref, parseBudgetOverride(budget));
+      return this.submitGeneric(prepared.goal, prepared.ref, parseBudgetOverride(budget), target);
     } finally { store.close(); }
   }
 
@@ -185,9 +228,7 @@ export class DesktopTaskController implements TaskController {
   }
 
   private submitGeneric(goal: string, workflowRef?: import('../graph/state.js').ComputerState['workflowRef'],
-    budget?: BudgetOverride): string {
-    const control = /^VM:\s*\S/i.test(goal) ? this.taskControl() : undefined;
-    control?.assertTaskAllowed();
+    budget?: BudgetOverride, target?: TaskDesktopTarget): string {
     const contract = workflowRef ? undefined : taskContract(goal, taskProfile(goal, this.registry));
     const taskId = randomUUID();
     createTaskBudget(this.rootDir, taskId, budget);
@@ -196,10 +237,11 @@ export class DesktopTaskController implements TaskController {
       .run(taskId, new Date().toISOString()); }
     finally { db.close(); }
     const trace = this.traceStore(this.tracePath);
-    try { trace.save("queued", { ...initialState(taskId, goal), ...(contract ? { taskContract: contract } : {}),
+    try { trace.save("queued", { ...initialState(taskId, goal), taskBindingVersion: 1,
+      ...(target ? { desktopTarget: desktopTarget(target.providerId, target.environmentId) } : {}), ...(contract ? { taskContract: contract } : {}),
       ...(workflowRef ? { workflowRef } : {}), summary: workflowRef ? '已绑定指定流程，等待准备执行环境' : "等待模型规划任务" }); }
     finally { trace.close(); }
-    this.enqueue(() => this.runGeneric(taskId, undefined, control), taskId, control);
+    this.enqueue(() => this.runGeneric(taskId), taskId);
     return taskId;
   }
 
@@ -216,13 +258,13 @@ export class DesktopTaskController implements TaskController {
     control?: InputControl): Promise<void> {
     const trace = this.traceStore(this.tracePath);
     const workflows = this.workflowStore(resolve(this.rootDir, "workflows.sqlite"));
-    let runtime: DesktopRuntime | WorkerClient | DesktopVisionRuntime | PlaywrightRuntime | undefined;
+    let runtime: WorkerClient | DesktopVisionRuntime | PlaywrightRuntime | undefined;
     let guest: WorkerClient | undefined;
     let desktopClaimed = false;
     const checkSetupPause = () => { if (desktopClaimed && trace.pauseRequested(taskId)) throw new Error("DESKTOP_SETUP_PAUSED"); };
     let checkpoint: ReturnType<typeof SqliteSaver.fromConnString> | undefined;
     try {
-      const queued = trace.load(taskId);
+      let queued = trace.load(taskId);
       if (!queued) throw new Error("任务记录不存在");
       // 已排队但未开始的任务在控制器关闭后被取消，并落盘 failed（catch 分支写入）。
       if (this.closed) throw new Error("任务控制器已关闭，任务已取消");
@@ -247,20 +289,23 @@ export class DesktopTaskController implements TaskController {
         destination: routeWorkflowDestination(pinnedWorkflow),
       }) : undefined;
       let environment: "browser" | "windows";
-      const guestTask = /^VM:\s*\S/i.test(queued.goal) || route.environment === "agent_desktop";
-      if (guestTask) {
-        if (savedForResume?.desktopVmId && savedForResume.desktopVmId !== process.env.AGENT_DESKTOP_VM_ID) {
-          throw new Error("保存任务的 VM 身份不同；需重建环境并选择恢复策略，不能直接恢复旧窗口");
-        }
+      this.assertTaskCompatibility(queued, route.environment);
+      if (queued.desktopTarget) {
+        const entry = await this.requireDesktopSessions().acquire(taskId, queued, binding => {
+          queued = { ...queued!, desktopExecutionBinding: binding };
+          trace.save('desktop_bound', queued);
+        });
+        if (this.closed) throw new Error("任务控制器已关闭，任务已取消");
+        control = entry.control;
+        if (this.activeTask?.id === taskId) this.activeTask.control = control;
         if (response?.kind === "restart" && (!savedWindowIdentity ||
           (!savedWindowIdentity.title && (!savedWindowIdentity.windowClass || !savedWindowIdentity.processPath)))) {
           throw new Error("检查点缺少稳定窗口身份，不能安全恢复；请停止旧任务后重新提交");
         }
-        if (control) { await control.beginTask(taskId); desktopClaimed = true; }
-        guest = await this.workerClientFactory(
-          control?.workerEndpoint() ?? process.env.AGENT_DESKTOP_WORKER_URL ?? "http://127.0.0.1:8765",
-          process.env.AGENT_DESKTOP_TOKEN ?? "", process.env.AGENT_DESKTOP_VM_ID ?? "",
-          resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots"), control?.agentEpoch?.());
+        await control.beginTask(taskId); desktopClaimed = true;
+        checkSetupPause();
+        guest = await entry.executor.connectRuntime(entry.session,
+          resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots"));
       }
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
@@ -271,7 +316,7 @@ export class DesktopTaskController implements TaskController {
       const dir = resolve(this.rootDir, ".artifacts", "web-tasks", taskId);
       await mkdir(dir, { recursive: true });
       if (!response) {
-        const discovered = guest ? await guest.listWindows() : await DesktopRuntime.listWindows();
+        const discovered = guest ? await guest.listWindows() : [];
         const profile = taskProfile(queued.goal, this.registry);
         const windows = profile?.selectWindows?.(discovered) ?? discovered;
         const fixedWindow = guest && explicit ? explicitWorkflowWindow(explicit.workflow, windows) : undefined;
@@ -285,7 +330,7 @@ export class DesktopTaskController implements TaskController {
         } else {
           const apps = profile?.selectWindows ? [] : guest
             ? await registeredGuestApps(this.rootDir)
-            : await registeredApps(this.rootDir);
+            : [];
           const startedAt = new Date().toISOString();
           const started = performance.now();
           let planned: Awaited<ReturnType<typeof model.planTask>>;
@@ -308,27 +353,20 @@ export class DesktopTaskController implements TaskController {
             // Never expose the window-selection planner's unrelated conditions as the task contract.
             verificationContract = undefined;
           }
+          if (environment === 'windows' && !guest) throw new Error('desktop-target-required');
           if (environment === "windows" && planned.task.appId) {
             checkSetupPause();
-            const app = apps.find((candidate) => candidate.id === planned.task.appId)!;
+            const app = apps.find(candidate => candidate.id === planned.task.appId);
+            if (!app) throw new Error('planned-app-not-in-catalog');
             const launchStartedAt = new Date().toISOString();
             const launchStarted = performance.now();
-            if (guest) {
-              windowHandle = (await guest.ensureApp(app.id)).handle;
-            } else {
-              const manager = new WindowManager(resolve(dir, "screenshots"));
-              runtime = await manager.ensure({
-                ...(app.windowTitle ? { windowTitle: app.windowTitle } : {}),
-                ...(app.windowClass ? { windowClass: app.windowClass } : {}),
-              }, app.executable, app.args);
-              windowHandle = (await runtime.observe()).windowHandle;
-            }
+            windowHandle = (await guest!.ensureApp(app.id)).handle;
             if (windowHandle === undefined) throw new Error("启动应用后未取得窗口句柄");
             trace.recordNodeMetric(taskId, { step: 0, node: "app.ensure", startedAt: launchStartedAt,
               durationMs: performance.now() - launchStarted, actor: "runtime", operator: "windows.app.ensure" });
           }
         }
-        if (guest && environment !== "windows") throw new Error("VM 任务必须规划为 Windows 窗口任务");
+        if (guest && environment !== "windows") throw new Error("显式桌面任务必须规划为 Windows 窗口任务");
         if (profile?.environment && environment !== profile.environment) {
           throw new Error("任务规划环境与场景配置不符");
         }
@@ -351,6 +389,8 @@ export class DesktopTaskController implements TaskController {
           throw new Error("保存的任务环境无效");
         }
         environment = route.environment === "agent_desktop" ? "windows" : route.environment;
+        if (environment === "windows" && !guest) throw new Error("desktop-target-required");
+        if (environment === "browser" && guest) throw new Error("desktop-route-binding-mismatch");
         windowHandle = route.window_handle ?? undefined;
       }
       runtime = runtime ?? (guest
@@ -373,19 +413,10 @@ export class DesktopTaskController implements TaskController {
         : environment === "browser"
         ? await PlaywrightRuntime.launch({ headless: false, artifactDir: resolve(dir, "screenshots"),
             userDataDir: resolve(dir, "browser-profile") })
-        : response && savedForResume?.taskContract?.windowIdentity
-          ? await new WindowManager(resolve(dir, "screenshots")).attach({
-            windowTitle: savedForResume.taskContract.windowIdentity.title,
-            windowClass: savedForResume.taskContract.windowIdentity.windowClass,
-            ...(savedForResume.taskContract.windowIdentity.processPath
-              ? { processPath: savedForResume.taskContract.windowIdentity.processPath } : {}),
-          })
-          : await DesktopRuntime.attach({ windowHandle,
-            artifactDir: resolve(dir, "screenshots") }));
+        : (() => { throw new Error('desktop-target-required'); })());
       if (environment === "windows") {
         checkSetupPause();
-        const probe = guest ? await guest.probe(true) :
-          await new WindowManager(resolve(dir, "screenshots")).focus(runtime as DesktopRuntime);
+        const probe = await guest!.probe(true);
         if (!probe.permissionsCompatible) throw new Error("窗口权限高于当前工程，无法控制");
         if (queued.taskContract && !response) queued.taskContract.windowIdentity = {
           title: probe.title, windowClass: probe.windowClass,
@@ -430,7 +461,7 @@ export class DesktopTaskController implements TaskController {
         visualMode: environment === "windows" });
       if (environment === "windows" && !(guest && explicit &&
           explicitWorkflowUsesStructuredTargets(explicit.workflow))) runtime = new DesktopVisionRuntime(
-        runtime as DesktopRuntime | WorkerClient, exploreModel);
+        runtime as WorkerClient, exploreModel);
       checkpoint = SqliteSaver.fromConnString(resolve(dir, "checkpoints.sqlite"));
       const stageCompletion = async (state: import("../graph/state.js").ComputerState,
         stage: NonNullable<import("../graph/state.js").ComputerState["completedStages"]>[number]) => {
@@ -473,18 +504,18 @@ export class DesktopTaskController implements TaskController {
           ...(saved.taskContract ? { onStageCompleted: stageCompletion } : {}),
           pauseRequested: (id) => trace.pauseRequested(id) });
         if (response?.kind === "restart") {
-          const recovered = { ...restartedDesktopState(savedForResume!), desktopBinding };
+          const recovered = { ...restartedDesktopState(savedForResume!), ...taskDesktopFields(queued), desktopBinding };
           trace.save("restart_reobserve", recovered);
           await graph.invoke(recovered, { configurable: { thread_id: recovered.checkpointThreadId! } });
         }
-        else if (response?.kind === "continue") await continuePausedTask(graph, taskId, savedForResume?.checkpointThreadId);
+        else if (response?.kind === "continue") await continuePausedTask(graph, taskId, savedForResume?.checkpointThreadId, undefined, queued);
         else if (response) await resumeSavedTask(graph, runtime, taskId,
-          response.answer ? { answer: response.answer } : { approved: response.approved === true }, savedForResume?.checkpointThreadId);
-        else await graph.invoke({ ...initialState(taskId, queued.goal, plan, completionCriteria), desktopBinding,
+          response.answer ? { answer: response.answer } : { approved: response.approved === true }, savedForResume?.checkpointThreadId, queued);
+        else await graph.invoke({ ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), desktopBinding,
           verificationContract,contractCoverage,
           ...(queued.workflowRef ? { workflowRef: queued.workflowRef } : {}),
           ...(queued.taskContract ? { taskContract: queued.taskContract, completedStages: [], stagePlanVersion: 0 } : {}),
-          desktopVmId: process.env.AGENT_DESKTOP_VM_ID },
+          },
           { configurable: { thread_id: taskId } });
         if (explicit) {
           const final = trace.load(taskId);
@@ -518,10 +549,10 @@ export class DesktopTaskController implements TaskController {
           pauseRequested: (id) => trace.pauseRequested(id),
           ...(saved.taskContract ? { onStageCompleted: stageCompletion } : {}) });
         if (response.kind === "continue") {
-          await continuePausedTask(graph, taskId, taskId, environment === "browser" ? runtime : undefined);
+          await continuePausedTask(graph, taskId, taskId, environment === "browser" ? runtime : undefined, queued);
         } else {
           await resumeSavedTask(graph, runtime, taskId,
-            response.answer ? { answer: response.answer } : { approved: response.approved === true });
+            response.answer ? { answer: response.answer } : { approved: response.approved === true }, taskId, queued);
         }
         const final = trace.load(taskId);
         if (final?.status === "done" && !saved.taskContract) {
@@ -537,14 +568,15 @@ export class DesktopTaskController implements TaskController {
           facetProviders: this.options.facetProviders, domainEvaluator: this.options.domainEvaluator,
           maxSteps: queued.taskContract.taskActionLimit, maxRetries: 2,
           pauseRequested: (id) => trace.pauseRequested(id), onStageCompleted: stageCompletion });
-        const state = { ...initialState(taskId, queued.goal, plan, completionCriteria), verificationContract,
+        const state = { ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), verificationContract,
           contractCoverage,
           taskContract: queued.taskContract, completedStages: [], stagePlanVersion: 0 };
         trace.save("task_contract", state);
         await graph.invoke(state, { configurable: { thread_id: taskId } });
       } else {
         await runTaskAgent({ taskId, goal: queued.goal, environment,
-          plan, completionCriteria: completionCriteria!, verificationContract, contractCoverage }, {
+          plan, completionCriteria: completionCriteria!, verificationContract, contractCoverage,
+          ...taskDesktopFields(queued) }, {
           runtime, exploreModel, trace, tracePath: this.tracePath, workflowStore: workflows,
           acceptanceVerifier: this.options.acceptanceVerifier,
           checkpointer: checkpoint, maxSteps: 24,
@@ -579,13 +611,16 @@ export class DesktopTaskController implements TaskController {
 
   resume(taskId: string, response: { approved?: boolean; answer?: string }): void {
     this.assertOpen();
-    let guestTask = false;
+    let control: InputControl | undefined;
     const trace = this.traceStore(this.tracePath);
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "waiting_user") throw new Error("任务未处于等待人工状态");
-      guestTask = /^VM:\s*\S/i.test(state.goal) || !!state.desktopVmId;
-      if (/^VM:\s*\S/i.test(state.goal)) this.desktopControl?.assertTaskAllowed(taskId);
+      this.assertSavedTaskCompatibility(state);
+      if (state.desktopExecutionBinding) {
+        control = this.requireDesktopSessions().control(taskId, state.desktopExecutionBinding);
+        control.assertTaskAllowed(taskId);
+      }
       if (response.approved === undefined && !response.answer?.trim()) {
         throw new Error("请提供批准、拒绝或回答");
       }
@@ -595,7 +630,6 @@ export class DesktopTaskController implements TaskController {
     try { generic = !!db.prepare(`SELECT 1 FROM generic_routes WHERE task_id = ?`).get(taskId); }
     finally { db.close(); }
     if (generic) {
-      const control = guestTask ? this.taskControl() : undefined;
       this.enqueue(() => this.runGeneric(taskId, { kind: "human", ...response }, control), taskId, control);
       return;
     }
@@ -604,9 +638,10 @@ export class DesktopTaskController implements TaskController {
     try {
       const state = resumeTrace.load(taskId);
       if (!state) throw new Error("任务记录不存在");
-      capability = state.executorId
-        ? this.registry.capabilityById(state.executorId)
-        : this.registry.matchCapability(state.goal);
+      if (state.taskContract?.environment !== 'browser') {
+        throw new Error('legacy-specialized-desktop-compatibility-unavailable: submit a new task');
+      }
+      capability = state.executorId ? this.registry.capabilityById(state.executorId) : undefined;
       if (!capability?.resume) {
         throw new Error(state.executorId
           ? `专用能力 ${state.executorId} 已卸载，无法恢复该任务；请重新提交`
@@ -638,19 +673,21 @@ export class DesktopTaskController implements TaskController {
     const trace = this.traceStore(this.tracePath);
     let setupPaused = false;
     let recoveryRequired = false;
-    let guestTask = false;
+    let control: InputControl | undefined;
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "paused") throw new Error("任务未处于暂停状态");
-      guestTask = /^VM:\s*\S/i.test(state.goal) || !!state.desktopVmId;
-      if (/^VM:\s*\S/i.test(state.goal)) this.desktopControl?.assertTaskAllowed(taskId);
+      this.assertSavedTaskCompatibility(state);
+      if (state.desktopExecutionBinding) {
+        control = this.requireDesktopSessions().control(taskId, state.desktopExecutionBinding);
+        control.assertTaskAllowed(taskId);
+      }
       setupPaused = state.setupPaused === true;
       recoveryRequired = state.recoveryRequired === true;
       // A task interrupted before binding cannot have issued a desktop action.
       if (recoveryRequired && !state.desktopBinding && !state.inFlightAction && !state.observation && !state.step) setupPaused = true;
       trace.clearPause(taskId);
     } finally { trace.close(); }
-    const control = guestTask ? this.taskControl() : undefined;
     this.continuing.add(taskId);
     this.enqueue(async () => {
       try { await this.runGeneric(taskId, setupPaused ? undefined : { kind: recoveryRequired ? "restart" : "continue" }, control); }
@@ -669,18 +706,18 @@ export class DesktopTaskController implements TaskController {
         }
       } finally { routes.close(); }
       const trace = this.traceStore(this.tracePath);
-      let guestTask = false;
       try {
         const state = trace.load(taskId);
         if (!state) throw new Error('任务记录不存在');
-        guestTask = /^VM:\s*\S/i.test(state.goal) || !!state.desktopVmId;
         const reviewed = reviewManualOutcome(state, response.approved, response.note);
+        if (response.approved && state.desktopExecutionBinding) {
+          await this.requireDesktopSessions().completeTask(taskId, state.desktopExecutionBinding);
+        }
         trace.save(response.approved ? 'manual_outcome_approved' : 'manual_outcome_unconfirmed', reviewed);
         trace.recordNodeMetric(taskId, { step: state.step, node: 'manual_outcome_review',
           startedAt: reviewed.humanReview!.reviewedAt, durationMs: 0, actor: 'human',
           operator: response.approved ? '人工确认任务结果' : '人工未确认任务结果' });
       } finally { trace.close(); }
-      if (response.approved && guestTask) await this.desktopControl?.finishTask(taskId, 'done');
     });
     this.queue = operation.catch(() => {});
     return operation;

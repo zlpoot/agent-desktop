@@ -20,6 +20,8 @@ interface RecordBinding {
   recoveryEpoch: string;
   state: DesktopSessionStatus["state"];
   taskId?: string;
+  lastTaskId?: string;
+  completedTaskId?: string;
   begun?: boolean;
   release?: Promise<boolean>;
   pending: Set<Promise<unknown>>;
@@ -210,7 +212,7 @@ export class HyperVDesktopProvider implements DesktopProvider {
         if (owner) deny("input-resource-busy");
         record.source.control.assertTaskAllowed(taskId);
         record.release = undefined; record.begun = false;
-        this.owners.set(record.identity.inputResourceId!, record); record.taskId = taskId;
+        this.owners.set(record.identity.inputResourceId!, record); record.taskId = taskId; record.lastTaskId = taskId; record.completedTaskId = undefined;
         try {
           await record.source.control.beginTask(taskId);
           record.begun = true;
@@ -227,6 +229,33 @@ export class HyperVDesktopProvider implements DesktopProvider {
         return this.release(record, status);
       },
     };
+  }
+  /** Composition-only identity for scope unload; never used to select an environment. */
+  lifecycleOwner(session: DesktopSession): object { return this.record(session).source.control; }
+  /** Manual acceptance cannot acquire input. Clear only this binding's parked legacy task. */
+  async completeTask(session: DesktopSession, taskId: string): Promise<void> {
+    const record = this.record(session);
+    if (record.completedTaskId === taskId && record.lastTaskId === taskId) return;
+    if (record.lastTaskId !== taskId || !record.release || this.owners.has(record.identity.inputResourceId!)) deny('foreign-task');
+    const released = record.release;
+    // Reserve the resource before any await. Another Session must not acquire
+    // while completion checks freshness or clears the parked legacy task.
+    this.owners.set(record.identity.inputResourceId!, record);
+    record.taskId = taskId;
+    record.release = (async () => {
+      await released;
+      await this.fresh(record);
+      if (record.source.control.view().taskId !== taskId) deny('foreign-task');
+      await record.source.control.finishTask(taskId, 'done');
+      const view = record.source.control.view();
+      if (view.taskId || view.error || !view.workerReady || !['PAUSED', 'STOPPED'].includes(view.mode)) {
+        deny('input-revocation-unconfirmed');
+      }
+      this.owners.delete(record.identity.inputResourceId!); record.taskId = undefined; record.completedTaskId = taskId;
+      return false;
+    })();
+    // A failed completion fence stays resource-blocking, as with normal release.
+    await record.release;
   }
   /** Existing Guest runtime, connected with the exact Session recovery identity. Infrastructure only. */
   connectRuntime(session: DesktopSession, artifactDir: string): Promise<WorkerClient> {

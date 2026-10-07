@@ -65,6 +65,30 @@ function unprovenGoalFileExpectations(state: ComputerState) {
 
 const State = Annotation.Root({
   taskId: Annotation<string>(),
+  taskBindingVersion: Annotation<ComputerState["taskBindingVersion"]>({ reducer: (previous, next) => {
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(next)) {
+      throw new Error('immutable-task-taskBindingVersion');
+    }
+    return next;
+  } }),
+  desktopTarget: Annotation<ComputerState["desktopTarget"]>({ reducer: (previous, next) => {
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(next)) {
+      throw new Error('immutable-task-desktopTarget');
+    }
+    return next;
+  } }),
+  desktopExecutionBinding: Annotation<ComputerState["desktopExecutionBinding"]>({ reducer: (previous, next) => {
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(next)) {
+      throw new Error('immutable-task-desktopExecutionBinding');
+    }
+    return next;
+  } }),
+  desktopCompatibility: Annotation<ComputerState["desktopCompatibility"]>({ reducer: (previous, next) => {
+    if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(next)) {
+      throw new Error('immutable-task-desktopCompatibility');
+    }
+    return next;
+  } }),
   desktopVmId: Annotation<ComputerState["desktopVmId"]>(),
   recoveryRequired: Annotation<ComputerState["recoveryRequired"]>(),
   recoveryUncertain: Annotation<ComputerState["recoveryUncertain"]>(),

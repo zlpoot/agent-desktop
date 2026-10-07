@@ -1,6 +1,7 @@
 import { Context, type Plugin } from "cordis";
 import { resolve } from "node:path";
 import { DesktopTaskController } from "../app/task-runner.js";
+import { TaskDesktopSessions } from '../app/task-desktop-sessions.js';
 import { DesktopSessionManager } from "../desktop-session/session-manager.js";
 import { HyperVVmControl, type VmControl } from "../desktop-session/vm-control.js";
 import { recoverDesktopTasks } from "../desktop-session/recovery.js";
@@ -49,6 +50,8 @@ export interface ControlBus {
 export interface RootAssemblyOptions {
   rootDir: string;
   model?: ModelProvider;
+  /** Synthetic test port; production uses the existing compatibility executor. */
+  desktopSessions?: TaskDesktopSessions;
   traceStore?: (path: string) => TraceStore;
   workflowStore?: (path: string) => WorkflowStoreContract;
   workerClientFactory?: WorkerClientFactory;
@@ -164,7 +167,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
       name: "taskController",
-      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory"],
+      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility"],
       apply(ctx) {
         // 从业务扩展注册表组装核心的 facet / contributor 注册表（核心本身不内置任何业务域）。
         const facetRegistry = new FacetRegistry();
@@ -183,7 +186,11 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
           modelProvider: ctx.modelProvider,
           traceStore: ctx.traceStore,
           workflowStore: ctx.workflowStore,
-          workerClientFactory: ctx.workerClientFactory,
+          desktopSessions: options.desktopSessions ?? new TaskDesktopSessions(ctx.desktopEnvironmentProviders,
+            new Map([[ctx.hyperVCompatibility.id, ctx.hyperVCompatibility]])),
+          legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
+            !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&
+            target.environmentId === `vm:${state.desktopVmId.toLowerCase()}`,
         });
         controller = created;
         ctx.provide("taskController", created);
@@ -191,7 +198,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         return () => created.close();
       },
     }, 'Root', ['taskController']);
-    if (process.env.AGENT_DESKTOP_VM_ID) {
+    {
       await mountInspected(root, {
         name: "taskRecovery",
         apply() {

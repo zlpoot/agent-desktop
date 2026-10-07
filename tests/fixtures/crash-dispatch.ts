@@ -10,7 +10,7 @@ import { workflowDigest } from "../../src/workflows/recovery.js";
 const [dir, effect, workflowMode] = process.argv.slice(2);
 const trace = new SqliteTrace(join(dir, "web-tasks.sqlite"));
 const workflow = workflowMode ? JSON.parse(readFileSync(join(dir, 'workflow.json'), 'utf8')) : undefined;
-const state = initialState("crash-task", "VM: controlled test", undefined, { pageTextIncludes: "complete" });
+const state = { ...initialState("crash-task", "controlled test", undefined, { pageTextIncludes: "complete" }), desktopVmId: "synthetic-vm" };
 if (workflow) state.workflowRef = { id: workflow.id, version: workflow.version, values: {}, definitionHash: workflowDigest(workflow) };
 await createAgentLoop({ trace, recoveryJournal: true,
   model: workflow ? new WorkflowReplayModel(workflow, new FakeModel([])) : new FakeModel([{ kind: "keypress", keys: "space" }]),

@@ -36,7 +36,7 @@ test("Host restart restores parked task and freezes worker; old human lease is n
   let control = new DesktopControl(dir, sessions, "s", "token", tasks);
   try {
     const trace = new SqliteTrace(join(dir, "web-tasks.sqlite"));
-    trace.save("queued", initialState("task", "VM: test")); trace.close();
+    trace.save("queued", { ...initialState("task", "old task"), desktopVmId: "vm" }); trace.close();
     await control.beginTask("task"); await control.finishTask("task", "paused"); await control.command("old", "take");
     await control.close(); recoverDesktopTasks(dir);
     control = new DesktopControl(dir, sessions, "s", "token", tasks, true);

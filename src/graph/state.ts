@@ -1,9 +1,10 @@
+import type { TaskDesktopFields } from '../contracts/task-desktop.js';
 import type { ActionResult, ComputerAction, GroundingStrategy, Observation } from "../actions/schema.js";
 import type { ActionResolution } from "../actions/action-resolution.js";
 import type { TargetBinding } from "../actions/semantic-target.js";
 import type { CompletionCriteria, VerificationResult } from "../verifier/verifier.js";
 
-export interface ComputerState {
+export interface ComputerState extends TaskDesktopFields {
   taskId: string;
   goal: string;
   plan?: string[];
