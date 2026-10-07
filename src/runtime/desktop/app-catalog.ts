@@ -10,7 +10,7 @@ export interface RegisteredApp {
   windowClass?: string;
 }
 
-function validApp(value: unknown): RegisteredApp {
+export function parseRegisteredApp(value: unknown): RegisteredApp {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("应用登记项无效");
   const item = value as Record<string, unknown>;
   const args = item.args ?? [];
@@ -41,7 +41,7 @@ export async function registeredApps(rootDir: string): Promise<RegisteredApp[]> 
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   if (!Array.isArray(custom)) throw new Error("apps.local.json 必须是应用数组");
-  const apps = [...builtins, ...custom.map(validApp)];
+  const apps = [...builtins, ...custom.map(parseRegisteredApp)];
   if (new Set(apps.map((app) => app.id)).size !== apps.length) throw new Error("应用 ID 重复");
   return apps;
 }
@@ -50,7 +50,7 @@ export async function registeredApps(rootDir: string): Promise<RegisteredApp[]> 
 export async function registeredGuestApps(rootDir: string): Promise<RegisteredApp[]> {
   const custom = JSON.parse(await readFile(resolve(rootDir, "config", "agent-desktop-apps.json"), "utf8")) as unknown;
   if (!Array.isArray(custom)) throw new Error("Agent Desktop 应用配置必须是数组");
-  const apps = custom.map(validApp);
+  const apps = custom.map(parseRegisteredApp);
   if (new Set(apps.map((app) => app.id)).size !== apps.length) throw new Error("Agent Desktop 应用 ID 重复");
   if (apps.some((app) => !app.windowClass && !app.windowTitle)) {
     throw new Error("Agent Desktop 应用需要窗口类名或标题以核验启动结果");

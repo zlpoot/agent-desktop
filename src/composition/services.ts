@@ -9,6 +9,7 @@ import type { LocalWorkspaceDesktopProvider } from "../desktop-provider/local-wo
 import type { ModelProvider } from "../contracts/model-provider.js";
 import type { TraceStore, WorkflowStore } from "../contracts/stores.js";
 import type { WorkerClientFactory } from "../contracts/worker-client.js";
+import type { EnvironmentAppServices } from '../contracts/environment-apps.js';
 
 /**
  * Cordis 服务名与 Context 类型增强（Cordis 类型化服务约定：通过 key 查找服务，
@@ -27,6 +28,7 @@ declare module "cordis" {
     workerClientFactory: WorkerClientFactory;
     desktopProvider: DesktopProvider;
     desktopEnvironmentProviders: readonly EnvironmentProvider[];
+    environmentApps: EnvironmentAppServices;
     /** Composition-only legacy bridge, never an Agent Core dependency. */
     hyperVCompatibility: HyperVDesktopProvider;
     physicalCompatibility: PhysicalDesktopProvider;
