@@ -1,5 +1,5 @@
 // Shared by Task drafts and fixed-version Workflow execution. Values carry both identity dimensions.
-window.createDesktopSelection = function (select, includeBrowser, changed) {
+window.createDesktopSelection = function (select, includeBrowser, changed, allowScenarios = false) {
   let environments = [], loaded = false, error = '';
   const key = item => JSON.stringify([item.providerId, item.environmentId]);
   const option = (value, label, disabled = false) => {
@@ -18,10 +18,20 @@ window.createDesktopSelection = function (select, includeBrowser, changed) {
           typeof item.environmentId !== 'string' || !item.environmentId.trim() ||
           typeof item.executable !== 'boolean' || keys.has(key(item))) throw new Error('桌面选择数据无效');
       keys.add(key(item));
+      if (item.scenarios !== undefined) {
+        const ids = new Set();
+        if (!Array.isArray(item.scenarios)) throw new Error('场景选择数据无效');
+        for (const scene of item.scenarios) {
+          if (!scene || typeof scene.id !== 'string' || !scene.id.trim() || ids.has(scene.id) ||
+              typeof scene.label !== 'string' || !scene.label.trim() ||
+              !['supported', 'unavailable', 'unsupported', 'not-proven'].includes(scene.availability)) throw new Error('场景选择数据无效');
+          ids.add(scene.id);
+        }
+      }
     }
     environments = data.environments; loaded = true;
     const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
-    for (const item of environments) option(key(item), `${labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.kind === 'local-workspace' ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable);
+    for (const item of environments) option(key(item), `${labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable && !(allowScenarios && item.scenarios?.length));
   }).catch(failure => { error = failure.message; option('unavailable', '桌面列表读取失败，请刷新', true); }).finally(changed);
   return {
     ready,
@@ -30,11 +40,16 @@ window.createDesktopSelection = function (select, includeBrowser, changed) {
       select.value = value; changed();
     },
     selected: () => environments.find(item => key(item) === select.value),
-    problem() {
+    problem(scenarioId) {
       if (includeBrowser && select.value === 'browser') return '';
       if (!loaded) return error || '正在读取执行桌面';
       const item = this.selected();
       if (!item) return '请选择可用的执行桌面';
+      if (allowScenarios && scenarioId) {
+        const scene = item.scenarios?.find(scene => scene.id === scenarioId);
+        return scene?.availability === 'supported' ? '' : '此前选择的场景不可用，请重新选择。';
+      }
+      if (allowScenarios && !item.executable && item.scenarios?.length) return '请选择一个已支持的固定场景；不会自动选择。';
       if (!item.executable) return item.kind === 'local-workspace'
         ? 'Local Workspace 仅支持有限的已验证场景，暂不支持通用任务或 Workflow。'
         : item.blockedReason === 'physical-task-policy-required' ? '本机桌面尚未配置输入策略。'
@@ -42,8 +57,8 @@ window.createDesktopSelection = function (select, includeBrowser, changed) {
         : '该桌面没有可用的任务执行器。';
       return '';
     },
-    payload() {
-      const problem = this.problem(); if (problem) throw new Error(problem);
+    payload(scenarioId) {
+      const problem = this.problem(scenarioId); if (problem) throw new Error(problem);
       const item = this.selected();
       return item ? { destination: 'desktop', desktopTarget: { providerId: item.providerId, environmentId: item.environmentId } }
         : { destination: 'browser' };
@@ -58,12 +73,15 @@ window.createTaskExperience = function () {
   const targetLabel = el('label', '执行位置');
   const target = el('select', ''); target.id = 'task-destination';
   targetLabel.append(target); form.prepend(targetLabel);
+  const scenarioLabel = el('label', '目标 / 固定场景');
+  const scenario = el('select', ''); scenario.id = 'task-scenario'; scenarioLabel.append(scenario); targetLabel.after(scenarioLabel);
+  scenarioLabel.hidden = true;
   const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
   const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
   form.before(readiness);
   $('task-goal').maxLength = 2000;
   const advanced = el('details', '', 'task-options'); advanced.append(el('summary', '完成条件、操作限制与单次预算（可选）'));
-  const fields = { goal: $('task-goal'), destination: target };
+  const fields = { goal: $('task-goal'), destination: target, scenario };
   for (const [name, label] of [['criteria', '完成条件'], ['constraints', '操作限制']]) {
     const wrapper = el('label', label); const input = el('textarea', ''); input.rows = 2; input.maxLength = 500;
     input.id = `task-${name}`; wrapper.append(input); advanced.append(wrapper); fields[name] = input;
@@ -100,31 +118,57 @@ window.createTaskExperience = function () {
   evidenceImage.onerror = () => { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '截图文件不可读取，请查看执行记录中的文字证据。'; };
   let busy = false, currentRun = null, budgetReady = false;
   const storageKey = 'agent-desktop.task-draft.v2';
-  let draftDestination;
+  let draftDestination, draftScenario, renderedDestination;
   try {
     const draft = JSON.parse(sessionStorage.getItem(storageKey) || sessionStorage.getItem('agent-desktop.task-draft.v1') || 'null');
     if (draft) {
-      for (const [key, field] of Object.entries(fields)) if (key !== 'destination' && typeof draft[key] === 'string') field.value = draft[key];
+      for (const [key, field] of Object.entries(fields)) if (!['destination', 'scenario'].includes(key) && typeof draft[key] === 'string') field.value = draft[key];
       draftDestination = draft.destination;
+      draftScenario = draft.scenario;
     }
   } catch {}
-  const selection = window.createDesktopSelection(target, true, update);
+  const selection = window.createDesktopSelection(target, true, update, true);
   if (typeof draftDestination === 'string') selection.restore(draftDestination);
   function save() { try { sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])))); } catch {} }
   function update() {
-    const problem = selection.problem();
+    const item = selection.selected();
+    const catalog = item?.scenarios || [];
+    const renderKey = JSON.stringify([target.value, catalog]);
+    if (renderedDestination !== renderKey) {
+      renderedDestination = renderKey;
+      scenario.replaceChildren();
+      const placeholder = el('option', item?.executable ? '通用任务' : '请选择固定场景'); placeholder.value = ''; scenario.append(placeholder);
+      const labels = { supported: '已支持', unavailable: '不可用', unsupported: '不支持', 'not-proven': '尚未验证' };
+      for (const scene of catalog) {
+        const choice = el('option', `${scene.label} · ${labels[scene.availability]}${scene.reason ? ` · ${scene.reason}` : ''}`);
+        choice.value = scene.id; choice.disabled = scene.availability !== 'supported'; scenario.append(choice);
+      }
+      if (target.value === draftDestination && draftScenario && item) {
+        if (![...scenario.options].some(choice => choice.value === draftScenario)) {
+          const missing = el('option', '此前选择的场景不可用，请重新选择'); missing.value = draftScenario; missing.disabled = true; scenario.append(missing);
+        }
+        scenario.value = draftScenario; draftScenario = undefined;
+      }
+    }
+    scenarioLabel.hidden = !catalog.length && !scenario.value;
+    const finite = !!scenario.value || !!catalog.length && !item?.executable;
+    fields.goal.disabled = finite; fields.criteria.disabled = finite; fields.constraints.disabled = finite; $('task-admin').disabled = finite;
+    const problem = selection.problem(scenario.value);
     const blocked = !!problem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
     heading.textContent = problem ? '执行桌面不可用' : !budgetReady ? '任务预算服务未就绪' : `执行位置：${target.selectedOptions[0]?.textContent || ''}`;
-    hint.textContent = problem || (!budgetReady ? '任务预算服务暂不可用。' : target.value === 'browser' ? '在浏览器中执行任务。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。');
+    hint.textContent = problem || (!budgetReady ? '任务预算服务暂不可用。' : finite ? '仅执行所选固定场景，自由任务文本、完成条件与管理员开关不参与执行。支持状态不代表当前窗口已就绪；执行时重新检查目标、能力与输入租约。' : target.value === 'browser' ? '在浏览器中执行任务。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。');
   }
   fetch('/api/settings/task-budget').then(response => response.ok ? response.json() : Promise.reject(new Error('预算服务不可用')))
     .then(result => { budgetReady = !!result.budget; update(); }).catch(() => { budgetReady = false; update(); });
   form.addEventListener('input', () => { save(); update(); });
-  target.addEventListener('change', () => { save(); update(); });
+  target.addEventListener('change', () => { draftScenario = undefined; update(); save(); });
+  scenario.addEventListener('change', () => { save(); update(); });
   retry.onclick = () => {
     if (!currentRun) return;
     fields.goal.value = currentRun.goal;
+    draftDestination = currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : 'browser';
+    draftScenario = currentRun.desktopScenario; renderedDestination = undefined;
     selection.restore(currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : currentRun.desktopTargetRequired ? 'legacy-desktop-target-required' : 'browser');
     fields.criteria.value = ''; fields.constraints.value = ''; save();
     window.Workbench.navigate('live'); update(); fields.goal.focus();
@@ -143,7 +187,10 @@ window.createTaskExperience = function () {
           budget[kind] = Object.fromEntries(entries.map(([key, value]) => [key, Number(value)]));
         }
       }
-      return { ...selection.payload(), criteria: fields.criteria.value.trim(), constraints: fields.constraints.value.trim(),
+      const selected = selection.payload(scenario.value);
+      if (scenario.value) return { desktopTarget: selected.desktopTarget, scenarioId: scenario.value,
+        ...(Object.keys(budget).length ? { budget } : {}) };
+      return { ...selected, criteria: fields.criteria.value.trim(), constraints: fields.constraints.value.trim(),
         ...(Object.keys(budget).length ? { budget } : {}) };
     },
     submitted() { fields.goal.value = ''; fields.criteria.value = ''; fields.constraints.value = '';

@@ -9,6 +9,74 @@ import { SqliteTrace } from '../src/trace/sqlite-trace.js';
 import { initialState } from '../src/graph/state.js';
 import { WorkflowStore } from '../src/workflows/store.js';
 
+test('finite Task UI requires explicit scene, persists exact selection and refuses stale scene without fallback', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'p6-c-ui-'));
+  const target = { providerId: 'workspace', environmentId: 'finite-fixture' };
+  const scene = { id: 'fixture-v1', label: '固定合成场景', availability: 'supported' as const };
+  let scenes: import('../src/contracts/desktop-scenario.js').DesktopScenarioOption[] = [scene,
+    { id: 'notepad', label: 'Notepad', availability: 'unsupported' },
+    { id: 'raw', label: 'RAW', availability: 'not-proven' },
+    { id: 'offline', label: '断开的目标', availability: 'unavailable' }];
+  const submitted: unknown[] = []; let generic = 0;
+  const server = createDashboardServer(directory, {
+    desktopOptions: async () => [ { ...target, kind: 'local-workspace', executable: false, scenarios: scenes },
+      { ...target, environmentId: 'different-environment', kind: 'local-workspace', executable: false, scenarios: [scene] } ],
+    submit() { generic++; throw new Error('no generic fallback'); },
+    submitScenario(request) {
+      submitted.push(request);
+      const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+      try { trace.save('queued', { ...initialState('scene-task', 'trusted fixed goal'), taskBindingVersion: 1,
+        desktopTarget: request.desktopTarget, desktopScenario: request.scenarioId }); } finally { trace.close(); }
+      return 'scene-task';
+    }, resume() {}, pause() {}, continue() {},
+  });
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 3);
+    await page.locator('#task-goal').fill('VM: arbitrary text must never select a scene');
+    assert.equal(await page.locator('#task-destination').inputValue(), 'browser');
+    const key = JSON.stringify([target.providerId, target.environmentId]);
+    await page.locator('#task-destination').selectOption(key);
+    assert.equal(await page.locator('#task-scenario').inputValue(), '');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    assert.equal(await page.locator('#task-goal').isDisabled(), true);
+    assert.equal(await page.locator('#task-scenario option:disabled').count(), 3);
+    assert.match(await page.locator('#task-scenario').textContent() || '', /不支持.*尚未验证.*不可用/);
+    await page.locator('#task-scenario').selectOption(scene.id);
+    await page.reload();
+    await page.waitForFunction(() => (document.querySelector('#task-scenario') as HTMLSelectElement)?.value === 'fixture-v1');
+    assert.equal(await page.locator('#task-destination').inputValue(), key);
+    assert.equal(await page.locator('#task-goal').inputValue(), 'VM: arbitrary text must never select a scene');
+    await page.locator('#task-destination').selectOption(JSON.stringify([target.providerId, 'different-environment']));
+    assert.equal(await page.locator('#task-scenario').inputValue(), '');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    await page.locator('#task-destination').selectOption(key);
+    await page.locator('#task-scenario').selectOption(scene.id);
+    await page.locator('#task-submit').click();
+    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Fscene-task');
+    assert.deepEqual(submitted, [{ desktopTarget: target, scenarioId: scene.id }]); assert.equal(generic, 0);
+    await page.getByRole('button', { name: '以此任务新建草稿', exact: true }).click();
+    assert.equal(await page.locator('#task-scenario').inputValue(), scene.id);
+    await page.locator('#task-destination').selectOption('browser');
+    assert.equal(await page.locator('#task-scenario').inputValue(), '');
+    assert.equal(await page.locator('#task-goal').isDisabled(), false);
+    await page.locator('#task-destination').selectOption(key); await page.locator('#task-scenario').selectOption(scene.id);
+    scenes = scenes.filter(item => item.id !== scene.id);
+    await page.reload();
+    await page.waitForFunction(() => (document.querySelector('#task-scenario') as HTMLSelectElement)?.value === 'fixture-v1');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    assert.equal(await page.locator('#task-scenario option:checked').evaluate((option: HTMLOptionElement) => option.disabled), true);
+    await page.locator('#task-form').evaluate((form: HTMLFormElement) => form.requestSubmit());
+    await page.waitForFunction(() => document.querySelector('#task-message')?.textContent?.includes('不可用'));
+    assert.equal(submitted.length, 1); assert.equal(generic, 0); assert.deepEqual(errors, []);
+  } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('Task UI submits exact environment identity, preserves selection, and never routes by VM text or global control', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'desktop-selection-ui-'));
@@ -100,4 +168,39 @@ test('Browser Workflow UI executes its pinned version without a desktop target o
     assert.equal(result.target, undefined); assert.equal(result.request.id, 'browser-fixture');
     assert.equal(result.request.destination, 'browser'); assert.equal(result.request.version, 1); assert.equal(result.request.trial, true);
   } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('Windows Workflow UI cannot use finite scenario support as generic execution evidence', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'p6-c-workflow-'));
+  const store = new WorkflowStore(join(directory, 'workflows.sqlite'));
+  store.addCandidate({ id: 'desktop-fixture', version: 1, status: 'candidate', environment: 'windows',
+    taskPattern: 'desktop fixture', inputs: [], preconditions: [],
+    steps: [{ goal: 'fixed step', action: { kind: 'keypress', keys: 'space' }, preferredMethods: [], successCondition: { kind: 'text_includes', value: 'fixture' } }],
+    successConditions: { pageTextIncludes: 'fixture' }, knownFailures: [], sourceTaskId: 'synthetic', sourceTrace: 'synthetic',
+    createdAt: '', successCount: 0, failureCount: 0 });
+  const target = { providerId: 'workspace', environmentId: 'finite-fixture' }; let submissions = 0;
+  const server = createDashboardServer(directory, {
+    desktopOptions: async () => [{ ...target, kind: 'local-workspace', executable: false,
+      scenarios: [{ id: 'fixture-v1', label: '合成固定场景', availability: 'supported' }] }],
+    submit() { submissions++; throw new Error('forbidden'); },
+    submitScenario() { submissions++; throw new Error('forbidden'); },
+    submitWorkflow() { submissions++; throw new Error('forbidden'); }, pause() {}, continue() {}, resume() {},
+  });
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage(); await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.getByRole('button', { name: '流程库', exact: true }).click(); await page.locator('.workflow-card').click();
+    await page.waitForFunction(() => (document.querySelector('#workflow-desktop-target') as HTMLSelectElement)?.options.length === 2);
+    assert.equal(await page.locator('#workflow-desktop-target option').last().evaluate((option: HTMLOptionElement) => option.disabled), true);
+    await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();
+    await page.getByText('v1 参数预览 · 未执行任何动作', { exact: true }).waitFor();
+    await page.locator('#workflow-desktop-target').evaluate((select: HTMLSelectElement) => {
+      select.value = JSON.stringify(['workspace', 'finite-fixture']); select.dispatchEvent(new Event('change'));
+    });
+    assert.equal(await page.getByRole('button', { name: '试运行此候选版本', exact: true }).isDisabled(), true);
+    assert.equal(submissions, 0);
+  } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

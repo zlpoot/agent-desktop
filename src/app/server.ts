@@ -257,6 +257,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       stagePlanVersion: state.stagePlanVersion,
       workflowRef: state.workflowRef,
       desktopTarget: state.desktopTarget,
+      desktopScenario: state.desktopScenario,
       desktopExecutionBinding: state.desktopExecutionBinding,
       desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
       workflowReplayState: state.workflowReplayState,
@@ -411,6 +412,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             const detail = readWorkflowVersion(rootDir, parts[2], version);
             if (!detail) return json(response, 404, { error: '流程版本不存在' });
             if (parts[4] === 'execute' || parts[4] === 'trial') {
+              if (body.scenarioId !== undefined || body.desktopScenario !== undefined) throw new Error('desktop-scenario-workflow-forbidden');
               if (!controller?.submitWorkflow) return json(response, 503, { error: '指定流程执行服务不可用' });
               if (body.destination !== 'windows' && body.destination !== 'browser' ||
                   body.destination !== detail.workflow.environment || typeof body.definitionHash !== 'string') {
@@ -459,14 +461,31 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
       if (!request.headers["content-type"]?.startsWith("application/json")) {
         return json(response, 415, { error: "请使用 JSON 提交任务" });
       }
-      if (url.pathname !== "/api/tasks" &&
+      if (url.pathname !== "/api/tasks" && url.pathname !== '/api/desktop/scenarios/tasks' &&
           !(parts[0] === "api" && parts[1] === "tasks" &&
             ["resume", "pause", "continue", "review"].includes(parts[3]) && parts.length === 4)) {
         return json(response, 404, { error: "接口不存在" });
       }
       void bodyJson(request, 24000).then((body) => {
         try {
+          if (url.pathname === '/api/desktop/scenarios/tasks') {
+            if (!controller.submitScenario) return json(response, 503, { error: 'desktop-scenario-service-unavailable' });
+            if (Object.keys(body).some(key => !['desktopTarget', 'scenarioId', 'budget'].includes(key))) {
+              throw new Error('desktop-scenario-fixed-scope: only desktopTarget, scenarioId and budget are accepted');
+            }
+            const target = requestedDesktopTarget(body.desktopTarget);
+            if (!target) throw new Error('desktop-target-required');
+            if (Object.keys(body.desktopTarget as object).some(key => !['providerId', 'environmentId'].includes(key))) {
+              throw new Error('desktop-scenario-target-selection-only');
+            }
+            if (typeof body.scenarioId !== 'string' || !body.scenarioId.trim() || body.scenarioId.length > 200) {
+              throw new Error('desktop-scenario-required');
+            }
+            const taskId = controller.submitScenario({ desktopTarget: target, scenarioId: body.scenarioId }, parseBudgetOverride(body.budget));
+            return json(response, 202, { taskId, source: 'web-tasks.sqlite' });
+          }
           if (url.pathname === "/api/tasks") {
+            if (body.scenarioId !== undefined || body.desktopScenario !== undefined) throw new Error('desktop-scenario-explicit-route-required');
             if (typeof body.goal !== "string" || !body.goal.trim()) throw new Error("请输入任务需求");
             if (body.admin !== undefined && typeof body.admin !== "boolean") {
               throw new Error("管理员权限开关必须为布尔值");

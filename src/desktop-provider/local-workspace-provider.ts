@@ -12,7 +12,7 @@ import type { DesktopInputArbiter, InputAuthority, InputClient } from "../contra
 import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
 import type { DesktopExecutionBackend, TargetBinding } from '../contracts/desktop-execution.js';
 import type { DesktopObservationBinding } from '../contracts/desktop-environment.js';
-import type { DesktopScenarioDefinition, DesktopScenarioVerification } from '../contracts/desktop-scenario.js';
+import type { DesktopScenarioDefinition, DesktopScenarioOption, DesktopScenarioVerification } from '../contracts/desktop-scenario.js';
 
 export type LocalWorkspaceAppConfig =
   | { app: "fixture" }
@@ -534,6 +534,21 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     return record.backend.viewerUrl();
   }
   /** Read-only finite selection, with no worker construction or input claim. */
+  scenarios(environmentId: string): readonly DesktopScenarioOption[] {
+    const id = this.config.app === 'fixture' ? 'd0-fixture-text-click-v1' : 'd0-netease-fixed-track-v1';
+    const definition = this.scenario(environmentId, id);
+    return Object.freeze([
+      Object.freeze({ id, label: definition.goal, availability: 'supported' as const,
+        application: this.app, applicationVersion: this.appVersion, targetRole: 'owned-main-window',
+        evidence: 'spikes/local-workspace/capability-matrix.md (D0-D)' }),
+      Object.freeze({ id: 'packaged-notepad', label: '打包版 Notepad', availability: 'unsupported' as const,
+        reason: '历史验证不支持' }),
+      Object.freeze({ id: 'raw-isolated-input', label: 'RAW 隔离输入', availability: 'not-proven' as const,
+        reason: '尚无已接受的能力证据' }),
+      Object.freeze({ id: 'arbitrary-local-workspace', label: '任意应用 / 通用任务 / Workflow', availability: 'not-proven' as const,
+        reason: '仅限已验证的固定场景' }),
+    ]);
+  }
   scenario(environmentId: string, id: string): DesktopScenarioDefinition {
     if (!this.available || this.closed) deny('local-workspace-unavailable');
     if (environmentId !== this.environmentId) deny('unknown-local-workspace-environment');

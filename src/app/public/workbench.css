@@ -40,7 +40,7 @@
 /* Task readiness, pending requests and task requirements. */
 .workbench .nav-group { font-size: 11px; color: var(--muted, #82949f); padding: 12px 12px 3px; }
 .workbench #task-form > label, .workbench .task-options label { display: grid; gap: 8px; margin: 10px 0; }
-.workbench #task-destination, .workbench .task-options textarea { width: 100%; max-width: 100%; background: #13212c; color: #e4edf2; border: 1px solid #365362; border-radius: 8px; padding: 10px; box-sizing: border-box; }
+.workbench #task-destination, .workbench #task-scenario, .workbench .task-options textarea { width: 100%; max-width: 100%; background: #13212c; color: #e4edf2; border: 1px solid #365362; border-radius: 8px; padding: 10px; box-sizing: border-box; }
 .workbench .readiness-card, .workbench .request-card { padding: 12px; border: 1px solid #365362; border-radius: 10px; margin-bottom: 12px; background: #13212c; }
 .workbench .readiness-card h3, .workbench .request-card h3, .workbench .attention-list h3 { margin: 0 0 8px; font-size: 14px; }
 .workbench .readiness-card p, .workbench .request-card p { font-size: 12px; line-height: 1.6; margin: 6px 0; }

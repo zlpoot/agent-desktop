@@ -598,16 +598,16 @@ byId("prompt-save").addEventListener("click", async () => {
 byId("task-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const goal = byId("task-goal").value.trim();
-  if (!goal) { byId("task-goal").focus(); return; }
   const submit = byId("task-submit");
   byId("task-message").textContent = "正在提交任务……";
   try {
     const options = taskExperience ? taskExperience.payload() : {};
+    if (!options.scenarioId && !goal) { byId("task-goal").focus(); return; }
     submit.disabled = true;
     taskExperience?.submitting(true);
-    const response = await fetch("/api/tasks", { method: "POST",
+    const response = await fetch(options.scenarioId ? '/api/desktop/scenarios/tasks' : '/api/tasks', { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal, ...options,
+      body: JSON.stringify(options.scenarioId ? options : { goal, ...options,
         admin: byId("task-admin").checked }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "提交失败");
@@ -616,7 +616,7 @@ byId("task-form").addEventListener("submit", async (event) => {
     view.activeStep = null;
     view.activeTab = "process";
     view.activeStepTab = "action";
-    byId("task-message").textContent = byId("task-admin").checked
+    byId("task-message").textContent = !options.scenarioId && byId("task-admin").checked
       ? `任务已提交：${result.taskId}。请在 Windows UAC 窗口确认管理员权限。`
       : `任务已提交：${result.taskId}`;
     byId("task-goal").value = "";

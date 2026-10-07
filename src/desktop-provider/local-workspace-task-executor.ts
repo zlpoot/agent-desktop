@@ -26,6 +26,10 @@ export class LocalWorkspaceTaskExecutor implements DesktopTaskExecutor {
     if (target.providerId !== this.provider.id) throw new Error('desktop-target-binding-mismatch');
     return this.provider.scenario(target.environmentId, id);
   }
+  scenarios(target: TaskDesktopTarget) {
+    if (target.providerId !== this.provider.id) throw new Error('desktop-target-binding-mismatch');
+    return this.provider.scenarios(target.environmentId);
+  }
   taskControl(session: DesktopSession): InputControl {
     if (this.claims.has(session)) throw new Error('local-workspace-task-control-already-created');
     const claim: Claim = {}; this.claims.set(session, claim);
