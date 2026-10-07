@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
 import type { AppCandidate, AppLaunchVerification, EnvironmentAppBinding, EnvironmentAppRegistry,
   EnvironmentAppScope, AppLaunchSpec } from '../src/contracts/environment-apps.js';
@@ -226,8 +227,8 @@ test('reopen reuses private configuration; runtime identities are rejected and s
     assert.throws(() => replaced.list(), /installation-scope-changed/);
     const historical = restored.get(app.appBindingId)!;
     assert.equal(historical.validity, 'stale');
-    assert.throws(() => restored.requireLaunchProfile(app.appBindingId, historical.revision), /not-reusable/);
-    assert.throws(() => confirm(restored, historical), /confirmation-mismatch/);
+    assert.throws(() => restored.requireLaunchProfile(app.appBindingId, historical.revision), /installation-scope-changed/);
+    assert.throws(() => confirm(restored, historical), /installation-scope-changed/);
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -248,6 +249,119 @@ test('two SQLite writers enforce revision conflicts and snapshots are detached f
     assert.equal(persisted.kind, 'exe');
     if (persisted.kind === 'exe') assert.deepEqual(persisted.args, ['--synthetic']);
   } finally { first.close(); second.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('A -> B -> A rediscovery creates a new binding without old confirmations or verifications', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'app-incarnation-')), path = join(dir, 'apps.sqlite');
+  let store = new SqliteEnvironmentAppStore(path, () => time);
+  try {
+    const first = store.bind(vmA), old = verified(first);
+    const replacement = store.bind({ ...vmA, installationScopeId: 'synthetic-replacement-domain' });
+    const reincarnated = store.bind(vmA), historical = reincarnated.get(old.appBindingId)!;
+    // This is the same current-list/CAS lookup used by the legacy importer.
+    const previous = reincarnated.list().find(app => app.installationId === old.installationId);
+    const fresh = reincarnated.discover(candidate(vmA), previous?.revision);
+    assert.notEqual(fresh.appBindingId, old.appBindingId);
+    assert.equal(fresh.trust, 'discovered');
+    assert.deepEqual(fresh.confirmations, []); assert.deepEqual(fresh.verifications, []);
+    assert.notEqual(fresh.profileDigest, old.profileDigest);
+    assert.equal(reincarnated.get(old.appBindingId)!.validity, 'stale');
+    assert.throws(() => first.list(), /installation-scope-changed/);
+    assert.throws(() => replacement.list(), /installation-scope-changed/);
+    assert.throws(() => reincarnated.requireLaunchProfile(old.appBindingId, historical.revision), /installation-scope-changed/);
+    assert.throws(() => confirm(reincarnated, historical), /installation-scope-changed/);
+    assert.throws(() => reincarnated.setAvailability(old.appBindingId, historical.revision, true), /installation-scope-changed/);
+    assert.throws(() => reincarnated.recordVerification(old.appBindingId, historical.revision, receipt(old)), /installation-scope-changed/);
+    const confirmed = confirm(reincarnated, fresh);
+    assert.equal(confirmed.trust, 'confirmed');
+    assert.throws(() => reincarnated.recordVerification(confirmed.appBindingId, confirmed.revision, receipt(old)), /verification-mismatch/);
+    assert.equal(reincarnated.requireLaunchProfile(confirmed.appBindingId, confirmed.revision).appBindingId, fresh.appBindingId);
+    const history = reincarnated.history(old.appBindingId);
+    assert.equal(history.length, 4); assert.equal(history.at(-1)!.validity, 'stale');
+    assert.equal(history.at(-1)!.confirmations.length, 1); assert.equal(history.at(-1)!.verifications.length, 1);
+    store.close(); store = new SqliteEnvironmentAppStore(path, () => time);
+    const reopened = store.bind(vmA);
+    assert.deepEqual(reopened.requireLaunchProfile(confirmed.appBindingId, confirmed.revision), confirmed);
+    assert.deepEqual(reopened.discover(candidate(vmA), confirmed.revision), confirmed);
+    assert.deepEqual(reopened.history(old.appBindingId), history);
+    assert.throws(() => reopened.requireLaunchProfile(old.appBindingId, historical.revision), /installation-scope-changed/);
+    const db = new DatabaseSync(path);
+    try {
+      assert.equal((db.prepare('SELECT scope_revision FROM app_environments').get() as { scope_revision: number }).scope_revision, 3);
+      assert.equal((db.prepare('SELECT scope_revision FROM environment_apps WHERE app_binding_id=?')
+        .get(old.appBindingId) as { scope_revision: number }).scope_revision, 1);
+      assert.equal((db.prepare('SELECT scope_revision FROM environment_apps WHERE app_binding_id=?')
+        .get(fresh.appBindingId) as { scope_revision: number }).scope_revision, 3);
+    } finally { db.close(); }
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('A -> B -> A revoked historical binding does not block registration in the new incarnation', () => {
+  const store = new SqliteEnvironmentAppStore(':memory:', () => time);
+  try {
+    const first = store.bind(vmA), old = first.discover(candidate(vmA));
+    const revoked = first.revoke(old.appBindingId, old.revision, 'operator-revoked');
+    assert.throws(() => first.discover(candidate(vmA), revoked.revision), /app-revoked/);
+    store.bind({ ...vmA, installationScopeId: 'synthetic-replacement-domain' });
+    const reincarnated = store.bind(vmA);
+    const previous = reincarnated.list().find(app => app.installationId === old.installationId);
+    const fresh = reincarnated.discover(candidate(vmA), previous?.revision);
+    assert.notEqual(fresh.appBindingId, old.appBindingId);
+    assert.equal(fresh.trust, 'discovered'); assert.deepEqual(fresh.confirmations, []);
+    assert.equal(reincarnated.get(old.appBindingId)!.validity, 'revoked');
+    assert.equal(reincarnated.history(old.appBindingId).at(-1)!.lastError, 'operator-revoked');
+    assert.throws(() => confirm(reincarnated, revoked), /installation-scope-changed/);
+    assert.equal(confirm(reincarnated, fresh).trust, 'confirmed');
+  } finally { store.close(); }
+});
+
+test('old-schema migration preserves known generation 1 and quarantines ambiguous legacy incarnations', () => {
+  for (const generation of [1, 3]) {
+    const dir = mkdtempSync(join(tmpdir(), 'app-generation-migration-')), path = join(dir, 'apps.sqlite');
+    const synthetic = new SqliteEnvironmentAppStore(':memory:', () => time);
+    const source = verified(synthetic.bind(vmA)); synthetic.close();
+    const digest = profileDigest(candidate(vmA));
+    const old = { ...source, profileDigest: digest,
+      confirmations: source.confirmations.map(item => ({ ...item, profileDigest: digest })),
+      verifications: source.verifications.map(item => ({ ...item, profileDigest: digest })) };
+    const db = new DatabaseSync(path);
+    db.exec(`CREATE TABLE app_environments (provider_id TEXT, environment_id TEXT, installation_scope_id TEXT,
+      scope_revision INTEGER, PRIMARY KEY(provider_id, environment_id));
+      CREATE TABLE environment_apps (provider_id TEXT, environment_id TEXT, installation_scope_id TEXT,
+      installation_id TEXT, app_binding_id TEXT, data_json TEXT,
+      PRIMARY KEY(provider_id, environment_id, app_binding_id),
+      UNIQUE(provider_id, environment_id, installation_scope_id, installation_id));
+      CREATE TABLE environment_app_history (provider_id TEXT, environment_id TEXT, app_binding_id TEXT,
+      revision INTEGER, data_json TEXT, PRIMARY KEY(provider_id, environment_id, app_binding_id, revision));`);
+    db.prepare('INSERT INTO app_environments VALUES (?, ?, ?, ?)')
+      .run(vmA.providerId, vmA.environmentId, vmA.installationScopeId, generation);
+    db.prepare('INSERT INTO environment_apps VALUES (?, ?, ?, ?, ?, ?)')
+      .run(vmA.providerId, vmA.environmentId, vmA.installationScopeId, old.installationId, old.appBindingId, JSON.stringify(old));
+    db.prepare('INSERT INTO environment_app_history VALUES (?, ?, ?, ?, ?)')
+      .run(vmA.providerId, vmA.environmentId, old.appBindingId, old.revision, JSON.stringify(old));
+    db.close();
+    let store = new SqliteEnvironmentAppStore(path, () => time);
+    try {
+      const registry = store.bind(vmA);
+      if (generation === 1) {
+        assert.deepEqual(registry.requireLaunchProfile(old.appBindingId, old.revision), old);
+        assert.deepEqual(registry.discover(candidate(vmA), old.revision), old);
+      } else {
+        assert.equal(registry.get(old.appBindingId)!.lastError, 'installation-generation-unproven');
+        assert.throws(() => registry.requireLaunchProfile(old.appBindingId, old.revision + 1), /installation-scope-changed/);
+        const fresh = registry.discover(candidate(vmA));
+        assert.notEqual(fresh.appBindingId, old.appBindingId);
+        assert.deepEqual(registry.history(old.appBindingId)[0], old);
+      }
+      store.close(); store = new SqliteEnvironmentAppStore(path, () => time); store.bind(vmA);
+      const check = new DatabaseSync(path);
+      try {
+        assert.equal((check.prepare('SELECT scope_revision FROM app_environments').get() as { scope_revision: number }).scope_revision, generation);
+        assert.equal((check.prepare('SELECT scope_revision FROM environment_apps WHERE app_binding_id=?')
+          .get(old.appBindingId) as { scope_revision: number }).scope_revision, generation === 1 ? 1 : 0);
+      } finally { check.close(); }
+    } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
+  }
 });
 
 test('structured exe/shortcut/package specs preserve arguments; shell strings, runtime fields and relative paths reject', () => {
