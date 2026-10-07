@@ -21,6 +21,7 @@ from human_input import dispatch as dispatch_human
 from subprocess_rpc import exchange
 from file_evidence import inspect_desktop_file
 from desktop_readiness import probe as probe_desktop_readiness
+from app_discovery import GuestAppDiscovery
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,6 +45,19 @@ process = None
 input_control = InputControl()
 recovery_epoch = uuid.uuid4().hex
 executions = {}
+
+
+def application_discovery_port():
+    # Lazily bind the actual Guest installation/user identity, independent of action ownership.
+    return GuestAppDiscovery(VM_ID)
+
+
+def application_discovery_state():
+    try:
+        port = application_discovery_port()
+        return {'app_discovery': {'protocolVersion': port.protocol_version, 'scope': port.scope()}}
+    except Exception:
+        return {}  # Old action/control callers remain usable when discovery is unavailable.
 
 
 def desktop_readiness():
@@ -227,6 +241,7 @@ class Handler(BaseHTTPRequestHandler):
                              "control_rpc": True, "recovery_rpc": True,
                              "control_epoch_rpc": True, "action_id_rpc": True,
                              "recovery_epoch": recovery_epoch, "input_mode": input_control.mode,
+                             **application_discovery_state(),
                              **desktop_readiness()})
         elif self.path == "/frame":
             try:
@@ -245,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
         global owner, process, recovery_epoch
         if not self.authenticated():
             return
-        if self.path not in {"/rpc", "/control", "/human-input"}:
+        if self.path not in {"/rpc", "/control", "/human-input", "/apps/query"}:
             self.reply(404, {"error": "Not found"})
             return
         try:
@@ -253,6 +268,10 @@ class Handler(BaseHTTPRequestHandler):
             if size < 1 or size > 131072:
                 raise ValueError("Request body size is invalid")
             request = json.loads(self.rfile.read(size))
+            if self.path == '/apps/query':
+                # No action lock, owner, lease, window, or desktop readiness/input transitions.
+                self.reply(200, application_discovery_port().handle(request))
+                return
             if self.path in {"/control", "/human-input"}:
                 if request.get("vmId") != VM_ID:
                     raise ValueError("VM identity is invalid")
