@@ -1,3 +1,4 @@
+import type { TaskDesktopTarget } from './task-desktop.js';
 import type { CapabilityFacts, CapabilityEnvironment, CapabilityOperation } from "../capabilities/registry.js";
 import type { CompletionCriteria } from "../verifier/verifier.js";
 
@@ -9,6 +10,7 @@ import type { CompletionCriteria } from "../verifier/verifier.js";
 export interface TaskRequest {
   kind: "specialized" | "browser_task";
   environment: CapabilityEnvironment;
+  desktopTarget?: TaskDesktopTarget;
   goal: string;
   plan: string[];
   completionCriteria?: CompletionCriteria;

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { taskDesktopFields, type TaskDesktopFields } from '../contracts/task-desktop.js';
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { CapabilityEnvironment } from "../capabilities/registry.js";
 import type { TraceStore, WorkflowStore } from "../contracts/stores.js";
@@ -15,7 +16,7 @@ import type { ModelAdapter } from "./model-adapter.js";
 import { isBudgetExceeded } from '../runtime/model-budget.js';
 import { auditTaskContractCoverage } from '../verification/task-contract-coverage.js';
 
-export interface TaskAgentRequest {
+export interface TaskAgentRequest extends TaskDesktopFields {
   taskId?: string;
   goal: string;
   environment: CapabilityEnvironment;
@@ -67,7 +68,7 @@ export async function runTaskAgent(request: TaskAgentRequest, dependencies: {
       }
     } catch (error) {
       if (isBudgetExceeded(error)) throw error;
-      dependencies.trace.save("workflow_search_error", { ...initialState(taskId, request.goal),
+      dependencies.trace.save("workflow_search_error", { ...initialState(taskId, request.goal), ...taskDesktopFields(request),
         summary: `语义检索不可用，转入探索：${String(error)}` });
     } finally {
       dependencies.trace.recordNodeMetric(taskId, { step: 0, node: "workflow_search",
@@ -94,6 +95,7 @@ export async function runTaskAgent(request: TaskAgentRequest, dependencies: {
   const state = initialState(taskId, request.goal,
     workflow?.steps.map((step) => step.goal) ?? request.plan,
     request.completionCriteria);
+  Object.assign(state, taskDesktopFields(request));
   state.verificationContract = request.verificationContract;
   // Workflow selection happens here, after the window planner. Freeze its declared
   // file results before replay starts so a reusable file workflow keeps its proof.

@@ -1,3 +1,4 @@
+import { desktopTarget } from '../contracts/task-desktop.js';
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
@@ -411,7 +412,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
               const taskId = controller.submitWorkflow({ id: parts[2], version,
                 definitionHash: body.definitionHash, values: preview.values,
                 destination: detail.workflow.environment, ...(parts[4] === 'trial' ? { trial: true } : {}) },
-                parseBudgetOverride(body.budget));
+                parseBudgetOverride(body.budget), requestedDesktopTarget(body.desktopTarget));
               return json(response, 202, { taskId, source: 'web-tasks.sqlite' });
             }
             return json(response, 200, previewWorkflow(detail.workflow, body.values));
@@ -465,8 +466,9 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
               throw new Error("执行位置必须为 host 或 guest");
             }
             let goal = body.goal.trim();
-            if (body.destination === "host" && /^VM:/i.test(goal)) throw new Error("任务前缀与宿主机执行位置冲突");
-            if (body.destination === "guest" && !/^VM:\s*\S/i.test(goal)) goal = `VM: ${goal}`;
+            const target = requestedDesktopTarget(body.desktopTarget);
+            if (body.destination === 'guest' && !target) throw new Error('desktop-target-required');
+            if (body.destination === 'host' && target) throw new Error('desktop-target-destination-conflict');
             for (const [field, label] of [["criteria", "完成条件"], ["constraints", "操作限制"]]) {
               const value = body[field];
               if (value !== undefined && (typeof value !== "string" || value.length > 500)) throw new Error(`${label}必须是最多 500 字的文本`);
@@ -474,7 +476,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             }
             if (goal.length > 4000) throw new Error("任务要求最多 4000 字");
             const taskId = controller.submit(goal, { admin: body.admin === true,
-              budget: parseBudgetOverride(body.budget) });
+              budget: parseBudgetOverride(body.budget), ...(target ? { desktopTarget: target } : {}) });
             return json(response, 202, { taskId, source: "web-tasks.sqlite" });
           }
           if (parts[3] === "pause") {
@@ -556,4 +558,10 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
       return json(response, 500, { error: String(error) });
     }
   });
+}
+
+function requestedDesktopTarget(value: unknown) {
+  if (value === undefined) return undefined;
+  const selected = value as { providerId?: unknown; environmentId?: unknown } | null;
+  return desktopTarget(selected?.providerId as string, selected?.environmentId as string);
 }

@@ -20,7 +20,7 @@ test("仅已验收操作命中专用能力，其他应用需求进入通用主�
     { kind: "generic", goal: "查看异环当前画面" });
   assert.deepEqual(routeTask("查看炉石传说酒馆战棋战绩", {}, registry),
     { kind: "generic", goal: "查看炉石传说酒馆战棋战绩" });
-  assert.deepEqual(routeTask("VM: 打开网易云播放稻香", {}, registry),
+  assert.deepEqual(routeTask("VM: 打开网易云播放稻香", { desktopTarget: { providerId: "fixture", environmentId: "env" } }, registry),
     { kind: "generic", goal: "VM: 打开网易云播放稻香" });
   assert.throws(() => routeTask("打开网易云播放稻香", { admin: true }, registry), /仅适用于/);
   assert.throws(() => routeTask("查看异环当前画面", { admin: true }, registry), /通用任务暂不支持/);

@@ -120,7 +120,7 @@ export function prepareWorkflowExecution(original: Workflow | undefined, request
   if (!goal.trim() || goal.length > 3996) throw new Error('流程任务目标为空或过长');
   const coverage=auditGoalFileCoverage(goal,requiredFiles.map(file=>file.path));
   if(!coverage.covered)throw new Error(`原始任务的文件目标未被流程后置条件覆盖：${coverage.reason}`);
-  return { workflow, goal: `VM: ${goal}`, ref: { id: original.id, version: original.version,
+  return { workflow, goal, ref: { id: original.id, version: original.version,
     values, definitionHash: request.definitionHash, explicit: true as const,
     ...(requiredFiles.length?{requiredFiles}:{}), ...(request.trial ? { trial: true } : {}) } };
 }

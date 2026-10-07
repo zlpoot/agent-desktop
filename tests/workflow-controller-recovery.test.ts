@@ -1,3 +1,4 @@
+import { fixtureDesktopSessions, fixtureDesktopTarget } from './fixtures/task-desktop.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -14,7 +15,7 @@ import type { PlanningModel } from '../src/contracts/model-provider.js';
 import type { WorkerClient } from '../src/contracts/worker-client.js';
 import type { Workflow } from '../src/workflows/schema.js';
 
-for (const parameter of ['alpha', 'beta']) test(`TaskRunner VM 三阶段 Host 重启及 Guest 断线恢复并固定原版本：${parameter}`, async () => {
+for (const parameter of ['alpha', 'beta']) test(`TaskRunner 同一绑定三阶段检查点及连接恢复并固定原版本：${parameter}`, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workflow-controller-'));
   mkdirSync(join(dir, 'config')); writeFileSync(join(dir, 'config/agent-desktop-apps.json'), '[]');
   let page = 'start', pauseSecond = true, pauseThird = true, failAfterB = false;
@@ -78,7 +79,7 @@ for (const parameter of ['alpha', 'beta']) test(`TaskRunner VM 三阶段 Host �
       return { ok: true, message: 'changed', effect: 'dispatched' }; },
     async close() {},
   } as WorkerClient;
-  const options = { modelProvider: { createModel: () => model }, workerClientFactory: async () => worker,
+  const options = { modelProvider: { createModel: () => model }, desktopSessions: fixtureDesktopSessions(async () => worker),
     traceStore: (path: string) => { const trace = new SqliteTrace(path); const save = trace.save.bind(trace);
       trace.save = (node, state) => { save(node, state);
         if (pauseSecond && node === 'resolve_action' && state.workflowRef?.id === 'second') {
@@ -89,15 +90,16 @@ for (const parameter of ['alpha', 'beta']) test(`TaskRunner VM 三阶段 Host �
       return trace; } };
   let controller = new DesktopTaskController(dir, options);
   const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
+  let previousEvents = 0;
   async function wait(id: string, status: string) {
     // 上限 30s：全量并行时 CPU/IO 争抢会显著拉长恢复流程，10s 偶发耗尽。
     const end = Date.now() + 30000;
-    while (Date.now() < end) { if (trace.load(id)?.status === status) return; await new Promise(r => setTimeout(r, 20)); }
+    while (Date.now() < end) { if (trace.load(id)?.status === status && trace.events(id).length > previousEvents) return; await new Promise(r => setTimeout(r, 20)); }
     assert.fail(JSON.stringify(trace.load(id)));
   }
   try {
-    const id = controller.submit(`VM: test ${parameter}`);
-    await wait(id, 'paused'); await controller.close();
+    const id = controller.submit(`test ${parameter}`, { desktopTarget: fixtureDesktopTarget });
+    await wait(id, 'paused');
     assert.deepEqual(actions, ['a']); assert.equal(trace.load(id)?.completedStages?.length, 1);
     assert.equal(trace.load(id)?.workflowRef?.version, 1);
     const usageAfterA = readTaskBudget(dir, id)!.usage.deepseek;
@@ -106,15 +108,15 @@ for (const parameter of ['alpha', 'beta']) test(`TaskRunner VM 三阶段 Host �
     if (parameter === 'alpha') failAfterB = true;
     windowHandle++; processId++;
     recoverDesktopTasks(dir);
-    controller = new DesktopTaskController(dir, options); controller.continue(id);
-    await wait(id, 'paused'); await controller.close();
+    previousEvents = trace.events(id).length; controller.continue(id);
+    await wait(id, 'paused');
     if (parameter === 'alpha') {
       assert.equal(trace.load(id)?.verificationPending, true);
       assert.equal(trace.load(id)?.recoveryRequired, true);
       windowHandle++; processId++;
       recoverDesktopTasks(dir);
-      controller = new DesktopTaskController(dir, options); controller.continue(id);
-      await wait(id, 'paused'); await controller.close();
+      previousEvents = trace.events(id).length; controller.continue(id);
+      await wait(id, 'paused');
     }
     assert.deepEqual(actions, ['a', 'b']); assert.equal(trace.load(id)?.completedStages?.length, 2);
     assert.equal(trace.load(id)?.completedStages?.[1]?.workflowVersion, 1);
@@ -129,7 +131,7 @@ for (const parameter of ['alpha', 'beta']) test(`TaskRunner VM 三阶段 Host �
     assert.equal(trace.load(id)?.desktopBinding?.windowHandle, windowHandle);
     windowHandle++; processId++;
     recoverDesktopTasks(dir);
-    controller = new DesktopTaskController(dir, options); controller.continue(id);
+    previousEvents = trace.events(id).length; controller.continue(id);
     await wait(id, 'done'); await controller.close();
     assert.deepEqual(actions, ['a', 'b', 'c']); assert.equal(trace.load(id)?.completedStages?.length, 3);
     assert.equal(trace.load(id)?.desktopBinding?.windowHandle, windowHandle);

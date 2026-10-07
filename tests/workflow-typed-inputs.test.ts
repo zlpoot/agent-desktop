@@ -137,7 +137,7 @@ test("prepareWorkflowExecution：v2 typed 参数通过；错类型/缺参在第�
   const req = { id: "typed", version: 1, definitionHash: workflowDigest(wf),
     values: { text1: "hello", num1: 5, choice1: "B", bool1: true }, destination: "windows" as const };
   const prepared = prepareWorkflowExecution(wf, req);
-  assert.equal(prepared.goal, "VM: 输入 hello 并滚动 5 行，选择 B，勾选 true");
+  assert.equal(prepared.goal, "输入 hello 并滚动 5 行，选择 B，勾选 true");
   assert.throws(() => prepareWorkflowExecution(wf,
     { ...req, values: { text1: "hello", num1: "x", choice1: "B", bool1: true } }), /有限数字/);
   assert.throws(() => prepareWorkflowExecution(wf,
@@ -155,7 +155,7 @@ test("v1 workflow 参数行为不变：values 仍按字符串校验", () => {
     sourceTrace: "seed", createdAt: "", successCount: 1, failureCount: 0 };
   const req = { id: "v1", version: 1, definitionHash: workflowDigest(v1), values: { value: "A" },
     destination: "windows" as const };
-  assert.equal(prepareWorkflowExecution(v1, req).goal, "VM: write A");
+  assert.equal(prepareWorkflowExecution(v1, req).goal, "write A");
   assert.throws(() => prepareWorkflowExecution(v1, { ...req, values: { value: 5 } }), /最多 300 字/);
   assert.throws(() => prepareWorkflowExecution(v1, { ...req, values: {} }), /最多 300 字/);
 });

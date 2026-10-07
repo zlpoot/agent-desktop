@@ -1,4 +1,5 @@
-﻿import assert from 'node:assert/strict';
+import { fixtureDesktopSessions, fixtureDesktopTarget } from './fixtures/task-desktop.js';
+import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +17,10 @@ import type { Workflow } from '../src/workflows/schema.js';
 import type { PlanningModel } from '../src/contracts/model-provider.js';
 import type { WorkerClient } from '../src/contracts/worker-client.js';
 import { recoverDesktopTasks } from '../src/desktop-session/recovery.js';
+import { PlaywrightRuntime } from '../src/runtime/browser/playwright-runtime.js';
+import { FakeRuntime } from '../src/runtime/runtime-adapter.js';
+import { DatabaseSync } from 'node:sqlite';
+import { createDashboardServer } from '../src/app/server.js';
 
 const definition: Workflow = { id: 'fixed', version: 1, status: 'verified', environment: 'windows',
   taskPattern: 'write {{value}}', inputs: [{ name: 'value', example: 'A' }], preconditions: [],
@@ -25,8 +30,140 @@ const definition: Workflow = { id: 'fixed', version: 1, status: 'verified', envi
   sourceTrace: 'seed', createdAt: '', successCount: 1, failureCount: 0 };
 const request = { id: 'fixed', version: 1, definitionHash: workflowDigest(definition), values: { value: 'A' }, destination: 'windows' as const };
 
+for (const destination of ['windows', 'browser'] as const) test(`${destination} Workflow goal 保留原始语义，不添加环境路由前缀`, () => {
+  const workflow = { ...definition, environment: destination };
+  const prepared = prepareWorkflowExecution(workflow, { ...request, destination, definitionHash: workflowDigest(workflow) });
+  assert.equal(prepared.goal, 'write A');
+  assert.doesNotMatch(prepared.goal, /^VM:/);
+});
+
+test('Windows Workflow 缺失 target、Browser Workflow 携带 target 或 destination 不匹配均在入队前拒绝', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-target-'));
+  const store = new WorkflowStore(join(dir, 'workflows.sqlite'));
+  store.addCandidate({ ...definition, status: 'candidate' }); store.recordReplay('fixed', 1, 'seed', true);
+  const browser = store.addCandidate({ ...definition, id: 'browser', environment: 'browser', status: 'candidate' });
+  let selected = 0, connected = 0, models = 0;
+  const sessions = fixtureDesktopSessions(async () => { connected++; throw Error('must not connect'); });
+  const assertTarget = sessions.assertTarget.bind(sessions);
+  sessions.assertTarget = target => { selected++; return assertTarget(target); };
+  const controller = new DesktopTaskController(dir, { desktopSessions: sessions,
+    modelProvider: { createModel() { models++; throw Error('must not plan'); } } });
+  const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
+  try {
+    assert.throws(() => controller.submitWorkflow(request), /desktop-target-required/);
+    const browserRequest = { ...request, id: browser.id, destination: 'browser' as const,
+      definitionHash: workflowDigest(browser), trial: true };
+    assert.throws(() => controller.submitWorkflow(browserRequest, undefined, fixtureDesktopTarget), /desktop-target-destination-conflict/);
+    assert.throws(() => controller.submitWorkflow({ ...request, destination: 'browser' }, undefined, fixtureDesktopTarget), /不匹配/);
+    const db = new DatabaseSync(join(dir, 'web-tasks.sqlite'));
+    try { assert.equal(db.prepare('SELECT COUNT(*) AS count FROM tasks').get()?.count, 0); }
+    finally { db.close(); }
+    assert.equal(selected, 0); assert.equal(connected, 0); assert.equal(models, 0);
+  } finally { await controller.close(); trace.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+for (const trial of [false, true]) for (const pause of [false, true]) test(`targetless Browser Workflow ${trial ? 'trial' : 'execute'}${pause ? ' 同一任务暂停恢复' : ''}固定原版本且不 acquire Desktop Session`, async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'browser-workflow-'));
+  const store = new WorkflowStore(join(dir, 'workflows.sqlite'));
+  const candidate = store.addCandidate({ ...definition, environment: 'browser', status: 'candidate',
+    taskPattern: '打开 {{url}}', inputs: [{ name: 'url', example: 'https://example.test/result' }],
+    steps: [{ goal: '打开结果', action: { kind: 'navigate', url: '{{url}}' }, preferredMethods: [],
+      successCondition: { kind: 'url_includes', value: '/result' } }], successConditions: { urlIncludes: '/result' } });
+  if (!trial) store.recordReplay(candidate.id, 1, 'seed', true);
+  const workflow = store.get(candidate.id, 1)!;
+  const req = { id: workflow.id, version: 1, definitionHash: workflowDigest(workflow),
+    values: { url: 'https://example.test/result' }, destination: 'browser' as const, ...(trial ? { trial: true } : {}) };
+  const runtime = new FakeRuntime(); let closed = 0, planned = 0, desktopAcquired = 0, pauseOnce = pause, restored = 0;
+  const fakeBrowser = Object.assign(runtime, { async close() { closed++; }, async restore() { restored++; } });
+  t.mock.method(PlaywrightRuntime, 'launch', async () => fakeBrowser as unknown as PlaywrightRuntime);
+  const sessions = fixtureDesktopSessions(async () => { throw Error('must not connect'); });
+  t.mock.method(sessions, 'acquire', async () => { desktopAcquired++; throw Error('must not acquire'); });
+  const controller = new DesktopTaskController(dir, { desktopSessions: trial ? undefined : sessions,
+    modelProvider: { createModel: () => ({ kind: 'rule', name: 'fixture',
+      async planTask() { planned++; throw Error('Browser Workflow environment is already fixed'); },
+      async decide() { throw Error('explicit workflow must not explore or rematch'); },
+    } as unknown as PlanningModel) },
+    traceStore: path => { const log = new SqliteTrace(path); const save = log.save.bind(log);
+      log.save = (node, state) => { save(node, state);
+        if (pauseOnce && node === 'verify') { pauseOnce = false; log.requestPause(state.taskId); }
+      }; return log;
+    } });
+  const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
+  const routes = new DatabaseSync(join(dir, 'web-task-routes.sqlite'));
+  const server = trial ? createDashboardServer(dir, controller) : undefined;
+  async function wait(id: string) {
+    const end = Date.now() + 10000;
+    while (!['done', 'failed', 'paused', 'waiting_user'].includes(trace.load(id)?.status ?? '') && Date.now() < end)
+      await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  try {
+    let id: string;
+    if (server) {
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+      const address = server.address(); if (!address || typeof address === 'string') throw Error('No port');
+      const base = `http://127.0.0.1:${address.port}`;
+      const response = await fetch(`${base}/api/workflows/${workflow.id}/1/trial`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify(req),
+      });
+      const body = await response.json(); assert.equal(response.status, 202, JSON.stringify(body)); id = body.taskId;
+    } else id = controller.submitWorkflow(req);
+    assert.equal(trace.load(id)?.goal, '打开 https://example.test/result');
+    assert.equal(routes.prepare('SELECT environment FROM generic_routes WHERE task_id = ?').get(id)?.environment, 'browser');
+    store.addCandidate({ ...candidate, steps: [{ ...candidate.steps[0], action: { kind: 'navigate', url: 'https://example.test/wrong-version' } }] });
+    store.recordReplay(candidate.id, 2, 'new-version', true);
+    await wait(id);
+    if (pause) {
+      assert.equal(trace.load(id)?.status, 'paused');
+      controller.continue(id);
+      // Wait for the paused state to be consumed before waiting for a terminal state.
+      const end = Date.now() + 10000;
+      while (trace.load(id)?.status === 'paused' && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 10));
+      await wait(id);
+      assert.equal(restored, 1);
+    }
+    const state = trace.load(id)!;
+    assert.equal(state.status, 'done', JSON.stringify(state));
+    assert.deepEqual(runtime.executed, [{ kind: 'navigate', url: req.values.url }]);
+    assert.deepEqual(state.workflowRef, { id: workflow.id, version: 1, values: req.values,
+      definitionHash: req.definitionHash, explicit: true, ...(trial ? { trial: true } : {}) });
+    assert.equal(state.workflowReplayState?.nextIndex, 1);
+    assert.equal(state.desktopTarget, undefined); assert.equal(state.desktopExecutionBinding, undefined);
+    assert.equal(desktopAcquired, 0); assert.equal(planned, 0);
+    assert.equal(store.get(workflow.id, 1)?.successCount, trial ? 1 : 2);
+    assert.equal(store.get(workflow.id, 1)?.status, trial ? 'candidate' : 'verified');
+  } finally { if (server) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await controller.close(); assert.equal(closed, pause ? 2 : 1);
+    trace.close(); routes.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Windows Workflow 的结构化环境不能被 planner 改为 Browser', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workflow-plan-environment-'));
+  mkdirSync(join(dir, 'config')); writeFileSync(join(dir, 'config/agent-desktop-apps.json'), '[]');
+  const store = new WorkflowStore(join(dir, 'workflows.sqlite'));
+  store.addCandidate({ ...definition, status: 'candidate' }); store.recordReplay('fixed', 1, 'seed', true);
+  let launched = 0, dispatched = 0;
+  const controller = new DesktopTaskController(dir, {
+    desktopSessions: fixtureDesktopSessions(async () => ({
+      async listWindows() { return []; }, async close() {},
+      async ensureApp() { launched++; throw Error('must not launch'); },
+      async execute() { dispatched++; throw Error('must not dispatch'); },
+    } as unknown as WorkerClient)),
+    modelProvider: { createModel: () => ({ async planTask() {
+      return { task: { environment: 'browser', plan: [], completionCriteria: {} } };
+    } } as unknown as PlanningModel) },
+  });
+  const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
+  try {
+    const id = controller.submitWorkflow(request, undefined, fixtureDesktopTarget);
+    const end = Date.now() + 10000;
+    while (trace.load(id)?.status !== 'failed' && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.match(trace.load(id)?.error ?? '', /workflow-plan-environment-mismatch/);
+    assert.equal(launched, 0); assert.equal(dispatched, 0);
+  } finally { await controller.close(); trace.close(); store.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('指定流程契约拒绝过期定义、未验证版本、阶段流程及无效参数', () => {
-  assert.equal(prepareWorkflowExecution(definition, request).goal, 'VM: write A');
+  assert.equal(prepareWorkflowExecution(definition, request).goal, 'write A');
   for (const flow of [undefined, { ...definition, version: 2 }, { ...definition, status: 'candidate' as const },
     { ...definition, status: 'retired' as const }, { ...definition, scope: 'stage' as const }]) {
     assert.throws(() => prepareWorkflowExecution(flow, request));
@@ -91,13 +228,13 @@ test('唯一结构化窗口的指定流程直接回放，不调用规划或截�
     async execute(){dispatched++;page='A';return {ok:true,message:'changed',effect:'dispatched'};},
     async close(){}} as WorkerClient;
   const controller=new DesktopTaskController(dir,{modelProvider:{createModel:()=>model},
-    workerClientFactory:async()=>worker});
+    desktopSessions: fixtureDesktopSessions(async()=>worker)});
   controller.setDesktopControl({assertTaskAllowed(){},workerEndpoint:()=> 'fixture',
     async beginTask(){},async finishTask(){return false;}});
   const trace=new SqliteTrace(join(dir,'web-tasks.sqlite'));
   try {
     const id=controller.submitWorkflow({id:workflow.id,version:1,definitionHash:workflowDigest(saved),
-      values:{value:'A'},destination:'windows'});
+      values:{value:'A'},destination:'windows'}, undefined, fixtureDesktopTarget);
     const deadline=Date.now()+10000;
     while(!['done','failed'].includes(trace.load(id)?.status??'')&&Date.now()<deadline)
       await new Promise(resolve=>setTimeout(resolve,20));
@@ -132,7 +269,7 @@ test('Workflow 已存 URL 成功条件在动作派发前绑定为影子后置条
   if(workflow.steps[0].action.kind==='click')assert.equal(workflow.steps[0].action.postcondition,undefined);
 });
 
-for (const trial of [false, true]) for (const restart of [false, true]) test(`${trial ? '候选试运行' : '指定版本执行'}固定参数与验收条件，新增版本不影响${restart ? '重启恢复' : '首次执行'}`, async () => {
+for (const trial of [false, true]) for (const restart of [false, true]) test(`${trial ? '候选试运行' : '指定版本执行'}固定参数与验收条件，新增版本不影响${restart ? '同一绑定恢复' : '首次执行'}`, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fixed-workflow-'));
   mkdirSync(join(dir, 'config')); writeFileSync(join(dir, 'config/agent-desktop-apps.json'), '[]');
   const store = new WorkflowStore(join(dir, 'workflows.sqlite'));
@@ -160,28 +297,29 @@ for (const trial of [false, true]) for (const restart of [false, true]) test(`${
       page = 'A'; return { ok: true, message: 'changed', effect: 'dispatched' }; }, async close() {},
   } as WorkerClient;
   let pauseOnce = restart;
-  const options = { modelProvider: { createModel: () => model }, workerClientFactory: async () => worker,
+  const options = { modelProvider: { createModel: () => model }, desktopSessions: fixtureDesktopSessions(async () => worker),
     traceStore: (path: string) => { const log = new SqliteTrace(path); const save = log.save.bind(log);
       log.save = (node, state) => { save(node, state);
         if (pauseOnce && node === 'verify') { pauseOnce = false; log.requestPause(state.taskId); }
       }; return log;
     } };
-  let controller = new DesktopTaskController(dir, options);
   const control = { assertTaskAllowed() {}, workerEndpoint: () => 'fixture',
     async beginTask() { begun++; }, async finishTask() { return false; } };
+  options.desktopSessions = fixtureDesktopSessions(async () => worker, control);
+  const controller = new DesktopTaskController(dir, options);
   controller.setDesktopControl(control);
   const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
   try {
-    const id = controller.submitWorkflow({ ...request, ...(trial ? { trial: true } : {}) });
+    const id = controller.submitWorkflow({ ...request, ...(trial ? { trial: true } : {}) }, undefined, fixtureDesktopTarget);
     store.addCandidate({ ...definition, status: 'candidate', steps: [{ ...definition.steps[0], action: { kind: 'keypress', keys: 'wrong-version' } }] });
     store.recordReplay('fixed', 2, 'seed-2', true);
     const end = Date.now() + 10000;
     while (!['done', 'failed', 'waiting_user', 'paused'].includes(trace.load(id)?.status ?? '') && Date.now() < end) await new Promise(r => setTimeout(r, 20));
     if (restart) {
-      assert.equal(trace.load(id)?.status, 'paused'); await controller.close();
+      assert.equal(trace.load(id)?.status, 'paused');
       if (trial) assert.equal(store.get('fixed', 1)?.status, 'candidate', '暂停不能晋级');
       recoverDesktopTasks(dir);
-      controller = new DesktopTaskController(dir, options); controller.setDesktopControl(control);
+      // The same execution Session is retained across checkpoint recovery.
       controller.continue(id);
       const deadline = Date.now() + 10000;
       while (trace.load(id)?.status !== 'done' && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));

@@ -1,3 +1,4 @@
+import { fixtureDesktopSessions, fixtureDesktopTarget } from './fixtures/task-desktop.js';
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
@@ -94,9 +95,13 @@ for (const individual of [false, true]) test(`运行中任务${individual ? "随
   const started = deferred(), release = deferred();
   const events: string[] = [];
   let openTraces = 0, openWorkflows = 0;
+  let boundControl: import("../src/contracts/desktop-provider.js").InputControl;
   const assembly = await createRootAssembly({ rootDir: dir,
     model: planning(async () => { started.resolve(); await release.promise; throw new Error("PLAN_HALT"); }),
-    workerClientFactory: async () => workerClient(async () => { events.push("worker_closed"); }),
+    desktopSessions: fixtureDesktopSessions(async () => workerClient(async () => { events.push("worker_closed"); }), {
+      workerEndpoint: () => boundControl.workerEndpoint(), assertTaskAllowed: id => boundControl.assertTaskAllowed(id),
+      beginTask: id => boundControl.beginTask(id), finishTask: (id, status) => boundControl.finishTask(id, status),
+    }, () => boundControl),
     traceStore: (path) => {
       const trace = new SqliteTrace(path); openTraces++;
       const close = trace.close.bind(trace);
@@ -113,17 +118,17 @@ for (const individual of [false, true]) test(`运行中任务${individual ? "随
   const scope = mountSessionScope({ root: assembly.root, rootDir: dir, sessionId: "s", vmId: "vm",
     endpoint: remote.url, token: "", controlBus: assembly.controlBus, requireReconnect: false });
   await scope.fiber;
-  const control = scope.control!;
+  const control = scope.control!; boundControl = control;
   const finish = control.finishTask.bind(control);
   control.finishTask = async (...args) => { events.push("finish_task"); return finish(...args); };
   try {
-    assembly.controller.submit("VM: test"); await started.promise;
+    assembly.controller.submit("test", { desktopTarget: fixtureDesktopTarget }); await started.promise;
     const closing = individual ? scope.dispose() : assembly.dispose();
     release.resolve(); await closing;
     assert.deepEqual(events, ["worker_closed", "finish_task"]);
     assert.equal(remote.mode(), "paused");
     assert.equal(openTraces, 0); assert.equal(openWorkflows, 0);
-    if (individual) assert.throws(() => assembly.controller.submit("VM: test again"), /关闭|卸载/);
+    if (individual) assert.equal(assembly.controller.getDesktopControl(), undefined);
   } finally {
     release.resolve(); await assembly.dispose(); await remote.close(); rmSync(dir, { recursive: true, force: true });
   }
@@ -133,7 +138,7 @@ test("关闭统一队列时同时取消专用扩展和通用任务，并保留�
   const dir = directory(), started = deferred(), release = deferred();
   const registry = new ExtensionRegistry(); let executed = 0;
   registry.register({ id: "test", capabilities: [{ id: "test.run", matches: (g) => g === "extension",
-    prepare: (goal) => ({ kind: "specialized", goal, plan: [], environment: "windows", facts: {}, operations: [] }),
+    prepare: (goal) => ({ kind: "specialized", goal, plan: [], environment: "browser", facts: {}, operations: [] }),
     submit(request, enqueue) {
       const trace = new SqliteTrace(join(dir, "web-tasks.sqlite"));
       try { trace.save("queued", { ...initialState("specialized", request.goal), executorId: "test.run" }); }

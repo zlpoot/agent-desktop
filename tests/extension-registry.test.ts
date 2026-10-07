@@ -1,3 +1,4 @@
+import { fixtureDesktopSessions, fixtureDesktopTarget } from './fixtures/task-desktop.js';
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,7 +37,7 @@ test("禁用全部业务扩展后，应用需求全部进入通用主线（不�
     assert.throws(() => routeTask(goal, { admin: true }, registry), /通用任务暂不支持/,
       `无扩展时管理员任务 ${goal} 应被通用路径拒绝`);
   }
-  const route = routeTask("VM: 打开网易云播放稻香", {}, registry);
+  const route = routeTask("VM: 打开网易云播放稻香", { desktopTarget: fixtureDesktopTarget }, registry);
   assert.deepEqual(route, { kind: "generic", goal: "VM: 打开网易云播放稻香" });
 });
 
@@ -151,12 +152,12 @@ test("空扩展注册表 + 假模型 + 假 Worker 仍能提交通用任务", asy
   const controller = new DesktopTaskController(dir, {
     registry: emptyRegistry(),
     modelProvider,
-    workerClientFactory: async () => fakeWorker,
+    desktopSessions: fixtureDesktopSessions(async () => fakeWorker),
   });
   mkdirSync(join(dir, "config"), { recursive: true });
   writeFileSync(join(dir, "config", "agent-desktop-apps.json"), "[]", "utf8");
   try {
-    const taskId = controller.submit("VM: 在记事本输入测试文字");
+    const taskId = controller.submit("在记事本输入测试文字", { desktopTarget: fixtureDesktopTarget });
     assert.ok(taskId, "应返回任务 ID");
     await waitFor(async () => {
       const trace = new SqliteTrace(tracePath);
@@ -219,12 +220,12 @@ test("空扩展注册表 + 假模型 + 假 Worker：通用任务完整成功（�
   const controller = new DesktopTaskController(dir, {
     registry: emptyRegistry(),
     modelProvider,
-    workerClientFactory: async () => fakeWorker,
+    desktopSessions: fixtureDesktopSessions(async () => fakeWorker),
   });
   mkdirSync(join(dir, "config"), { recursive: true });
   writeFileSync(join(dir, "config", "agent-desktop-apps.json"), "[]", "utf8");
   try {
-    const taskId = controller.submit("VM: 在记事本输入测试文字");
+    const taskId = controller.submit("在记事本输入测试文字", { desktopTarget: fixtureDesktopTarget });
     assert.ok(taskId, "应返回任务 ID");
     await waitFor(async () => {
       const trace = new SqliteTrace(tracePath);
@@ -261,7 +262,7 @@ test("专用任务持久化执行器身份：恢复按 executorId 路由，不�
     priority: 5,
     matches: () => matched,
     prepare(goal) {
-      return { kind: "specialized", environment: "windows", goal,
+      return { kind: "specialized", environment: "browser", goal,
         plan: ["执行"], facts: { deterministicIntent: true }, operations: [] };
     },
     submit(request, enqueue) {
@@ -270,6 +271,8 @@ test("专用任务持久化执行器身份：恢复按 executorId 路由，不�
       try {
         trace.save("queued", { ...initialState(taskId, request.goal, request.plan,
           request.completionCriteria), executorId: "fake.exec", status: "waiting_user",
+          taskContract: { target: request.goal, stageActionLimit: 1, taskActionLimit: 1,
+            constraint: '', environment: 'browser' },
           summary: "等待人工确认" });
       } finally { trace.close(); }
       enqueue(async () => { /* 测试执行器不真正运行 */ });
