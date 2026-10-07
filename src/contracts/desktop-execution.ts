@@ -32,6 +32,8 @@ export interface DesktopExecutionRequest<Action> {
 }
 /** Composition-owned runtime port, deliberately separate from Provider management.
  * bind must uniquely validate the target; status must check current backend identity.
+ * targetStatus and requirements are read-only preflight ports: they require no input
+ * authority and must not acquire/renew input, consume observations or produce effects.
  * execute MUST independently repeat identity, observation freshness/consumption, authority,
  * requirements, all capability layers and readiness at effect time (including queued work).
  * Host admission is not an authorization token and must never bypass native fences. */

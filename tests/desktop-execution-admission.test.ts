@@ -4,7 +4,7 @@ import type { DesktopCapabilities, DesktopEnvironmentKind, DesktopObservationBin
 import type { DesktopExecutionBackend, DesktopExecutionRequest, TargetBinding } from '../src/contracts/desktop-execution.js';
 import { DesktopExecutionAdmission } from '../src/desktop-provider/execution-admission.js';
 import { FakeInputControl } from '../src/desktop-provider/fake-input-control.js';
-import type { FakeActionResult } from '../src/desktop-provider/fake-provider.js';
+import { FakeDesktopBackend, FakeDesktopProvider, type FakeActionResult } from '../src/desktop-provider/fake-provider.js';
 import { capabilities, declaration, definition, fixture, ready, semantic } from './fixtures/desktop-provider.js';
 
 async function scoped(options: Parameters<typeof fixture>[0] = {}) {
@@ -16,6 +16,95 @@ async function scoped(options: Parameters<typeof fixture>[0] = {}) {
   const request: DesktopExecutionRequest<string> = { target, observation, action: 'edit', authority: f.authority };
   return { ...f, port, gate, target, observation, request };
 }
+
+async function idleScoped(input = new FakeInputControl(() => 0)) {
+  const backend = new FakeDesktopBackend(definition(), input);
+  const provider = new FakeDesktopProvider('fake', 'local-workspace', new Map([['fixture', backend]]), capabilities());
+  const session = await provider.open('fixture');
+  const gate = new DesktopExecutionAdmission(provider, session, input, backend.executionBackend(session));
+  const target = await gate.bind('editor');
+  return { input, backend, provider, session, gate, target };
+}
+
+test('preflight rejects unproven drag while idle; supported edit needs no authority and returns no token', async () => {
+  const f = await idleScoped();
+  f.input.assertAuthority = () => assert.fail('preflight must not inspect authority');
+  f.input.acquire = () => assert.fail('preflight must not acquire input');
+  f.input.renewAuthority = () => assert.fail('preflight must not renew input');
+  try {
+    const idle = f.input.view(f.session);
+    assert.equal(idle.state, 'idle');
+    await assert.rejects(f.gate.preflight(f.target, 'drag'), /target:input.semantic:not-proven/);
+    assert.deepEqual(f.input.view(f.session), idle);
+    assert.equal(await f.gate.preflight(f.target, 'edit'), undefined);
+    assert.deepEqual(f.input.view(f.session), idle);
+    assert.equal(f.backend.executed().length, 0);
+  } finally { await f.session.close(); }
+});
+
+test('supported preflight neither renews an existing grant nor replaces an expired one', async () => {
+  let now = 0;
+  const f = await idleScoped(new FakeInputControl(() => now));
+  try {
+    const authority = await f.input.acquire(f.session, { kind: 'agent', clientId: 'task' });
+    const held = f.input.view(f.session);
+    now = 2999;
+    await f.gate.preflight(f.target, 'edit');
+    assert.deepEqual(f.input.view(f.session), held);
+    now = 3000;
+    assert.throws(() => f.input.assertAuthority(f.session, authority), /invalid-input-authority/);
+    const expired = f.input.view(f.session);
+    assert.equal(expired.state, 'expired');
+    await f.gate.preflight(f.target, 'edit');
+    assert.deepEqual(f.input.view(f.session), expired);
+    assert.throws(() => f.input.assertAuthority(f.session, authority), /invalid-input-authority/);
+    assert.equal(f.backend.executed().length, 0);
+  } finally { await f.session.close(); }
+});
+
+test('preflight uses current bound identity and both readiness layers without owning input', async () => {
+  const f = await idleScoped();
+  try {
+    for (const key of ['sessionId', 'instanceId', 'targetId', 'applicationVersion'] as const) {
+      await assert.rejects(f.gate.preflight({ ...f.target, [key]: 'foreign' }, 'edit'), /unknown-or-changed/);
+    }
+    f.backend.setReadiness(ready('unknown'));
+    await assert.rejects(f.gate.preflight(f.target, 'edit'), /session:input.semantic:not-ready/);
+    f.backend.setReadiness(ready());
+    f.backend.setTargetReadiness('editor', ready('not-ready'));
+    await assert.rejects(f.gate.preflight(f.target, 'edit'), /target:input.semantic:not-ready/);
+    f.backend.setTargetReadiness('editor', ready());
+    assert.equal(f.input.view(f.session).state, 'idle');
+    await f.backend.replaceInstance();
+    await assert.rejects(f.gate.preflight(f.target, 'edit'), error => {
+      assert(error instanceof AggregateError);
+      assert(error.errors.every(item => /stale-session/.test(String(item))));
+      return true;
+    });
+    assert.equal(f.backend.executed().length, 0);
+  } finally { await f.session.close(); }
+});
+
+test('preflight before acquire cannot cache readiness, requirements or authority for execution', async () => {
+  const f = await idleScoped();
+  try {
+    await f.gate.preflight(f.target, 'edit');
+    assert.equal(f.input.view(f.session).state, 'idle');
+    const authority = await f.input.acquire(f.session, { kind: 'agent', clientId: 'task' });
+    const request = { target: f.target, action: 'edit', authority, observation: f.backend.observe(f.target) };
+    f.backend.setTargetReadiness('editor', ready('not-ready'));
+    await assert.rejects(f.gate.execute(request), /target:input.semantic:not-ready/);
+    f.backend.setTargetReadiness('editor', ready());
+    await assert.rejects(f.gate.execute({ ...request, action: 'drag' }), /target:input.semantic:not-proven/);
+    await f.input.release(authority);
+    await assert.rejects(f.gate.execute(request), /invalid-input-authority/);
+    assert.equal(f.backend.executed().length, 0);
+    await f.gate.preflight(f.target, 'edit');
+    const fresh = await f.input.acquire(f.session, { kind: 'agent', clientId: 'task' });
+    await f.gate.execute({ ...request, authority: fresh, observation: f.backend.observe(f.target) });
+    assert.equal(f.backend.executed().length, 1);
+  } finally { await f.session.close(); }
+});
 
 test('P6 admits the exact target/action across all environment families, without promoting drag', async () => {
   for (const kind of ['physical', 'virtual-machine', 'local-workspace'] satisfies DesktopEnvironmentKind[]) {

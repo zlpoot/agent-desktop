@@ -69,14 +69,52 @@ export class DesktopExecutionAdmission<Action, Result> {
     this.targets.set(binding.targetId, binding);
     return binding;
   }
+  private assertBoundTarget(value: TargetBinding): TargetBinding {
+    this.assertIdentity();
+    const target = targetBinding(value);
+    const retained = this.targets.get(target.targetId);
+    if (!retained || !sameTarget(retained, target)) deny('unknown-or-changed-target-binding');
+    return target;
+  }
+  /** Non-authorizing proof of current support before input.acquire/beginTask.
+   * No authority, input acquisition/renewal, observation or authorization token.
+   * A successful preflight never replaces the fresh checks in execute(). */
+  async preflight(binding: TargetBinding, action: Action): Promise<void> {
+    const target = this.assertBoundTarget(binding);
+    await this.assertCapabilities(target, structuredClone(action));
+    this.assertIdentity();
+  }
+  private async assertCapabilities(target: TargetBinding, action: Action): Promise<void> {
+    // Each port returns fresh evidence/readiness. Snapshot immediately on resolution.
+    const results = await Promise.allSettled([
+      this.provider.capabilities().then(value => structuredClone(value)),
+      this.session.capabilities().then(value => structuredClone(value)),
+      this.session.status().then(value => structuredClone(value)),
+      this.backend.targetStatus(target).then(value => structuredClone(value)),
+      this.backend.requirements(target, action).then(value => structuredClone(value)),
+    ] as const);
+    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, 'execution-admission-read-failed');
+    const provider = fulfilled(results[0]), session = fulfilled(results[1]), status = fulfilled(results[2]);
+    const targetStatus = fulfilled(results[3]), operation = fulfilled(results[4]);
+    this.assertIdentity();
+    if (status.state !== 'open') deny('stale-session');
+    if (targetStatus.state !== 'bound' || !sameTarget(target, targetBinding(targetStatus.binding))) {
+      deny('stale-target-binding');
+    }
+    if (!operation || !identifier(operation.action) || !identifier(operation.mechanism)) deny('invalid-executor-requirements');
+    assertDesktopCapabilities(operation.required, { providerId: this.providerId, environmentKind: this.kind,
+      application: target.application, applicationVersion: target.applicationVersion, targetRole: target.targetRole,
+      action: operation.action, mechanism: operation.mechanism },
+    { provider, session, target: targetStatus.capabilities }, { session: status.readiness, target: targetStatus.readiness });
+  }
   async execute(request: DesktopExecutionRequest<Action>): Promise<Result> {
     this.assertIdentity();
     if (this.busy) deny('execution-admission-busy');
     // Pin caller-owned payloads before the first await; labels cannot replace trusted metadata.
     const pinned = structuredClone(request);
-    const target = targetBinding(pinned.target);
-    const retained = this.targets.get(target.targetId);
-    if (!retained || !sameTarget(retained, target)) deny('unknown-or-changed-target-binding');
+    const target = this.assertBoundTarget(pinned.target);
     if (!pinned.observation || !identifier(pinned.observation.observationId) ||
         !sameSession(target, pinned.observation) || target.targetId !== pinned.observation.targetId) {
       deny('observation-target-mismatch');
@@ -85,29 +123,8 @@ export class DesktopExecutionAdmission<Action, Result> {
     this.input.assertAuthority(this.identity, pinned.authority);
     this.busy = true;
     try {
-      // Each port returns fresh evidence/readiness. Snapshot immediately on resolution.
-      const results = await Promise.allSettled([
-        this.provider.capabilities().then(value => structuredClone(value)),
-        this.session.capabilities().then(value => structuredClone(value)),
-        this.session.status().then(value => structuredClone(value)),
-        this.backend.targetStatus(target).then(value => structuredClone(value)),
-        this.backend.requirements(target, pinned.action).then(value => structuredClone(value)),
-      ] as const);
-      const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
-      if (errors.length === 1) throw errors[0];
-      if (errors.length) throw new AggregateError(errors, 'execution-admission-read-failed');
-      const provider = fulfilled(results[0]), session = fulfilled(results[1]), status = fulfilled(results[2]);
-      const targetStatus = fulfilled(results[3]), operation = fulfilled(results[4]);
+      await this.assertCapabilities(target, pinned.action);
       this.assertIdentity();
-      if (status.state !== 'open') deny('stale-session');
-      if (targetStatus.state !== 'bound' || !sameTarget(target, targetBinding(targetStatus.binding))) {
-        deny('stale-target-binding');
-      }
-      if (!operation || !identifier(operation.action) || !identifier(operation.mechanism)) deny('invalid-executor-requirements');
-      assertDesktopCapabilities(operation.required, { providerId: this.providerId, environmentKind: this.kind,
-        application: target.application, applicationVersion: target.applicationVersion, targetRole: target.targetRole,
-        action: operation.action, mechanism: operation.mechanism },
-      { provider, session, target: targetStatus.capabilities }, { session: status.readiness, target: targetStatus.readiness });
       this.input.assertAuthority(this.identity, pinned.authority);
       // Dispatch is immediately handed to the backend, which must recheck at the actual effect.
       return await this.backend.execute({ target, observation: pinned.observation,
