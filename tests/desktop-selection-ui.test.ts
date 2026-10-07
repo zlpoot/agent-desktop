@@ -1,0 +1,103 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createDashboardServer } from '../src/app/server.js';
+import type { TaskController } from '../src/app/task-runner.js';
+import { SqliteTrace } from '../src/trace/sqlite-trace.js';
+import { initialState } from '../src/graph/state.js';
+import { WorkflowStore } from '../src/workflows/store.js';
+
+test('Task UI submits exact environment identity, preserves selection, and never routes by VM text or global control', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'desktop-selection-ui-'));
+  const submitted: { goal: string; target: unknown }[] = [];
+  const environments = [
+    { providerId: 'synthetic', environmentId: 'desktop-one', kind: 'physical' as const, executable: true },
+    { providerId: 'synthetic', environmentId: 'desktop-two', kind: 'physical' as const, executable: true },
+    { providerId: 'workspace', environmentId: 'finite-fixture', kind: 'local-workspace' as const, executable: false },
+  ];
+  const controller: TaskController = {
+    desktopOptions: async () => environments,
+    submit(goal, options) {
+      const id = `task-${submitted.length + 1}`; submitted.push({ goal, target: options?.desktopTarget });
+      const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+      try { trace.save('queued', { ...initialState(id, goal), taskBindingVersion: 1, desktopTarget: options?.desktopTarget }); }
+      finally { trace.close(); }
+      return id;
+    }, resume() {}, pause() {}, continue() {},
+  };
+  const server = createDashboardServer(directory, controller);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage(); const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 4);
+    assert.equal(await page.locator('#task-destination option:disabled').count(), 1);
+    const key = JSON.stringify(['synthetic', 'desktop-two']);
+    await page.locator('#task-destination').selectOption(key);
+    await page.locator('#task-goal').fill('VM: ordinary task text');
+    await page.reload();
+    await page.waitForFunction(expected => (document.querySelector('#task-destination') as HTMLSelectElement)?.value === expected, key);
+    assert.equal(await page.locator('#task-goal').inputValue(), 'VM: ordinary task text');
+    await page.locator('#task-submit').click();
+    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-1');
+    assert.deepEqual(submitted[0], { goal: 'VM: ordinary task text', target: { providerId: 'synthetic', environmentId: 'desktop-two' } });
+    await page.getByRole('button', { name: '以此任务新建草稿', exact: true }).click();
+    assert.equal(await page.locator('#task-destination').inputValue(), key);
+    assert.equal(await page.locator('#task-goal').inputValue(), 'VM: ordinary task text');
+    await page.locator('#task-destination').selectOption('browser');
+    await page.locator('#task-submit').click();
+    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-2');
+    assert.deepEqual(submitted[1], { goal: 'VM: ordinary task text', target: undefined });
+    await page.evaluate(() => sessionStorage.setItem('agent-desktop.task-draft.v2', JSON.stringify({ goal: 'retained draft', destination: '["synthetic","removed"]' })));
+    await page.reload();
+    await page.getByRole('button', { name: '工作台', exact: true }).click();
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.value === '["synthetic","removed"]');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    assert.equal(await page.locator('#task-goal').inputValue(), 'retained draft');
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('Browser Workflow UI executes its pinned version without a desktop target or global VM readiness', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'browser-workflow-selection-'));
+  const store = new WorkflowStore(join(directory, 'workflows.sqlite'));
+  store.addCandidate({ id: 'browser-fixture', version: 1, status: 'candidate', environment: 'browser',
+    taskPattern: 'browser fixture', inputs: [], preconditions: [],
+    steps: [{ goal: 'fixed step', action: { kind: 'keypress', keys: 'space' }, preferredMethods: [], successCondition: { kind: 'text_includes', value: 'fixture' } }],
+    successConditions: { pageTextIncludes: 'fixture' }, knownFailures: [], sourceTaskId: 'synthetic', sourceTrace: 'synthetic',
+    createdAt: '', successCount: 0, failureCount: 0 });
+  const submitted: unknown[] = [];
+  const server = createDashboardServer(directory, {
+    submit() { throw new Error('wrong route'); },
+    submitWorkflow(request, _budget, target) {
+      submitted.push({ request, target });
+      const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+      try { trace.save('queued', initialState('browser-task', 'browser fixture')); } finally { trace.close(); }
+      return 'browser-task';
+    }, pause() {}, continue() {}, resume() {},
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('missing port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.locator('.workflow-card').click();
+    assert.equal(await page.locator('#workflow-desktop-target').count(), 0);
+    await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();
+    await page.getByText('v1 参数预览 · 未执行任何动作', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '试运行此候选版本', exact: true }).click();
+    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Fbrowser-task');
+    const result = submitted[0] as { request: { id: string; version: number; destination: string; trial: boolean }; target: unknown };
+    assert.equal(result.target, undefined); assert.equal(result.request.id, 'browser-fixture');
+    assert.equal(result.request.destination, 'browser'); assert.equal(result.request.version, 1); assert.equal(result.request.trial, true);
+  } finally { await browser.close(); await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(directory, { recursive: true, force: true }); }
+});

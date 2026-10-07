@@ -44,6 +44,15 @@ class PhysicalGate:
         self.epoch = authority["epoch"]
         self.deadline = self.clock() + remaining
 
+    def renew(self, authority, expires_at):
+        current = self.identity(authority)
+        if not current["ready"] or self.grant != authority or self.clock() >= self.deadline:
+            raise ValueError("Invalid or expired physical renewal")
+        remaining = min(3.0, expires_at / 1000 - self.wall())
+        if remaining <= 0:
+            raise ValueError("Expired physical renewal")
+        self.deadline = self.clock() + remaining
+
     def revoke(self, authority):
         self.identity(authority)
         if self.grant is not None and self.grant != authority:

@@ -44,6 +44,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
         : path === '/api/desktop/control' ? { mode: 'PAUSED', workerReady: true, taskId: active ? 'active' : null,
           connection: { status: 'ready' }, task: active ? { id: 'active', goal: '整理当前文档', status: 'paused' } : null }
         : path === '/api/desktop/sessions' ? { sessions: [{ sessionId: 'test-session', status: 'online' }] }
+        : path === '/api/desktop/environments' ? { environments: [{ providerId: 'fixture', environmentId: 'vm-one', kind: 'virtual-machine', executable: true }] }
         : path === '/api/desktop/vm' ? { configured: false }
         : path === '/api/prompts' ? { prompts: [] } : undefined;
       if (path === '/api/settings/task-budget') return route.fulfill({ json: { budget: {
@@ -64,18 +65,18 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
     assert.equal(await page.locator('#task-controls').isVisible(), false);
     assert.equal(await page.locator('.sidebar #run-list').count(), 0);
     assert.equal(await page.locator('#run-list').isVisible(), false);
-    assert.equal(await page.locator('#task-submit').isDisabled(), true, '保留任务未释放时不可提交新 Guest 任务');
-    await page.getByRole('button', { name: '处理当前任务', exact: true }).click();
+    assert.equal(await page.locator('#task-submit').isEnabled(), true, '旧 VM 控制状态不能禁止独立浏览器任务');
+    await page.getByRole('button', { name: /已暂停 · 整理当前文档/ }).click();
     await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Factive');
     await page.getByRole('button', { name: '工作台', exact: true }).click();
-    await page.locator('#task-destination').selectOption('host');
+    await page.locator('#task-destination').selectOption('browser');
     assert.equal(await page.locator('#task-submit').isEnabled(), true);
     await page.locator('#task-goal').fill('未提交的草稿');
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#goal')?.textContent === '整理当前文档');
     assert.equal(await page.locator('#task-goal').inputValue(), '未提交的草稿');
-    assert.equal(await page.locator('#task-destination').inputValue(), 'host');
-    await page.locator('#task-destination').selectOption('guest');
+    assert.equal(await page.locator('#task-destination').inputValue(), 'browser');
+    await page.locator('#task-destination').selectOption(JSON.stringify(['fixture', 'vm-one']));
     await page.getByRole('button', { name: '桌面', exact: true }).click();
     assert.equal(await page.locator('#task-form').isVisible(), false);
     assert.match(await page.getByRole('region', { name: '连接检查' }).innerText(), /Worker 已就绪/);

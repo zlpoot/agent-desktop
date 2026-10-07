@@ -45,6 +45,12 @@ test('任务提交明确执行位置，保留要求并拒绝冲突', async () =>
     }
     assert.equal(goals.length, 2);
     assert.deepEqual(targets, [target, undefined]);
+    assert.equal((await post({ goal: '普通文本', destination: 'desktop', desktopTarget: target })).status, 202);
+    assert.equal((await post({ goal: 'VM: 普通文本', destination: 'browser' })).status, 202);
+    assert.equal(goals[3], 'VM: 普通文本');
+    assert.deepEqual(targets.slice(2), [target, undefined]);
+    for (const body of [{ goal: '测试', destination: 'desktop' }, { goal: '测试', destination: 'browser', desktopTarget: target },
+      { goal: '测试', destination: ['desktop'] }]) assert.equal((await post(body)).status, 400);
     assert.equal((await post({ goal: '字'.repeat(1500), destination: 'guest', desktopTarget: target })).status, 202);
   } finally {
     await new Promise<void>(done => server.close(() => done()));

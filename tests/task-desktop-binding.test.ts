@@ -271,11 +271,11 @@ test('checkpoint channels preserve metadata, reject changes and reject foreign r
     assert.deepEqual(taskDesktopFields(trace.load('t')!), taskDesktopFields(fields));
   } finally { checkpoint.db.close(); trace.close(); rmSync(dir, { recursive: true, force: true }); }
 });
-test('production composition does not add Physical/Local Workspace executor routes in P5-A', async () => {
+test('production composition refuses unconfigured Physical and unsupported Local Workspace generic Tasks', async () => {
   const dir = directory(), assembly = await createRootAssembly({ rootDir: dir, model: haltedModel });
   try {
     for (const id of ['physical', 'windows-local-workspace']) assert.throws(() => assembly.controller.submit('any goal', {
       desktopTarget: desktopTarget(id, 'anything'),
-    }), /desktop-task-executor-unavailable/);
+    }), id === 'physical' ? /physical-task-policy-required/ : /desktop-task-executor-unavailable/);
   } finally { await assembly.dispose(); rmSync(dir, { recursive: true, force: true }); }
 });

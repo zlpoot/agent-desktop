@@ -16,7 +16,7 @@ import { continuePausedTask, resumeSavedTask } from "../graph/resume.js";
 import { initialState } from "../graph/state.js";
 import { restartedDesktopState } from "../desktop-session/recovery.js";
 import { DesktopVisionRuntime } from "../runtime/desktop/vision-runtime.js";
-import { registeredGuestApps } from "../runtime/desktop/app-catalog.js";
+import type { RegisteredApp } from "../runtime/desktop/app-catalog.js";
 import { PlaywrightRuntime } from "../runtime/browser/playwright-runtime.js";
 import { SqliteTrace } from "../trace/sqlite-trace.js";
 import { WorkflowStore } from "../workflows/store.js";
@@ -42,6 +42,7 @@ import { createTaskBudget, isBudgetExceeded, parseBudgetOverride, readTaskBudget
   type BudgetOverride } from '../runtime/model-budget.js';
 
 export interface TaskController {
+  desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
   submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
   submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget }): string;
   resume(taskId: string, response: { approved?: boolean; answer?: string }): void;
@@ -151,6 +152,7 @@ export class DesktopTaskController implements TaskController {
     if (!this.options.desktopSessions) throw new Error('desktop-task-executor-unavailable');
     return this.options.desktopSessions;
   }
+  async desktopOptions() { return this.requireDesktopSessions().discover(); }
   private assertTaskCompatibility(state: import('../graph/state.js').ComputerState, environment: string | null): void {
     if (state.desktopTarget) return;
     if (state.taskBindingVersion === 1 && !state.desktopVmId && !state.desktopBinding &&
@@ -302,6 +304,7 @@ export class DesktopTaskController implements TaskController {
         visualMode: explicit.workflow.environment === 'windows',
       } : undefined);
       this.assertTaskCompatibility(queued, route.environment);
+      let desktopApps: RegisteredApp[] = [];
       if (queued.desktopTarget) {
         const entry = await this.requireDesktopSessions().acquire(taskId, queued, binding => {
           queued = { ...queued!, desktopExecutionBinding: binding };
@@ -318,6 +321,7 @@ export class DesktopTaskController implements TaskController {
         checkSetupPause();
         guest = await entry.executor.connectRuntime(entry.session,
           resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots"));
+        desktopApps = await entry.executor.appCatalog?.() ?? [];
       }
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
@@ -346,9 +350,7 @@ export class DesktopTaskController implements TaskController {
           trace.recordNodeMetric(taskId, { step: 0, node: 'plan', startedAt: new Date().toISOString(),
             durationMs: 0, actor: 'rule', operator: '指定流程唯一窗口匹配' });
         } else {
-          const apps = profile?.selectWindows ? [] : guest
-            ? await registeredGuestApps(this.rootDir)
-            : [];
+          const apps = profile?.selectWindows ? [] : desktopApps;
           const startedAt = new Date().toISOString();
           const started = performance.now();
           let planned: Awaited<ReturnType<typeof model.planTask>>;
@@ -398,7 +400,7 @@ export class DesktopTaskController implements TaskController {
             `完成契约存在证据缺口，执行后需人工结果验收：${contractCoverage.reason}`});
         const registry = this.routeDb();
         try { registry.prepare(`UPDATE generic_routes SET environment = ?, window_handle = ?
-          WHERE task_id = ?`).run(guest ? "agent_desktop" : environment, windowHandle ?? null, taskId); }
+          WHERE task_id = ?`).run(environment, windowHandle ?? null, taskId); }
         finally { registry.close(); }
         trace.save("plan", { ...queued, plan, completionCriteria, verificationContract,contractCoverage,
           summary: `规划完成：${environment === "browser" ? "浏览器" : "Windows 应用"}` });

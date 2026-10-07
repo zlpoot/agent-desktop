@@ -122,7 +122,7 @@ window.createWorkflowLibrary = function (container) {
       const button = el('button', '预览步骤（不执行）'); button.type = 'submit'; form.append(button);
       const preview = el('div', '', 'workflow-preview'); preview.setAttribute('aria-live', 'polite');
       const execution = el('div', '', 'workflow-execution');
-      const execute = el('button', '在当前虚拟桌面执行此版本'); execute.type = 'button'; execute.disabled = true;
+      const execute = el('button', '执行此版本'); execute.type = 'button'; execute.disabled = true;
       const executionMessage = el('p', ''); executionMessage.setAttribute('role', 'status');
       const budgetOptions = el('details', '', 'workflow-budget-options');
       budgetOptions.append(el('summary', '本次模型预算（可选）'), el('p', '留空使用设置页的全局预算；仅对这次执行生效。'));
@@ -135,13 +135,25 @@ window.createWorkflowLibrary = function (container) {
         }
       }
       const trial = flow.status === 'candidate';
-      const eligible = ['candidate', 'verified'].includes(flow.status) && flow.scope !== 'stage' && flow.environment === 'windows';
-      if (trial) execute.textContent = '在当前虚拟桌面试运行此候选版本';
-      execution.append(el('p', eligible ? '执行前会准备目标窗口并重新观察；流程偏离时停止，不转入自由探索。请先预览并核对步骤。' : '当前版本仅可预览。执行入口支持已验证的整任务 Windows 流程。'), budgetOptions, execute, executionMessage);
+      const eligible = ['candidate', 'verified'].includes(flow.status) && flow.scope !== 'stage' && ['windows', 'browser'].includes(flow.environment);
+      if (trial) execute.textContent = '试运行此候选版本';
+      execution.append(el('p', eligible ? '执行前会准备目标并重新观察；流程偏离时停止，不转入自由探索。请先预览并核对步骤。' : '当前版本仅可预览。'), budgetOptions, execute, executionMessage);
       execute.hidden = !eligible;
-      if (trial && eligible) execution.firstChild.textContent = '试运行会实际操作虚拟桌面，并记录成功或失败；不会自动发布。请审核回放证据后显式发布。';
+      if (trial && eligible) execution.firstChild.textContent = '试运行会实际执行，并记录成功或失败；不会自动发布。请审核回放证据后显式发布。';
       if (flow.scope === 'stage') execution.firstChild.textContent = '这是阶段流程，需要阶段上下文与 Stage Verifier，目前不能作为整任务单独试运行。可继续预览。';
       let prepared = null, submitting = false;
+      let desktopSelection;
+      const updateDesktopSelection = () => {
+        const problem = desktopSelection?.problem();
+        execute.disabled = !prepared || submitting || !!problem;
+        if (!submitting) executionMessage.textContent = problem || '';
+      };
+      if (eligible && flow.environment === 'windows') {
+        const label = el('label', '执行桌面'); const select = el('select', ''); select.id = 'workflow-desktop-target';
+        label.append(select); execution.prepend(label);
+        desktopSelection = window.createDesktopSelection(select, false, updateDesktopSelection);
+        select.onchange = updateDesktopSelection;
+      }
       execute.onclick = async () => {
         if (!prepared || submitting) return;
         const selectedPreview = prepared;
@@ -154,10 +166,10 @@ window.createWorkflowLibrary = function (container) {
             if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1000000) throw new Error('模型预算必须是 1 到 1000000 的整数');
             const [kind, key] = path.split('.'); (budget[kind] ||= {})[key] = Number(value);
           }
-          const status = await fetch('/api/desktop/control'); const control = await status.json();
-          if (!status.ok || !control.workerReady || control.mode !== 'PAUSED' || control.taskId) throw new Error('虚拟桌面尚未就绪或被任务/人工占用，请先到桌面页处理。');
+          const selectedTarget = desktopSelection?.payload().desktopTarget;
           const response = await fetch(`${endpoint(flow)}/${trial ? 'trial' : 'execute'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ values: selectedPreview.values, definitionHash: selectedPreview.definitionHash, destination: flow.environment,
+              ...(selectedTarget ? { desktopTarget: selectedTarget } : {}),
               ...(Object.keys(budget).length ? { budget } : {}) }) });
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || '提交失败');
@@ -165,7 +177,7 @@ window.createWorkflowLibrary = function (container) {
           executionMessage.textContent = `任务已提交：${result.taskId}`;
           document.dispatchEvent(new CustomEvent('workbench:workflow-submitted', { detail: `${result.source}/${result.taskId}` }));
         } catch (error) { executionMessage.textContent = `${String(error)} 若网络中断，请先检查任务记录再重试。`; }
-        finally { submitting = false; execute.disabled = !prepared; }
+        finally { submitting = false; execute.disabled = !prepared || !!desktopSelection?.problem(); }
       };
       let previewRequest = 0;
       form.oninput = () => {
@@ -181,7 +193,7 @@ window.createWorkflowLibrary = function (container) {
           const value = await result.json();
           if (current !== requestId || previewId !== previewRequest) return;
           if (!result.ok) throw new Error(value.error || '参数预览失败');
-          prepared = value; execute.disabled = !eligible || submitting;
+          prepared = value; execute.disabled = !eligible || submitting || !!desktopSelection?.problem();
           preview.replaceChildren(el('p', `v${value.version} 参数预览 · 未执行任何动作`));
           const steps = el('ol', '', 'workflow-step-preview');
           const actions = { click: '点击', double_click: '双击', type: '输入文字', paste_text: '粘贴文字', keypress: '按键', scroll: '滚动', navigate: '打开网页', wait: '等待' };

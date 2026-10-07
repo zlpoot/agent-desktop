@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Observation } from "../actions/schema.js";
 import type { DesktopCapabilities, DesktopProvider, DesktopSession, DesktopSessionIdentity,
   DesktopSessionStatus } from "../contracts/desktop-environment.js";
-import type { DesktopInputArbiter, DesktopInputControl, InputAuthority } from "../contracts/desktop-input-control.js";
+import type { DesktopInputArbiter, InputAuthority } from "../contracts/desktop-input-control.js";
 import { DesktopRuntime, PhysicalWorkerTransportError, type DesktopRuntimeOptions, type PhysicalHandshake,
   type PhysicalInputPolicy, type WindowFilter, type WindowInfo } from "../runtime/desktop/desktop-runtime.js";
 import type { VisionDesktopRuntime } from "../runtime/desktop/vision-runtime.js";
@@ -12,6 +12,7 @@ import { DesktopAdmissionError, deny, sameSession } from "./admission.js";
 export interface PhysicalBackend extends VisionDesktopRuntime {
   physicalHandshake(policy: PhysicalInputPolicy): Promise<PhysicalHandshake>;
   grantPhysical(authority: InputAuthority, expiresAt: number): Promise<void>;
+  renewPhysical?(authority: InputAuthority, expiresAt: number): Promise<void>;
   revokePhysical(authority: InputAuthority): Promise<void>;
   bindPhysical(options: DesktopRuntimeOptions): Promise<void>;
   windowsPhysical(filter?: WindowFilter): Promise<WindowInfo[]>;
@@ -21,6 +22,7 @@ export interface PhysicalInputArbiter extends DesktopInputArbiter {
 }
 export type PhysicalBackendFactory = (policy: PhysicalInputPolicy) => Promise<PhysicalBackend>;
 export interface PhysicalBoundRuntime extends VisionDesktopRuntime {
+  heartbeat(): Promise<void>;
   attach(options: DesktopRuntimeOptions): Promise<void>;
   listWindows(filter?: WindowFilter): Promise<WindowInfo[]>;
 }
@@ -36,7 +38,7 @@ const closedPolicy: PhysicalInputPolicy = { windowManagement: false, executors: 
 export class PhysicalDesktopProvider implements DesktopProvider {
   readonly id = "physical";
   readonly kind = "physical" as const;
-  readonly inputControl: DesktopInputControl;
+  readonly inputControl: PhysicalInputArbiter;
   private readonly policy: PhysicalInputPolicy;
   private readonly bindings = new Map<string, Binding>();
   private connection?: Promise<PhysicalBackend>;
@@ -154,7 +156,8 @@ export class PhysicalDesktopProvider implements DesktopProvider {
     const result = this.serial.then(work); this.serial = result.then(() => {}, () => {}); return result;
   }
   /** Compatibility runtime factory, invoked only by trusted infrastructure with a broker-issued grant. */
-  connectRuntime(session: DesktopSession, authority: InputAuthority, artifactDir: string): Promise<PhysicalBoundRuntime> {
+  connectRuntime(session: DesktopSession, authority: InputAuthority, artifactDir: string,
+    onClosing?: () => void): Promise<PhysicalBoundRuntime> {
     const record = this.record(session);
     this.input.assertAuthority(session, authority);
     if (authority.owner.kind !== "agent") deny("agent-authority-required");
@@ -176,6 +179,14 @@ export class PhysicalDesktopProvider implements DesktopProvider {
     });
     const requireObserved = () => { if (!bound || !observed) deny("physical-rebind-and-observe-required"); };
     const runtime: PhysicalBoundRuntime = {
+      heartbeat: () => call(async backend => {
+        if (!backend.renewPhysical || !this.input.renewAuthority) deny('physical-task-renewal-unavailable');
+        // A live handshake and still-valid full authority are required. Expired grants never revive.
+        this.input.renewAuthority(authority);
+        try { await backend.renewPhysical(authority, Date.now() + this.input.remainingLease(authority)); }
+        catch (error) { this.invalidate(); throw error; }
+        this.input.assertAuthority(session, authority);
+      }),
       listWindows: filter => call(backend => backend.windowsPhysical(filter)),
       attach: options => call(async backend => {
         if (!this.policy.windowManagement) deny("physical-window-management-forbidden");
@@ -211,6 +222,7 @@ export class PhysicalDesktopProvider implements DesktopProvider {
       }),
       close: () => closing ??= (async () => {
         closed = true;
+        onClosing?.();
         await this.enqueue(async () => { if (installed) await this.backend!.revokePhysical(authority); });
         if (this.active === active) this.active = undefined;
       })(),

@@ -61,6 +61,21 @@ class PhysicalGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not ready"):
             self.gate.check(identity, self.authority, "execute", self.args)
 
+    def test_renewal_requires_live_full_grant_and_preserves_monotonic_bound(self):
+        self.install()
+        self.now = 2.0
+        self.gate.renew(self.authority, 1e15)
+        self.assertEqual(self.gate.deadline, 5.0)
+        forged = {**self.authority, "grantId": "forged"}
+        with self.assertRaisesRegex(ValueError, "renewal"):
+            self.gate.renew(forged, 1e15)
+        self.now = 5.0
+        with self.assertRaisesRegex(ValueError, "renewal"):
+            self.gate.renew(self.authority, 1e15)
+        self.gate.revoke(self.authority)
+        with self.assertRaisesRegex(ValueError, "renewal"):
+            self.gate.renew(self.authority, 1e15)
+
     def test_unscoped_or_multiple_executors_are_rejected(self):
         self.install()
         for providers in (None, [], ["unapproved"], ["windows.pyautogui.act", "unapproved"]):
@@ -170,13 +185,16 @@ class WorkerDispatchTests(unittest.TestCase):
                     {"id": 5, **execute},
                     {"id": 6, "method": "physical_revoke", "args": {"authority": authority}},
                     {"id": 7, **execute}, {"id": 8, "method": "close"}]
+        requests.insert(3, {"id": 9, "method": "physical_renew", "args": {"authority": authority, "expiresAt": 1e15}})
+        requests.insert(-1, {"id": 10, "method": "physical_renew", "args": {"authority": authority, "expiresAt": 1e15}})
         replies, effects = self.run_requests(requests)
         self.assertEqual(len(effects), 1)
-        self.assertIn("authority", replies[1][2])
-        self.assertIsNone(replies[3][2])
-        self.assertIsNone(replies[4][2])
-        self.assertIsNone(replies[5][2])
-        self.assertIn("authority", replies[6][2])
+        replies_by_id = {reply[0]: reply for reply in replies}
+        self.assertIn("authority", replies_by_id[2][2])
+        for identity in (4, 5, 6, 9):
+            self.assertIsNone(replies_by_id[identity][2])
+        self.assertIn("authority", replies_by_id[7][2])
+        self.assertIn("renewal", replies_by_id[10][2])
 
 
 class PhysicalContextTests(unittest.TestCase):

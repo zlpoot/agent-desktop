@@ -1,18 +1,26 @@
-import type { DesktopProvider, DesktopSession } from '../contracts/desktop-environment.js';
+import type { DesktopEnvironment, DesktopProvider, DesktopSession } from '../contracts/desktop-environment.js';
+import type { RegisteredApp } from '../runtime/desktop/app-catalog.js';
 import type { InputControl } from '../contracts/desktop-provider.js';
 import type { WorkerClient } from '../contracts/worker-client.js';
 import type { TaskDesktopFields, TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { desktopTarget, desktopExecutionBinding, sameDesktopTarget, sameDesktopBinding,
   validateTaskDesktop } from '../contracts/task-desktop.js';
 
-/** Composition port for the existing desktop executor. New executor routing is P5-B. */
+/** Composition-owned executor; core never selects a backend from goal text or Provider kind. */
 export interface DesktopTaskExecutor {
+  /** Fail before opening a Session when this executor cannot admit a generic Task. */
+  assertAvailable?(): void;
+  appCatalog?(): Promise<RegisteredApp[]>;
   taskControl(session: DesktopSession): InputControl;
   connectRuntime(session: DesktopSession, artifactDir: string): Promise<WorkerClient>;
   /** Infrastructure's lifecycle owner, separate from the per-Task control shim. */
   lifecycleOwner?(session: DesktopSession): object;
   /** Complete a manually reviewed outcome after input has already been released. */
   completeTask?(session: DesktopSession, taskId: string): Promise<void>;
+}
+export interface TaskDesktopOption extends DesktopEnvironment {
+  readonly executable: boolean;
+  readonly blockedReason?: string;
 }
 interface Entry { session: DesktopSession; executor: DesktopTaskExecutor; control: InputControl;
   binding: NonNullable<TaskDesktopFields['desktopExecutionBinding']>; lifecycleOwner?: object; }
@@ -36,7 +44,29 @@ export class TaskDesktopSessions {
     const target = desktopTarget(value.providerId, value.environmentId);
     if (!this.providers.has(target.providerId)) throw new Error('unknown-desktop-provider');
     if (!this.executors.has(target.providerId)) throw new Error('desktop-task-executor-unavailable');
+    this.executors.get(target.providerId)!.assertAvailable?.();
     return target;
+  }
+  /** Discovery is read-only: it never opens Sessions, claims input or constructs runtimes. */
+  async discover(): Promise<readonly TaskDesktopOption[]> {
+    if (this.closed) throw new Error('task-desktop-sessions-closed');
+    const options = await Promise.all([...this.providers.values()].map(async provider => {
+      const environments = await provider.discover();
+      return environments.map(environment => {
+        if (environment.providerId !== provider.id || environment.kind !== provider.kind) {
+          throw new Error('desktop-discovery-identity-mismatch');
+        }
+        const target = desktopTarget(environment.providerId, environment.environmentId);
+        try { this.assertTarget(target); return Object.freeze({ ...target, kind: environment.kind, executable: true }); }
+        catch (error) { return Object.freeze({ ...target, kind: environment.kind, executable: false,
+          blockedReason: error instanceof Error ? error.message : 'desktop-task-executor-unavailable' }); }
+      });
+    }));
+    if (this.closed) throw new Error('task-desktop-sessions-closed');
+    const environments = options.flat();
+    const keys = environments.map(item => JSON.stringify([item.providerId, item.environmentId]));
+    if (new Set(keys).size !== keys.length) throw new Error('duplicate-desktop-environment');
+    return Object.freeze(environments);
   }
   acquire(taskId: string, fields: TaskDesktopFields,
     persist: (binding: NonNullable<TaskDesktopFields['desktopExecutionBinding']>) => void): Promise<Entry> {

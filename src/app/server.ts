@@ -256,6 +256,9 @@ function readRun(rootDir: string, source: string, taskId: string) {
       diagnosis: state.diagnosis,
       stagePlanVersion: state.stagePlanVersion,
       workflowRef: state.workflowRef,
+      desktopTarget: state.desktopTarget,
+      desktopExecutionBinding: state.desktopExecutionBinding,
+      desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
       workflowReplayState: state.workflowReplayState,
       facets: compactObservationFacets(state.observation?.facets),
       metricsAvailable: metrics.length > 0,
@@ -336,6 +339,12 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (request.method === 'GET' && url.pathname === '/api/desktop/environments') {
+      if (!controller?.desktopOptions) return json(response, 503, { error: 'desktop-selection-unavailable' });
+      void Promise.resolve().then(() => controller.desktopOptions!()).then(environments => json(response, 200, { environments }))
+        .catch(error => json(response, 503, { error: String(error) }));
+      return;
+    }
     if (request.method === 'PUT' && url.pathname === '/api/settings/task-budget') {
       if (!sameOrigin(request) || request.headers['sec-fetch-site'] === 'cross-site') return json(response, 403, { error: '只接受本机页面修改预算' });
       if (!request.headers['content-type']?.startsWith('application/json')) return json(response, 415, { error: '请使用 JSON' });
@@ -462,13 +471,13 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             if (body.admin !== undefined && typeof body.admin !== "boolean") {
               throw new Error("管理员权限开关必须为布尔值");
             }
-            if (body.destination !== undefined && !["host", "guest"].includes(String(body.destination))) {
-              throw new Error("执行位置必须为 host 或 guest");
+            if (body.destination !== undefined && (typeof body.destination !== 'string' || !["browser", "desktop", "host", "guest"].includes(body.destination))) {
+              throw new Error("执行位置必须为 browser 或 desktop");
             }
             let goal = body.goal.trim();
             const target = requestedDesktopTarget(body.desktopTarget);
-            if (body.destination === 'guest' && !target) throw new Error('desktop-target-required');
-            if (body.destination === 'host' && target) throw new Error('desktop-target-destination-conflict');
+            if (['guest', 'desktop'].includes(body.destination as string) && !target) throw new Error('desktop-target-required');
+            if (['host', 'browser'].includes(body.destination as string) && target) throw new Error('desktop-target-destination-conflict');
             for (const [field, label] of [["criteria", "完成条件"], ["constraints", "操作限制"]]) {
               const value = body[field];
               if (value !== undefined && (typeof value !== "string" || value.length > 500)) throw new Error(`${label}必须是最多 500 字的文本`);

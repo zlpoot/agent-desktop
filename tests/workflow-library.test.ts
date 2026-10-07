@@ -29,9 +29,12 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
   trace.close();
   const submitted: WorkflowExecutionRequest[] = [];
   const submittedBudgets: Array<BudgetOverride | undefined> = [];
+  const desktopTarget = { providerId: 'synthetic-provider', environmentId: 'desktop-one' };
+  const submittedTargets: unknown[] = [];
   const server = createDashboardServer(dir, {
     submit() { throw new Error('must use versioned submission'); },
-    submitWorkflow(request, budget) { submitted.push(request); submittedBudgets.push(budget); return 'task-1'; }, resume() {}, pause() {}, continue() {},
+    desktopOptions: async () => [{ ...desktopTarget, kind: 'physical', executable: true }],
+    submitWorkflow(request, budget, target) { submitted.push(request); submittedBudgets.push(budget); submittedTargets.push(target); return 'task-1'; }, resume() {}, pause() {}, continue() {},
   });
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('No port');
@@ -72,14 +75,15 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     await page.locator('.workflow-card').click();
     await page.getByLabel('流程版本', { exact: true }).selectOption('1');
     await page.getByLabel('value', { exact: true }).fill('测试值');
-    assert.equal(await page.getByRole('button', { name: '在当前虚拟桌面执行此版本' }).isDisabled(), true);
+    await page.locator('#workflow-desktop-target').selectOption(JSON.stringify(['synthetic-provider', 'desktop-one']));
+    assert.equal(await page.getByRole('button', { name: '执行此版本', exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();
     await page.getByText('v1 参数预览 · 未执行任何动作', { exact: true }).waitFor();
     assert.match(await page.locator('.workflow-preview').innerText(), /测试值/);
-    assert.equal(await page.getByRole('button', { name: '在当前虚拟桌面执行此版本' }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '执行此版本', exact: true }).isEnabled(), true);
     await page.getByLabel('value', { exact: true }).fill('其他值');
     assert.match(await page.locator('.workflow-preview').innerText(), /请重新预览/);
-    assert.equal(await page.getByRole('button', { name: '在当前虚拟桌面执行此版本' }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '执行此版本', exact: true }).isDisabled(), true);
     await page.getByLabel('流程版本', { exact: true }).selectOption('2');
     await page.getByRole('heading', { name: '新版输入 {{value}}', exact: true }).waitFor();
     assert.equal(await page.locator('.workflow-preview').innerText(), '');
@@ -93,18 +97,21 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     await page.getByText('v1 参数预览 · 未执行任何动作', { exact: true }).waitFor();
     await page.getByText('本次模型预算（可选）', { exact: true }).click();
     await page.locator('.workflow-budget-options').getByLabel('DeepSeek 最多调用次数').fill('3');
-    await page.getByRole('button', { name: '在当前虚拟桌面执行此版本' }).click();
+    await page.locator('#workflow-desktop-target').selectOption(JSON.stringify(['synthetic-provider', 'desktop-one']));
+    await page.getByRole('button', { name: '执行此版本', exact: true }).click();
     await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-1');
     assert.equal(submitted.length, 1);
     assert.deepEqual(submitted[0], { id: 'write-example', version: 1, ...executionBody, values: { value: '其他值' } });
     assert.deepEqual(submittedBudgets[0], { deepseek: { maxCalls: 3 } });
+    assert.deepEqual(submittedTargets[0], desktopTarget);
     await page.getByRole('button', { name: '流程库', exact: true }).click();
     await page.locator('.workflow-card').click();
     await page.getByLabel('value', { exact: true }).fill('试运行参数');
-    const trialButton = page.getByRole('button', { name: '在当前虚拟桌面试运行此候选版本', exact: true });
+    const trialButton = page.getByRole('button', { name: '试运行此候选版本', exact: true });
     assert.equal(await trialButton.isDisabled(), true);
     await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();
     await page.getByText('v2 参数预览 · 未执行任何动作', { exact: true }).waitFor();
+    await page.locator('#workflow-desktop-target').selectOption(JSON.stringify(['synthetic-provider', 'desktop-one']));
     await trialButton.click();
     await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-1');
     assert.equal(submitted.length, 2); assert.equal(submitted[1].trial, true);

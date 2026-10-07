@@ -177,7 +177,7 @@ test('网页设置全局预算并在单次任务提交中覆盖，空白字段�
     await page.getByText('已保存，后续新任务将使用这些默认值').waitFor();
     assert.equal(globalTaskBudget(dir).deepseek.maxCalls, 7);
     await page.locator('.workspace-nav').getByRole('button', { name: '工作台' }).click();
-    await page.locator('#task-destination').selectOption('host');
+    await page.locator('#task-destination').selectOption('browser');
     await page.locator('#task-goal').fill('整理文档');
     await page.getByText('完成条件、操作限制与单次预算（可选）').click();
     await page.locator('#task-deepseekCalls').fill('2');

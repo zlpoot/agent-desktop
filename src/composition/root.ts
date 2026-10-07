@@ -18,6 +18,8 @@ import type { DesktopProvider } from "../contracts/desktop-provider.js";
 import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
 import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import { PhysicalDesktopProvider, type PhysicalBackendFactory } from "../desktop-provider/physical-provider.js";
+import { PhysicalTaskExecutor } from '../desktop-provider/physical-task-executor.js';
+import { registeredGuestApps } from '../runtime/desktop/app-catalog.js';
 import { ResourceInputControl } from "../desktop-provider/resource-input-control.js";
 import { LocalWorkspaceDesktopProvider, type LocalWorkspaceAppConfig,
   type LocalWorkspaceBackendFactory } from "../desktop-provider/local-workspace-provider.js";
@@ -50,7 +52,7 @@ export interface ControlBus {
 export interface RootAssemblyOptions {
   rootDir: string;
   model?: ModelProvider;
-  /** Synthetic test port; production uses the existing compatibility executor. */
+  /** Synthetic registry port; production registers Hyper-V and explicitly configured Physical executors. */
   desktopSessions?: TaskDesktopSessions;
   traceStore?: (path: string) => TraceStore;
   workflowStore?: (path: string) => WorkflowStoreContract;
@@ -167,7 +169,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
       name: "taskController",
-      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility"],
+      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility"],
       apply(ctx) {
         // 从业务扩展注册表组装核心的 facet / contributor 注册表（核心本身不内置任何业务域）。
         const facetRegistry = new FacetRegistry();
@@ -187,7 +189,17 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
           traceStore: ctx.traceStore,
           workflowStore: ctx.workflowStore,
           desktopSessions: options.desktopSessions ?? new TaskDesktopSessions(ctx.desktopEnvironmentProviders,
-            new Map([[ctx.hyperVCompatibility.id, ctx.hyperVCompatibility]])),
+            new Map<string, import('../app/task-desktop-sessions.js').DesktopTaskExecutor>([
+              [ctx.hyperVCompatibility.id, {
+                taskControl: session => ctx.hyperVCompatibility.taskControl(session),
+                connectRuntime: (session, dir) => ctx.hyperVCompatibility.connectRuntime(session, dir),
+                lifecycleOwner: session => ctx.hyperVCompatibility.lifecycleOwner(session),
+                completeTask: (session, taskId) => ctx.hyperVCompatibility.completeTask(session, taskId),
+                appCatalog: () => registeredGuestApps(rootDir),
+              }],
+              [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
+                ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
+            ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
             !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&
             target.environmentId === `vm:${state.desktopVmId.toLowerCase()}`,
