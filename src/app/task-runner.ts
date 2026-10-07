@@ -225,7 +225,7 @@ export class DesktopTaskController implements TaskController {
     } finally { store.close(); }
   }
 
-  /** Programmatic P6-B entry. Target/scenario UI and HTTP selection remain P6-C. */
+  /** Explicit finite scenario entry shared by programmatic and HTTP callers. */
   submitScenario(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, override?: BudgetOverride): string {
     this.assertOpen();
     const definition = this.requireDesktopSessions().assertScenario(request?.desktopTarget, request?.scenarioId);

@@ -2,7 +2,7 @@ import type { DesktopEnvironment, DesktopProvider, DesktopSession } from '../con
 import type { RegisteredApp } from '../runtime/desktop/app-catalog.js';
 import type { InputControl } from '../contracts/desktop-provider.js';
 import type { WorkerClient } from '../contracts/worker-client.js';
-import type { DesktopScenarioDefinition, PreparedDesktopScenario } from '../contracts/desktop-scenario.js';
+import type { DesktopScenarioDefinition, DesktopScenarioOption, PreparedDesktopScenario } from '../contracts/desktop-scenario.js';
 import type { TaskDesktopFields, TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { desktopTarget, desktopExecutionBinding, sameDesktopTarget, sameDesktopBinding,
   validateTaskDesktop } from '../contracts/task-desktop.js';
@@ -12,6 +12,7 @@ export interface DesktopTaskExecutor {
   /** Fail before opening a Session when this executor cannot admit a generic Task. */
   assertAvailable?(): void;
   scenario?(target: TaskDesktopTarget, id: string): DesktopScenarioDefinition;
+  scenarios?(target: TaskDesktopTarget): readonly DesktopScenarioOption[];
   prepareScenario?(session: DesktopSession, artifactDir: string, id: string): Promise<PreparedDesktopScenario>;
   appCatalog?(): Promise<RegisteredApp[]>;
   taskControl(session: DesktopSession): InputControl;
@@ -22,8 +23,10 @@ export interface DesktopTaskExecutor {
   completeTask?(session: DesktopSession, taskId: string): Promise<void>;
 }
 export interface TaskDesktopOption extends DesktopEnvironment {
+  /** Generic Task/Workflow compatibility only; not live Session/target readiness. */
   readonly executable: boolean;
   readonly blockedReason?: string;
+  readonly scenarios?: readonly DesktopScenarioOption[];
 }
 interface Entry { session: DesktopSession; executor: DesktopTaskExecutor; control: InputControl;
   binding: NonNullable<TaskDesktopFields['desktopExecutionBinding']>; lifecycleOwner?: object; }
@@ -73,9 +76,24 @@ export class TaskDesktopSessions {
           throw new Error('desktop-discovery-identity-mismatch');
         }
         const target = desktopTarget(environment.providerId, environment.environmentId);
-        try { this.assertTarget(target); return Object.freeze({ ...target, kind: environment.kind, executable: true }); }
+        const catalog = this.executors.get(provider.id)?.scenarios?.(target);
+        const seen = new Set<string>();
+        const scenarios = catalog?.map(item => {
+          if (!item.id || seen.has(item.id) || !item.label ||
+              !['supported', 'unavailable', 'unsupported', 'not-proven'].includes(item.availability)) {
+            throw new Error('invalid-desktop-scenario-catalog');
+          }
+          seen.add(item.id);
+          if (item.availability === 'supported') {
+            try { this.assertScenario(target, item.id); }
+            catch { return Object.freeze({ ...item, availability: 'unavailable' as const, reason: 'desktop-scenario-unavailable' }); }
+          }
+          return Object.freeze({ ...item });
+        });
+        const catalogFields = scenarios ? { scenarios: Object.freeze(scenarios) } : {};
+        try { this.assertTarget(target); return Object.freeze({ ...target, kind: environment.kind, executable: true, ...catalogFields }); }
         catch (error) { return Object.freeze({ ...target, kind: environment.kind, executable: false,
-          blockedReason: error instanceof Error ? error.message : 'desktop-task-executor-unavailable' }); }
+          blockedReason: error instanceof Error ? error.message : 'desktop-task-executor-unavailable', ...catalogFields }); }
       });
     }));
     if (this.closed) throw new Error('task-desktop-sessions-closed');
