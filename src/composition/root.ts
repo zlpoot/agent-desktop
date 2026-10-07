@@ -30,6 +30,9 @@ import type { TraceStore, WorkflowStore as WorkflowStoreContract } from "../cont
 import type { WorkerClientFactory } from "../contracts/worker-client.js";
 import "./services.js";
 import { mountInspected, inspectAssembly, type AssemblySnapshot } from './inspection.js';
+import { composeEnvironmentApps, type EnvironmentAppInfrastructure } from './environment-apps.js';
+import { SqliteEnvironmentAppStore } from '../environment-apps/sqlite-registry.js';
+import type { EnvironmentAppServices } from '../contracts/environment-apps.js';
 
 /**
  * 控制总线：DesktopSessionManager 的 controlMessage/controlDisconnected 是单回调，
@@ -52,6 +55,8 @@ export interface ControlBus {
 
 export interface RootAssemblyOptions {
   rootDir: string;
+  /** Trusted environment/installation scope adapters. P7-A production default is empty. */
+  environmentApps?: readonly EnvironmentAppInfrastructure[];
   model?: ModelProvider;
   /** Synthetic registry port; production registers Hyper-V and explicitly configured Physical executors. */
   desktopSessions?: TaskDesktopSessions;
@@ -77,6 +82,7 @@ export interface RootAssembly {
   vmControl?: VmControl;
   controlBus: ControlBus;
   environmentProviders: readonly EnvironmentProvider[];
+  environmentApps: EnvironmentAppServices;
   /** 拒绝新任务/控制，等待任务收尾，再释放 Session 与基础设施。 */
   dispose(): Promise<void>;
 }
@@ -169,6 +175,15 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       'localWorkspaceCompatibility',
       ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
+      name: 'applicationRegistry',
+      apply(ctx) {
+        const store = new SqliteEnvironmentAppStore(resolve(rootDir, 'environment-apps.sqlite'));
+        try { ctx.provide('environmentApps', composeEnvironmentApps(store, options.environmentApps)); }
+        catch (error) { store.close(); throw error; }
+        return () => store.close();
+      },
+    }, 'Root', ['environmentApps']);
+    await mountInspected(root, {
       name: "taskController",
       inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility", "localWorkspaceCompatibility"],
       apply(ctx) {
@@ -231,6 +246,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       vmControl: root.vmControl,
       controlBus,
       environmentProviders: root.desktopEnvironmentProviders,
+      environmentApps: root.environmentApps,
       dispose,
     };
   } catch (error) {
