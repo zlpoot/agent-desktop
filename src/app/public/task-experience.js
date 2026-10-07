@@ -37,7 +37,9 @@ window.createDesktopSelection = function (select, includeBrowser, changed) {
       if (!item) return '请选择可用的执行桌面';
       if (!item.executable) return item.kind === 'local-workspace'
         ? 'Local Workspace 仅支持有限的已验证场景，暂不支持通用任务或 Workflow。'
-        : item.blockedReason === 'physical-task-policy-required' ? '本机桌面尚未配置输入策略。' : '该桌面没有可用的任务执行器。';
+        : item.blockedReason === 'physical-task-policy-required' ? '本机桌面尚未配置输入策略。'
+        : item.blockedReason === 'physical-task-capability-not-proven' ? '本机桌面通用执行能力尚未完成范围化验证。'
+        : '该桌面没有可用的任务执行器。';
       return '';
     },
     payload() {

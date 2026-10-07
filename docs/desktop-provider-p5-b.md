@@ -2,13 +2,13 @@
 
 Review base: current `main` `612adb6915e4d5cf06bd3eb6f96c6160d3cb9ac1`, the merged P5-A PR #10. Its tree is identical to the original implementation base `940db60dd54461e31fcb513a6431d4d0dc596d34`. This work is isolated on `codex/p5-b-unified-routing`.
 
-Status: **P5-B PRE-REVIEW PASS / READY FOR INDEPENDENT REVIEW** (user pre-review, 2026-10-07). **Independent Review ACCEPTED has not been granted; merge is not authorized.** Author validation is not independent review. This materialization only records and publishes the existing diff and verification results; it adds no functionality, download fix or live experiment. Historical A5 `safety FAIL`, Windows `PAUSED`, and overall `INCOMPLETE` remain unchanged.
+Status: **P5-B FOLLOW-UP FIX / READY FOR NARROW RE-REVIEW** (2026-10-07). Independent review found that Physical policy was being treated as generic capability admission. This follow-up keeps the managed Physical executor/renewal implementation but makes generic Physical Task/Workflow routing fail closed while Physical input remains `not-proven`. **Independent Review ACCEPTED has not yet been granted; merge is not authorized until re-review.** Historical A5 `safety FAIL`, Windows `PAUSED`, and overall `INCOMPLETE` remain unchanged.
 
 ## Selection and routing
 
 `GET /api/desktop/environments` discovers exact `{ providerId, environmentId, kind, executable, blockedReason? }` options through the Task registry. Discovery never opens a Session, starts a backend, claims input, or calls a model. Native handles, endpoints, input resources and grants are absent. Mismatched or duplicate discovery identities reject.
 
-`executable` describes executor availability, not current runtime readiness or proven application support. Readiness and ownership are checked on the selected Session during execution. The legacy VM Viewer remains a separate compatibility view and cannot choose or replace a Task's environment.
+`executable` is a conservative generic-Task admission signal. It requires an available executor and any pre-Session admission gate to pass; it does not claim current runtime readiness. Physical remains `executable: false` while its required input capabilities are `not-proven`, even when operator policy allows a mechanism. The legacy VM Viewer remains a separate compatibility view and cannot choose or replace a Task's environment.
 
 The Task form selects Browser or an exact desktop environment. Windows Workflow execute/trial uses the same selector and sends `desktopTarget`; Browser Workflow execute/trial sends no desktop selection and does not depend on the legacy VM control state. Fixed version, preview hash, typed parameters and budget overrides remain intact. Missing or unsupported executors reject before Session acquisition. The old `host`/`guest` API values are retained as compatibility syntax, with the existing explicit-target requirements; new UI requests use `browser`/`desktop`.
 
@@ -21,11 +21,11 @@ The existing immutable execution binding and exact retained-Session continuation
 | Environment | Task route |
 | --- | --- |
 | Hyper-V | Existing bound compatibility executor; Guest-specific application catalog stays in composition |
-| Physical | Managed Physical executor, only with explicit window-management and executor policy |
+| Physical | Discoverable, but generic Task/Workflow execution remains refused with `physical-task-capability-not-proven`; policy alone is not capability evidence |
 | Local Workspace | Discoverable when configured; generic Task/Workflow execution refused because P4 exposes only finite validated scenarios |
 | Unknown/unregistered executor | Refused; no native/Worker/first-environment fallback |
 
-Physical Tasks acquire the resource arbiter's full Agent authority before managed runtime construction. Every operation still passes through the Physical Provider's session, backend identity, readiness, observation, policy and selected-executor fences, and the native Worker independently checks the grant. No Guest application catalog or application-launch fallback is exposed on Physical.
+The managed Physical executor remains as a lower-level runtime path for future capability-admitted use. When such a caller has independently established scoped support, it acquires the resource arbiter's full Agent authority before runtime construction; every operation still passes through the Physical Provider's session, backend identity, readiness, observation, policy and selected-executor fences, and the native Worker independently checks the grant. P5-B itself does not claim the missing target-scoped Physical evidence and therefore does not expose this path to generic Tasks/Workflows.
 
 Managed Task heartbeats run every second while their runtime is alive. Renewal requires a fresh backend handshake and an unexpired Host authority. The native `physical_renew` checks exact installed authority, current immutable resource identity, readiness and the backend's monotonic deadline; each extension remains capped at three seconds. Expired, revoked, foreign or replaced grants cannot renew. Failed heartbeat closes the runtime; a lost native renewal ACK also invalidates the Session binding. No automatic rebind or resume occurs. Runtime close, task finish, Session revoke and shutdown stop the heartbeat. Lost revoke ACKs keep resources blocked, including manual completion. Old Physical backends without renewal support reject before planning.
 
@@ -35,11 +35,11 @@ The exact diff includes existing native/control/authority behavior changes: `phy
 
 ## Operator configuration
 
-The Dashboard optionally reads the operator-owned JSON file named by `AGENT_DESKTOP_ENVIRONMENT_CONFIG`. [Example](../config/desktop-environments.example.json) keeps Physical input closed. No file means closed Physical policy and no configured Local Workspace. `physicalInputPolicy` supports `windowManagement` and an explicit `executors` allowlist; `localWorkspace` uses the existing bounded Provider configuration. Invalid configuration fails startup. The same options remain injectable through `createRootAssembly` for synthetic harnesses. Loading configuration does not start a desktop or authorize a real experiment.
+The Dashboard optionally reads the operator-owned JSON file named by `AGENT_DESKTOP_ENVIRONMENT_CONFIG`. [Example](../config/desktop-environments.example.json) keeps Physical input closed. No file means closed Physical policy and no configured Local Workspace. `physicalInputPolicy` supports `windowManagement` and an explicit `executors` allowlist; it authorizes mechanisms but does not make generic Physical Tasks executable. `localWorkspace` uses the existing bounded Provider configuration. Invalid configuration fails startup. The same options remain injectable through `createRootAssembly` for synthetic harnesses. Loading configuration does not start a desktop or authorize a real experiment.
 
 ## Validation
 
-Required: `npm run check`, `npm run test:offline`, `npm run test:python`, `npm run test:browser`. New synthetic coverage exercises lazy discovery, exact UI payloads, draft persistence/removal, Browser Workflow routing without VM readiness, production Physical composition before planning, retained bindings, lease expiry, old renewal protocol, lost renewal/revoke ACKs, backend replacement, competing Sessions and finite Local Workspace rejection.
+Required: `npm run check`, `npm run test:offline`, `npm run test:python`, `npm run test:browser`. New synthetic coverage exercises lazy discovery, exact UI payloads, draft persistence/removal, Browser Workflow routing without VM readiness, configured Physical generic rejection before planning, lower-level managed Physical lifecycle/renewal contracts, retained bindings, lease expiry, old renewal protocol, lost renewal/revoke ACKs, backend replacement, competing Sessions and finite Local Workspace rejection.
 
 The inherited Windows `workflow-library.test.ts` report download failure (`download.saveAs: canceled`) remains visible. P5-A documented the identical failure on its unchanged P4 base. Selection, preview, execution and trial assertions preceding that download pass; the download test is neither skipped nor weakened.
 

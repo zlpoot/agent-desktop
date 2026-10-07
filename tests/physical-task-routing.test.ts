@@ -6,12 +6,10 @@ import { tmpdir } from 'node:os';
 import { PhysicalDesktopProvider, type PhysicalBackend } from '../src/desktop-provider/physical-provider.js';
 import { PhysicalTaskExecutor } from '../src/desktop-provider/physical-task-executor.js';
 import { ResourceInputControl } from '../src/desktop-provider/resource-input-control.js';
-import { TaskDesktopSessions } from '../src/app/task-desktop-sessions.js';
+import { TaskDesktopSessions, type DesktopTaskExecutor } from '../src/app/task-desktop-sessions.js';
 import { desktopTarget } from '../src/contracts/task-desktop.js';
 import { singleProvider } from '../src/actions/action-resolution.js';
 import { createRootAssembly } from '../src/composition/root.js';
-import { SqliteTrace } from '../src/trace/sqlite-trace.js';
-import type { PlanningModel } from '../src/contracts/model-provider.js';
 import { loadDesktopEnvironmentConfig } from '../src/composition/desktop-environment-config.js';
 
 const resolution = singleProvider('windows.pyautogui.act', 'synthetic policy');
@@ -32,23 +30,38 @@ function fixture(inputPolicy = policy) {
   const factory = async () => { factoryCalls++; return backend; };
   const provider = new PhysicalDesktopProvider(input, factory, inputPolicy, true);
   const executor = new PhysicalTaskExecutor(provider, input, inputPolicy);
-  const sessions = new TaskDesktopSessions([provider], new Map([[provider.id, executor]]));
+  // Synthetic-only harness: these tests exercise the managed runtime after a hypothetical
+  // independent capability gate. Production generic routing uses executor.assertAvailable().
+  const capabilityAdmittedExecutor: DesktopTaskExecutor = {
+    taskControl: session => executor.taskControl(session),
+    connectRuntime: (session, dir) => executor.connectRuntime(session, dir),
+    appCatalog: () => executor.appCatalog(),
+    completeTask: (session, taskId) => executor.completeTask(session, taskId),
+  };
+  const sessions = new TaskDesktopSessions([provider], new Map([[provider.id, capabilityAdmittedExecutor]]));
   const target = desktopTarget(provider.id, 'current-interactive-desktop');
   return { provider, executor, sessions, target, factory, backend,
     counts: () => ({ factoryCalls, effects, revokes }), expire: () => { now = 3001; },
     replace: () => { instance = 'replacement'; }, failRevoke: () => { failRevoke = true; }, failRenew: () => { failRenew = true; } };
 }
 
-test('discovery and default Physical rejection are lazy; selection grants no input', async () => {
+test('generic Physical discovery is lazy and policy alone never upgrades not-proven capability', async () => {
   assert.deepEqual(loadDesktopEnvironmentConfig(), {});
-  const f = fixture({ windowManagement: false, executors: [] });
-  try {
-    assert.deepEqual(await f.sessions.discover(), [{ ...f.target, kind: 'physical', executable: false,
-      blockedReason: 'physical-task-policy-required' }]);
-    assert.throws(() => f.sessions.assertTarget(f.target), /physical-task-policy-required/);
-    await assert.rejects(f.sessions.acquire('task', { taskBindingVersion: 1, desktopTarget: f.target }, () => assert.fail()), /physical-task-policy-required/);
-    assert.deepEqual(f.counts(), { factoryCalls: 0, effects: 0, revokes: 0 });
-  } finally { await f.sessions.close(); await f.provider.close(); }
+  for (const [inputPolicy, reason] of [
+    [{ windowManagement: false, executors: [] }, 'physical-task-policy-required'],
+    [policy, 'physical-task-capability-not-proven'],
+  ] as const) {
+    const f = fixture(inputPolicy);
+    const genericSessions = new TaskDesktopSessions([f.provider], new Map([[f.provider.id, f.executor]]));
+    try {
+      assert.deepEqual(await genericSessions.discover(), [{ ...f.target, kind: 'physical', executable: false,
+        blockedReason: reason }]);
+      assert.throws(() => genericSessions.assertTarget(f.target), new RegExp(reason));
+      await assert.rejects(genericSessions.acquire('task', { taskBindingVersion: 1, desktopTarget: f.target }, () => assert.fail()),
+        new RegExp(reason));
+      assert.deepEqual(f.counts(), { factoryCalls: 0, effects: 0, revokes: 0 });
+    } finally { await genericSessions.close(); await f.sessions.close(); await f.provider.close(); }
+  }
 });
 
 test('selected Physical executor uses the managed grant, selected policy and retained binding', async () => {
@@ -137,26 +150,20 @@ test('backend replacement invalidates the original Task and does not reopen a Se
   } finally { await f.sessions.close(); await f.provider.close(); }
 });
 
-test('production composition routes explicit Physical Tasks before planning and persists their exact identity', async () => {
+test('production composition keeps configured Physical generic Tasks non-executable before planning', async () => {
   const f = fixture(); const directory = mkdtempSync(join(tmpdir(), 'p5-b-physical-'));
-  let plans = 0;
-  let started!: () => void;
-  const planning = new Promise<void>(resolve => { started = resolve; });
+  let modelStarts = 0;
   const assembly = await createRootAssembly({ rootDir: directory, physicalBackendFactory: f.factory, physicalInputPolicy: policy,
-    model: { createModel: () => ({ name: 'synthetic', kind: 'rule', async planTask(_goal: string, windows: unknown[], apps: unknown[]) {
-      plans++; started(); assert.deepEqual(windows, []); assert.deepEqual(apps, []); throw new Error('synthetic-plan-stop');
-    } } as unknown as PlanningModel) } });
+    model: { createModel: () => { modelStarts++; throw new Error('model-must-not-start'); } } });
   try {
-    const taskId = assembly.controller.submit('VM: remains ordinary goal text', { desktopTarget: f.target });
-    await planning;
-    await assembly.controller.close();
-    const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
-    try {
-      assert.deepEqual(trace.load(taskId)?.desktopTarget, f.target);
-      assert.equal(trace.load(taskId)?.desktopExecutionBinding?.instanceId, 'fixture-instance');
-      assert.equal(trace.load(taskId)?.desktopExecutionBinding?.providerId, 'physical');
-    } finally { trace.close(); }
-    assert.equal(plans, 1); assert.equal(f.counts().factoryCalls, 1); assert.equal(f.counts().revokes, 1);
+    const options = await assembly.controller.desktopOptions();
+    const physical = options.find(item => item.kind === 'physical');
+    assert.deepEqual(physical, { ...f.target, kind: 'physical', executable: false,
+      blockedReason: 'physical-task-capability-not-proven' });
+    assert.throws(() => assembly.controller.submit('VM: remains ordinary goal text', { desktopTarget: f.target }),
+      /physical-task-capability-not-proven/);
+    assert.equal(modelStarts, 0);
+    assert.deepEqual(f.counts(), { factoryCalls: 0, effects: 0, revokes: 0 });
   } finally { await assembly.dispose(); await f.provider.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 

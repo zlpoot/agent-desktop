@@ -17,12 +17,14 @@ export class PhysicalTaskExecutor implements DesktopTaskExecutor {
     policy: PhysicalInputPolicy = { windowManagement: false, executors: [] }) {
     this.permitted = policy.windowManagement && policy.executors.length > 0;
   }
+  /** Generic Task/Workflow admission. Policy grants permission, not capability evidence. */
   assertAvailable(): void {
     if (!this.permitted) throw new Error('physical-task-policy-required');
+    throw new Error('physical-task-capability-not-proven');
   }
   appCatalog() { return Promise.resolve([]); } // No Guest catalog or arbitrary application launch on the host.
+  /** Lower-level managed runtime control; callers must have passed an independent scoped capability gate. */
   taskControl(session: DesktopSession): InputControl {
-    this.assertAvailable();
     if (this.claims.has(session)) throw new Error('physical-task-control-already-created');
     const claim: Claim = {}; this.claims.set(session, claim);
     return {
