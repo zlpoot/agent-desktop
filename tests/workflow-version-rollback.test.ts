@@ -97,7 +97,7 @@ test("rollback：显式指定旧 verified definition 可恢复执行", () => {
     const prepared = prepareWorkflowExecution(v1, { id: v1.id, version: 1,
       definitionHash: workflowDigest(v1),
       values: { lhs: 37, op: "add", rhs: 58 }, destination: "windows" });
-    assert.equal(prepared.goal, "VM: 计算 37 加 58");
+    assert.equal(prepared.goal, "计算 37 加 58");
     assert.equal(prepared.ref.version, 1);
     // 旧定义仍保持 verified 且 hash 未漂移
     assert.equal(store.get(addV1.id, 1)?.status, "verified");

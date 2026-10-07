@@ -210,12 +210,14 @@ export class DesktopTaskController implements TaskController {
 
   submitWorkflow(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string {
     this.assertOpen();
-    if (!target) throw new Error('desktop-target-required');
-    target = this.requireDesktopSessions().assertTarget(target);
     const store = this.workflowStore(resolve(this.rootDir, 'workflows.sqlite'));
     try {
       const prepared = prepareWorkflowExecution(store.get(request.id, request.version), request);
-      return this.submitGeneric(prepared.goal, prepared.ref, parseBudgetOverride(budget), target);
+      if (prepared.workflow.environment === 'windows') {
+        if (!target) throw new Error('desktop-target-required');
+        target = this.requireDesktopSessions().assertTarget(target);
+      } else if (target !== undefined) throw new Error('desktop-target-destination-conflict');
+      return this.submitGeneric(prepared.goal, prepared.ref, parseBudgetOverride(budget), target, request.destination);
     } finally { store.close(); }
   }
 
@@ -228,13 +230,13 @@ export class DesktopTaskController implements TaskController {
   }
 
   private submitGeneric(goal: string, workflowRef?: import('../graph/state.js').ComputerState['workflowRef'],
-    budget?: BudgetOverride, target?: TaskDesktopTarget): string {
+    budget?: BudgetOverride, target?: TaskDesktopTarget, destination?: WorkflowExecutionRequest['destination']): string {
     const contract = workflowRef ? undefined : taskContract(goal, taskProfile(goal, this.registry));
     const taskId = randomUUID();
     createTaskBudget(this.rootDir, taskId, budget);
     const db = this.routeDb();
-    try { db.prepare(`INSERT INTO generic_routes (task_id, created_at) VALUES (?, ?)`)
-      .run(taskId, new Date().toISOString()); }
+    try { db.prepare(`INSERT INTO generic_routes (task_id, environment, created_at) VALUES (?, ?, ?)`)
+      .run(taskId, destination ?? null, new Date().toISOString()); }
     finally { db.close(); }
     const trace = this.traceStore(this.tracePath);
     try { trace.save("queued", { ...initialState(taskId, goal), taskBindingVersion: 1,
@@ -274,7 +276,6 @@ export class DesktopTaskController implements TaskController {
         .get(taskId) as typeof route; }
       finally { db.close(); }
       if (!route) throw new Error("缺少通用任务路由");
-      const model = this.modelProvider.createModel();
       const savedForResume = response ? trace.load(taskId) : undefined;
       const savedWindowIdentity = savedForResume?.taskContract?.windowIdentity ??
         (savedForResume?.desktopBinding && savedForResume.observation?.windowTitle
@@ -284,11 +285,22 @@ export class DesktopTaskController implements TaskController {
           : undefined);
       const pinned = (savedForResume ?? queued).workflowRef;
       const pinnedWorkflow = pinned?.id ? workflows.get(pinned.id, pinned.version) : undefined;
+      if (pinned?.explicit && !pinnedWorkflow) throw new Error('原流程版本缺失');
       const explicit = pinned?.explicit && pinnedWorkflow ? prepareWorkflowExecution(pinnedWorkflow, {
         ...pinned, definitionHash: pinned.definitionHash ?? '',
         destination: routeWorkflowDestination(pinnedWorkflow),
       }) : undefined;
       let environment: "browser" | "windows";
+      if (explicit) {
+        if (explicit.workflow.environment === 'windows' && !queued.desktopTarget) throw new Error('desktop-target-required');
+        if (explicit.workflow.environment === 'browser' && queued.desktopTarget) throw new Error('desktop-target-destination-conflict');
+        const savedEnvironment = route.environment === 'agent_desktop' ? 'windows' : route.environment;
+        if (savedEnvironment && savedEnvironment !== explicit.workflow.environment) throw new Error('workflow-route-environment-mismatch');
+      }
+      const model = this.modelProvider.createModel(explicit ? {
+        environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
+        visualMode: explicit.workflow.environment === 'windows',
+      } : undefined);
       this.assertTaskCompatibility(queued, route.environment);
       if (queued.desktopTarget) {
         const entry = await this.requireDesktopSessions().acquire(taskId, queued, binding => {
@@ -320,7 +332,13 @@ export class DesktopTaskController implements TaskController {
         const profile = taskProfile(queued.goal, this.registry);
         const windows = profile?.selectWindows?.(discovered) ?? discovered;
         const fixedWindow = guest && explicit ? explicitWorkflowWindow(explicit.workflow, windows) : undefined;
-        if (fixedWindow && explicit) {
+        if (explicit?.workflow.environment === 'browser') {
+          environment = 'browser';
+          plan = explicit.workflow.steps.map(step => step.goal);
+          completionCriteria = explicit.workflow.successConditions;
+          trace.recordNodeMetric(taskId, { step: 0, node: 'plan', startedAt: new Date().toISOString(),
+            durationMs: 0, actor: 'rule', operator: '指定浏览器流程结构化路由' });
+        } else if (fixedWindow && explicit) {
           environment = 'windows';
           windowHandle = fixedWindow.handle;
           plan = explicit.workflow.steps.map(step => step.goal);
@@ -347,6 +365,7 @@ export class DesktopTaskController implements TaskController {
             modelName: model.name, ...planned.usage });
           ({ environment, windowHandle, plan, completionCriteria, verificationContract } = planned.task);
           if (explicit) {
+            if (environment !== explicit.workflow.environment) throw new Error('workflow-plan-environment-mismatch');
             plan = explicit.workflow.steps.map(step => step.goal);
             completionCriteria = explicit.workflow.successConditions;
             // The pinned Workflow definition owns its own verification contract.
@@ -484,14 +503,14 @@ export class DesktopTaskController implements TaskController {
           summary: `保存阶段候选流程 ${candidate.id} v${candidate.version}` });
         return { workflowId: candidate.id, workflowVersion: candidate.version };
       };
-      if (guest) {
+      if (guest || explicit) {
         const saved = savedForResume ?? queued;
         let guestModel: ModelAdapter = saved.taskContract ? new StageWorkflowModel(exploreModel, workflows,
           (reason, state) => trace.save("workflow_fallback", { ...state, summary: reason }), environment) : exploreModel;
         if (!saved.taskContract && saved.workflowRef) {
           const original = workflows.get(saved.workflowRef.id, saved.workflowRef.version);
           if (!original || original.status === "retired") throw new Error("原流程版本缺失或已撤回");
-          const replay = new WorkflowReplayModel(instantiateWorkflow({ workflow: original,
+          const replay = new WorkflowReplayModel(explicit?.workflow ?? instantiateWorkflow({ workflow: original,
             values: saved.workflowRef.values, score: 1 }), exploreModel, undefined, undefined, undefined, saved.workflowRef.explicit === true);
           if (saved.workflowReplayState) replay.restoreState(saved.workflowReplayState);
           guestModel = replay;
@@ -504,11 +523,12 @@ export class DesktopTaskController implements TaskController {
           ...(saved.taskContract ? { onStageCompleted: stageCompletion } : {}),
           pauseRequested: (id) => trace.pauseRequested(id) });
         if (response?.kind === "restart") {
+          if (!guest && savedForResume?.observation) await runtime.restore(savedForResume.observation);
           const recovered = { ...restartedDesktopState(savedForResume!), ...taskDesktopFields(queued), desktopBinding };
           trace.save("restart_reobserve", recovered);
           await graph.invoke(recovered, { configurable: { thread_id: recovered.checkpointThreadId! } });
         }
-        else if (response?.kind === "continue") await continuePausedTask(graph, taskId, savedForResume?.checkpointThreadId, undefined, queued);
+        else if (response?.kind === "continue") await continuePausedTask(graph, taskId, savedForResume?.checkpointThreadId, guest ? undefined : runtime, queued);
         else if (response) await resumeSavedTask(graph, runtime, taskId,
           response.answer ? { answer: response.answer } : { approved: response.approved === true }, savedForResume?.checkpointThreadId, queued);
         else await graph.invoke({ ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), desktopBinding,
