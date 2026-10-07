@@ -65,6 +65,10 @@ function unprovenGoalFileExpectations(state: ComputerState) {
 
 const State = Annotation.Root({
   taskId: Annotation<string>(),
+  desktopScenario: Annotation<ComputerState['desktopScenario']>({ reducer: (previous, next) => {
+    if (previous !== undefined && previous !== next) throw new Error('immutable-task-desktopScenario');
+    return next;
+  } }),
   taskBindingVersion: Annotation<ComputerState["taskBindingVersion"]>({ reducer: (previous, next) => {
     if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(next)) {
       throw new Error('immutable-task-taskBindingVersion');

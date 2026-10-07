@@ -8,8 +8,11 @@ import type { Observation } from "../actions/schema.js";
 import type { CapabilityContext, CapabilityDeclaration, CapabilityScope, CapabilityState, DesktopCapabilities, DesktopCapability,
   DesktopProvider, DesktopSession, DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
   DesktopReadiness } from "../contracts/desktop-environment.js";
-import type { DesktopInputArbiter, DesktopInputControl, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
+import type { DesktopInputArbiter, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
 import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
+import type { DesktopExecutionBackend, TargetBinding } from '../contracts/desktop-execution.js';
+import type { DesktopObservationBinding } from '../contracts/desktop-environment.js';
+import type { DesktopScenarioDefinition, DesktopScenarioVerification } from '../contracts/desktop-scenario.js';
 
 export type LocalWorkspaceAppConfig =
   | { app: "fixture" }
@@ -57,6 +60,11 @@ export interface LocalWorkspaceTarget extends DesktopTargetBinding {
   readonly capabilities: DesktopCapabilities;
   readonly readiness: DesktopReadiness;
 }
+export interface LocalWorkspaceScenarioBackend extends DesktopExecutionBackend<string, void> {
+  observe(authority: InputAuthority): Promise<{ observation: Observation; binding: DesktopObservationBinding }>;
+  verify(authority: InputAuthority): Promise<DesktopScenarioVerification>;
+  close(): Promise<void>;
+}
 interface Binding {
   identity: DesktopSessionIdentity;
   state: DesktopSessionStatus["state"];
@@ -68,6 +76,7 @@ interface Binding {
   desktopName: string;
   windowsSessionId: number;
   d0Epoch: number;
+  d0Owner: string;
   transitioning: boolean;
   scenarioStarted: boolean;
   authority?: InputAuthority;
@@ -228,7 +237,7 @@ function inspectD0Png(bytes: Buffer): { width: number; height: number } | undefi
 export class LocalWorkspaceDesktopProvider implements DesktopProvider {
   readonly id = "windows-local-workspace";
   readonly kind = "local-workspace" as const;
-  readonly inputControl: DesktopInputControl;
+  readonly inputControl: DesktopInputArbiter;
   private readonly bindings = new Map<string, Binding>();
   private readonly opening = new Set<Promise<DesktopSession>>();
   private closed = false;
@@ -278,6 +287,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       if (next.status !== "ready" || !next.control_ready || next.owner !== "none" || !Number.isInteger(next.epoch))
         throw new WorkspaceBackendError("D0 owner transition was not acknowledged");
       record.d0Epoch = next.epoch!;
+      record.d0Owner = next.owner!;
     }, authority => this.activate(authority));
   }
 
@@ -292,12 +302,13 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
   private async confirm(record: Binding): Promise<LocalWorkspaceState> {
     this.record(record.identity);
     if (record.transitioning) deny("local-workspace-transition-in-progress");
-    const authority = record.authority;
+    // Management/preflight reads only native identity and acknowledged control facts.
+    // Input authority is checked separately at observation/dispatch/effect time.
+    const epoch = record.d0Epoch, owner = record.d0Owner;
     try {
       const current = await record.backend.state();
-      if (record.transitioning || record.authority !== authority) deny("local-workspace-transition-in-progress");
-      const owner = record.authority?.owner.kind ?? "agent";
-      if (current.state.status !== "ready" || current.state.run_id !== record.runId ||
+      if (record.transitioning || record.d0Epoch !== epoch || record.d0Owner !== owner) deny("local-workspace-transition-in-progress");
+      if (current.state.status !== "ready" || current.state.app !== record.config.app || current.state.run_id !== record.runId ||
           current.state.desktop !== record.desktopName || current.targetId !== record.targetId ||
           current.backendInstanceId !== record.identity.instanceId ||
           current.windowsSessionId !== record.windowsSessionId || current.state.epoch !== record.d0Epoch ||
@@ -306,7 +317,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       }
       return current.state;
     } catch (error) {
-      if (!record.transitioning && record.authority === authority) this.invalidate(record);
+      if (!record.transitioning && record.d0Epoch === epoch && record.d0Owner === owner) this.invalidate(record);
       throw error;
     }
   }
@@ -409,22 +420,24 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       inputResourceId });
     const record: Binding = { identity, state: this.closed ? "closed" : "open", config: this.config, appVersion: this.appVersion,
       backend, targetId: connection.targetId, runId: state.run_id, desktopName: state.desktop!,
-      windowsSessionId: connection.windowsSessionId, d0Epoch: state.epoch!, transitioning: false, scenarioStarted: false };
+      windowsSessionId: connection.windowsSessionId, d0Epoch: state.epoch!, d0Owner: state.owner!, transitioning: false, scenarioStarted: false };
     this.bindings.set(sessionId, record);
     if (this.closed) { await this.cleanup(record); deny("provider-closed"); }
     backend.setEventHandler(event => this.handleEvent(record, event));
     return Object.freeze({ ...identity,
       capabilities: async () => { this.record(identity); return this.capabilities(); },
       status: async () => {
+        let native: LocalWorkspaceState | undefined;
         if (record.state === "open" && !record.transitioning) {
           try {
-            await this.confirm(record);
+            native = await this.confirm(record);
           } catch { /* confirm invalidates identity failures; handoff is transient. */ }
         }
-        const open = record.state === "open" && !record.transitioning;
+        const open = record.state === "open" && !record.transitioning && native?.control_ready === true;
         const capabilities = await this.capabilities();
         return { state: record.state, readiness: Object.fromEntries(Object.entries(capabilities).map(([key, values]) =>
-          [key, { state: !open ? "not-ready" as const : values?.every(item => item.state === "supported") ? "ready" as const : "unknown" as const }])) };
+          [key, { state: !open || key.startsWith('input.') && record.config.app === 'netease' && native?.input_ready !== true ?
+            "not-ready" as const : values?.every(item => item.state === "supported") ? "ready" as const : "unknown" as const }])) };
       },
       close: async () => { if (record.state !== "closed") record.state = "closed"; await this.cleanup(record); },
     });
@@ -435,7 +448,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     const state = await record.backend.activateGrant(record.runId, authority);
     if (state.status !== "ready" || !state.control_ready || state.owner !== authority.owner.kind || !Number.isInteger(state.epoch))
       throw new WorkspaceBackendError("D0 control epoch activation unconfirmed");
-    record.d0Epoch = state.epoch!; record.authority = authority;
+    record.d0Epoch = state.epoch!; record.d0Owner = state.owner!; record.authority = authority;
     record.transitioning = false;
     if (authority.owner.kind === "agent") {
       clearInterval(record.heartbeat);
@@ -519,6 +532,118 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     this.input.assertAuthority(session, authority);
     if (authority.owner.kind !== "human" || record.authority !== authority) deny("human-viewer-authority-required");
     return record.backend.viewerUrl();
+  }
+  /** Read-only finite selection, with no worker construction or input claim. */
+  scenario(environmentId: string, id: string): DesktopScenarioDefinition {
+    if (!this.available || this.closed) deny('local-workspace-unavailable');
+    if (environmentId !== this.environmentId) deny('unknown-local-workspace-environment');
+    const expected = this.config.app === 'fixture' ? 'd0-fixture-text-click-v1' : 'd0-netease-fixed-track-v1';
+    if (id !== expected) deny('local-workspace-scenario-not-proven');
+    return Object.freeze({ id, goal: this.config.app === 'fixture' ?
+      '运行 D0 合成 EDIT/BUTTON 固定文本与点击场景' : '网易云 3.1.40.205461：播放孙燕姿《我怀念的》' });
+  }
+  /** P6-B production port: prepare/bind/status/requirements do not inspect authority.
+   * Native observation tokens stay inside the existing P4 runtime and Python fence. */
+  scenarioBackend(session: DesktopSession, artifactDir: string): LocalWorkspaceScenarioBackend {
+    const record = this.record(session);
+    let target: TargetBinding | undefined, runtime: LocalWorkspaceRuntime | undefined,
+      authority: InputAuthority | undefined, observation: DesktopObservationBinding | undefined, closed = false, busy = false,
+      closing: Promise<void> | undefined, drained: (() => void) | undefined;
+    const check = () => { if (closed) deny('local-workspace-scenario-closed'); this.record(session); };
+    const exclusive = async <T>(operation: () => Promise<T>): Promise<T> => {
+      check(); if (busy) deny('local-workspace-scenario-busy');
+      busy = true;
+      try { return await operation(); }
+      finally { busy = false; drained?.(); drained = undefined; }
+    };
+    const assertTarget = (value: TargetBinding) => {
+      check();
+      if (!target || !sameSession(value, target) ||
+          (['targetId', 'application', 'applicationVersion', 'targetRole'] as const).some(key => value[key] !== target![key]))
+        deny('stale-target-binding');
+    };
+    const assertGrant = (value: InputAuthority) => {
+      check(); this.input.assertAuthority(session, value);
+      if (value.owner.kind !== 'agent' || !authority || authority.grantId !== value.grantId ||
+          authority.epoch !== value.epoch || authority.owner.clientId !== value.owner.clientId || record.authority !== authority)
+        deny('invalid-local-workspace-authority');
+    };
+    const observe = async (value: InputAuthority) => {
+      check(); observation = undefined;
+      this.input.assertAuthority(session, value);
+      if (!target) deny('local-workspace-rebind-required');
+      if (!runtime) {
+        authority = value;
+        runtime = this.connectRuntime(session, value, artifactDir);
+        await runtime.bind();
+      }
+      assertGrant(value);
+      const captured = await runtime.observe();
+      assertGrant(value); assertTarget(target);
+      const binding = Object.freeze({ ...target, observationId: randomUUID() });
+      observation = binding;
+      return { observation: captured, binding };
+    };
+    return {
+      bind: async selector => {
+        check(); this.scenario(session.environmentId, selector);
+        if (target) deny('local-workspace-target-already-bound');
+        await this.confirm(record); check();
+        target = Object.freeze({ ...record.identity, targetId: record.targetId, application: this.app,
+          applicationVersion: record.appVersion, targetRole: 'owned-main-window' });
+        return target;
+      },
+      targetStatus: async value => {
+        assertTarget(value);
+        const native = await this.confirm(record); assertTarget(value);
+        const capabilities = this.targetCapabilities(await this.capabilities());
+        assertTarget(value);
+        const ready = native.control_ready === true;
+        return { binding: target!, state: 'bound', capabilities,
+          readiness: Object.fromEntries(Object.entries(capabilities).map(([key, declarations]) => [key,
+            { state: !ready || key.startsWith('input.') && record.config.app === 'netease' && native.input_ready !== true ?
+              'not-ready' : declarations?.every(item => item.state === 'supported') ? 'ready' : 'unknown' }])) };
+      },
+      requirements: async (value, action) => {
+        assertTarget(value); this.scenario(session.environmentId, action);
+        return { action: 'run-validated-scenario', mechanism: 'owned-hwnd-message', required: ['input.targetedWindow'] };
+      },
+      observe: value => exclusive(() => observe(value)),
+      execute: request => exclusive(async () => {
+        // Independent backend check even when the caller bypasses the Host gate.
+        assertTarget(request.target); this.scenario(session.environmentId, request.action); assertGrant(request.authority);
+        if (!observation || !sameSession(request.observation, observation) || request.observation.targetId !== observation.targetId ||
+            request.observation.observationId !== observation.observationId) deny('fresh-observation-required');
+        observation = undefined; // Consume before any await; native token is independently single-use.
+        await this.admit(record, 'input.targetedWindow', 'run-validated-scenario', 'owned-hwnd-message');
+        assertTarget(request.target); assertGrant(request.authority);
+        await runtime!.runValidatedScenario(); // Repeats authority/readiness/freshness, then Python/native effect fence.
+      }),
+      verify: value => exclusive(async () => {
+        if (!record.scenarioStarted) deny('local-workspace-scenario-not-dispatched');
+        const before = await this.confirm(record); assertGrant(value);
+        const captured = await observe(value);
+        // This independent read is never the act() response or command-queue acknowledgement.
+        const state = await this.confirm(record); assertGrant(value);
+        const facts: Record<string, string | number | boolean> = {};
+        for (const key of ['input', 'agent_progress', 'agent_total', 'text_length', 'clicks', 'human_actions', 'track_matches', 'playing']) {
+          const fact = state[key];
+          if (typeof fact === 'string' || typeof fact === 'number' || typeof fact === 'boolean') facts[key] = fact;
+        }
+        const complete = (value: LocalWorkspaceState) => value.input === 'PASS' && value.human_actions === 0 && (record.config.app === 'fixture' ?
+          value.agent_progress === 26 && value.agent_total === 26 && value.text_length === 26 && value.clicks === 1 :
+          value.agent_progress === 4 && value.agent_total === 4 && value.track_matches === true && value.playing === true);
+        const pass = complete(before) && complete(state);
+        return { verdict: pass ? 'pass' : 'pending', observation: captured.observation, facts };
+      }),
+      close: () => closing ??= (async () => {
+        closed = true; observation = undefined;
+        const portDrain = busy ? new Promise<void>(resolveDrain => { drained = resolveDrain; }) : Promise.resolve();
+        const results = await Promise.allSettled([runtime?.close(), portDrain]);
+        const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+        if (errors.length) throw new AggregateError(errors, 'local-workspace-scenario-drain-failed');
+      })(),
+    };
   }
   /** Creates the bounded D0 scenario runtime after an Agent grant. */
   connectRuntime(session: DesktopSession, authority: InputAuthority, artifactDir: string): LocalWorkspaceRuntime {
