@@ -1,5 +1,7 @@
 # 架构
 
+P6-A 的具体目标绑定和三层动作准入见 [P6-A 契约与验证边界](desktop-provider-p6-a.md)。可信运行时签发应用/版本/角色绑定，每次 dispatch 重新检查 capability、readiness、观察和输入权；当前只在合成后端接通，有限场景 Task 接入属于 P6-B。
+
 P5-B 的统一桌面选择和执行器装配见 [P5-B 实现与验证边界](desktop-provider-p5-b.md)。Task/Workflow 明确选择 Provider 与环境；Physical 输入默认关闭，Local Workspace 保持有限场景边界。
 
 Host 控制台 `src/app` 接收目标、显示轨迹、管理批准/暂停/接管。`src/composition` 创建 Cordis Root 和 Session 作用域，按契约注入模型、存储、Worker 和扩展；业务扩展仍由 `src/extensions` 动态登记，核心不硬编码业务。

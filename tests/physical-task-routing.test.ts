@@ -15,7 +15,7 @@ import { loadDesktopEnvironmentConfig } from '../src/composition/desktop-environ
 
 const resolution = singleProvider('windows.pyautogui.act', 'synthetic policy');
 const policy = { windowManagement: true, executors: [resolution.selected] };
-function fixture(inputPolicy = policy) {
+function fixture(inputPolicy: PhysicalInputPolicy = policy) {
   let now = 0, factoryCalls = 0, effects = 0, revokes = 0, failRevoke = false, failRenew = false, instance = 'fixture-instance';
   const input = new ResourceInputControl(() => now);
   const backend: PhysicalBackend = {

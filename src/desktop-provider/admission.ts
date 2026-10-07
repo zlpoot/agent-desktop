@@ -17,12 +17,13 @@ const dimensions = new Set<keyof CapabilityContext>([
   "providerId", "environmentKind", "application", "applicationVersion", "targetRole", "action", "mechanism",
 ]);
 function validScope(declaration: CapabilityDeclaration): boolean {
+  if (!declaration || typeof declaration !== 'object') return false;
   const scope = declaration.scope;
   if (!scope || typeof scope !== "object" || Array.isArray(scope)) return false;
   const entries = Object.entries(scope);
   return entries.length > 0 && entries.every(([key, values]) =>
     dimensions.has(key as keyof CapabilityContext) && Array.isArray(values) && values.length > 0 &&
-    values.every(value => typeof value === "string" && value.trim().length > 0));
+    Array.from(values).every(value => typeof value === "string" && value.trim().length > 0));
 }
 function matches(declaration: CapabilityDeclaration, context: CapabilityContext): boolean {
   return Object.entries(declaration.scope).every(([key, values]) =>
@@ -37,17 +38,23 @@ export function assertDesktopCapabilities(
   layers: { provider: DesktopCapabilities; session: DesktopCapabilities; target: DesktopCapabilities },
   readiness: { session: DesktopReadiness; target: DesktopReadiness },
 ): void {
-  if (!required.length) deny("missing-requirements");
-  for (const capability of required) {
+  if (!Array.isArray(required) || !required.length) deny("missing-requirements");
+  if (!context || [...dimensions].some(key => typeof context[key] !== 'string' || !context[key].trim())) {
+    deny('invalid-capability-context');
+  }
+  const checkedRequired: readonly DesktopCapability[] = required;
+  for (const capability of checkedRequired) {
+    if (typeof capability !== 'string' || !capability.trim()) deny('invalid-capability-requirement');
     for (const layer of ["provider", "session", "target"] as const) {
-      const declarations = layers[layer][capability];
-      if (!declarations?.length) deny(`${layer}:${capability}:missing`);
-      if (declarations.some(declaration => !validScope(declaration))) deny(`${layer}:${capability}:invalid-scope`);
+      const raw = layers[layer]?.[capability];
+      if (!Array.isArray(raw) || !raw.length) deny(`${layer}:${capability}:missing`);
+      const declarations: readonly CapabilityDeclaration[] = raw;
+      if (Array.from(declarations).some(declaration => !validScope(declaration))) deny(`${layer}:${capability}:invalid-scope`);
       const applicable = declarations.filter(declaration => matches(declaration, context));
       if (!applicable.length) deny(`${layer}:${capability}:scope-mismatch`);
       for (const declaration of applicable) {
         if (declaration.state !== "supported") deny(`${layer}:${capability}:${declaration.state}`);
-        if (!declaration.evidence?.length || declaration.evidence.some(item =>
+        if (!Array.isArray(declaration.evidence) || !declaration.evidence.length || Array.from(declaration.evidence).some(item =>
           !item || typeof item.source !== "string" || !item.source.trim() ||
           typeof item.description !== "string" || !item.description.trim())) {
           deny(`${layer}:${capability}:missing-evidence`);
@@ -55,7 +62,7 @@ export function assertDesktopCapabilities(
       }
     }
     for (const layer of ["session", "target"] as const) {
-      if (readiness[layer][capability]?.state !== "ready") deny(`${layer}:${capability}:not-ready`);
+      if (readiness[layer]?.[capability]?.state !== "ready") deny(`${layer}:${capability}:not-ready`);
     }
   }
 }

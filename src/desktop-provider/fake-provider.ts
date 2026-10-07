@@ -5,6 +5,8 @@ import type {
   DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
 } from "../contracts/desktop-environment.js";
 import type { DesktopInputArbiter, InputAuthority } from "../contracts/desktop-input-control.js";
+import type { DesktopExecutionBackend, TargetBinding } from '../contracts/desktop-execution.js';
+import { DesktopExecutionAdmission } from './execution-admission.js';
 import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
 
 export interface FakeTargetDefinition {
@@ -141,6 +143,40 @@ export class FakeDesktopBackend {
     if (!target || !sameSession(binding, target.binding)) deny("invalid-target");
     return target;
   }
+  /** P6 trusted runtime port. Existing P1 synchronous fixtures remain available. */
+  executionBackend(session: DesktopSession): DesktopExecutionBackend<string, FakeActionResult> {
+    const describe = (binding: DesktopTargetBinding): TargetBinding => {
+      if (!sameSession(session, binding)) deny('foreign-session');
+      const target = this.target(binding);
+      return Object.freeze({ ...target.binding, application: target.definition.application,
+        applicationVersion: target.definition.applicationVersion, targetRole: target.definition.targetRole });
+    };
+    return {
+      bind: async selector => describe(this.bind(session, selector)),
+      targetStatus: async binding => {
+        const target = this.target(binding);
+        return { binding: describe(binding), state: 'bound',
+          capabilities: structuredClone(target.definition.capabilities), readiness: structuredClone(target.definition.readiness) };
+      },
+      requirements: async (binding, action) => {
+        describe(binding);
+        const operation = this.definition.operations[action];
+        if (!operation) deny('unknown-operation');
+        return { action, ...structuredClone(operation) };
+      },
+      execute: async request => {
+        const current = describe(request.target);
+        if (['application', 'applicationVersion', 'targetRole'].some(key =>
+          current[key as keyof TargetBinding] !== request.target[key as keyof TargetBinding])) deny('stale-target-binding');
+        if (!sameSession(current, request.observation) || current.targetId !== request.observation.targetId) deny('observation-target-mismatch');
+        if (request.authority.owner.kind !== 'agent') deny('agent-input-authority-required');
+        const result = this.execute({ observation: request.observation, operationId: request.action, authority: request.authority });
+        // P6 execution consumes the backend observation, even if a caller bypasses Host admission.
+        this.target(current).observation = undefined;
+        return result;
+      },
+    };
+  }
   observe(binding: DesktopTargetBinding): DesktopObservationBinding {
     const target = this.target(binding);
     const observation = Object.freeze({ ...target.binding, observationId: randomUUID() });
@@ -223,5 +259,9 @@ export class FakeDesktopRuntime {
     if (!sameSession(this.session, request.observation)) deny("foreign-session");
     this.backend.assertAction(request); // Host admission; backend execute repeats its own fence.
     return this.backend.execute(request);
+  }
+  /** Synthetic composition of the shared P6 gate; no native runtime or Task support is implied. */
+  scopedExecution(provider: DesktopProvider): DesktopExecutionAdmission<string, FakeActionResult> {
+    return new DesktopExecutionAdmission(provider, this.session, this.backend.inputControl, this.backend.executionBackend(this.session));
   }
 }
