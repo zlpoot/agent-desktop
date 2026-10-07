@@ -10,6 +10,7 @@ import { TaskDesktopSessions, type DesktopTaskExecutor } from '../src/app/task-d
 import { desktopTarget } from '../src/contracts/task-desktop.js';
 import { singleProvider } from '../src/actions/action-resolution.js';
 import { createRootAssembly } from '../src/composition/root.js';
+import type { PhysicalInputPolicy } from '../src/runtime/desktop/desktop-runtime.js';
 import { loadDesktopEnvironmentConfig } from '../src/composition/desktop-environment-config.js';
 
 const resolution = singleProvider('windows.pyautogui.act', 'synthetic policy');
@@ -47,10 +48,11 @@ function fixture(inputPolicy = policy) {
 
 test('generic Physical discovery is lazy and policy alone never upgrades not-proven capability', async () => {
   assert.deepEqual(loadDesktopEnvironmentConfig(), {});
-  for (const [inputPolicy, reason] of [
-    [{ windowManagement: false, executors: [] }, 'physical-task-policy-required'],
-    [policy, 'physical-task-capability-not-proven'],
-  ] as const) {
+  const cases: Array<{ inputPolicy: PhysicalInputPolicy; reason: string }> = [
+    { inputPolicy: { windowManagement: false, executors: [] }, reason: 'physical-task-policy-required' },
+    { inputPolicy: policy, reason: 'physical-task-capability-not-proven' },
+  ];
+  for (const { inputPolicy, reason } of cases) {
     const f = fixture(inputPolicy);
     const genericSessions = new TaskDesktopSessions([f.provider], new Map([[f.provider.id, f.executor]]));
     try {
