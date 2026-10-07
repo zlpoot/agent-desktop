@@ -1,4 +1,5 @@
 import type { TaskDesktopTarget } from './task-desktop.js';
+import type { EnvironmentAppOnboarding } from './app-launch.js';
 
 /** Installation/user-domain identity comes from trusted infrastructure, never a Task/model. */
 export interface EnvironmentAppScope extends TaskDesktopTarget {
@@ -100,6 +101,7 @@ export interface EnvironmentAppService {
   readonly registry: EnvironmentAppRegistry;
   readonly discovery?: EnvironmentAppDiscovery;
   readonly launcher?: EnvironmentAppLauncher;
+  readonly onboarding?: EnvironmentAppOnboarding;
 }
 export interface EnvironmentAppServices {
   forEnvironment(target: TaskDesktopTarget): EnvironmentAppService;

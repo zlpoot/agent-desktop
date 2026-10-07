@@ -88,7 +88,7 @@ export class ScopedAppDiscovery implements ReadonlyAppDiscovery {
       source: { kind: manual ? 'manual' : 'discovery', reference: sources.join(' | '), observedAt: new Date().toISOString() } }, this.scope);
     const limitation = entry.launchSpec.kind === 'package' ? 'package-launch-not-implemented' :
       this.origin === 'shared-host-os' ? 'installed-on-host-os;workspace-launch-and-operation-not-proven' : undefined;
-    return { candidateId: randomUUID(), revision, candidate, sources: [...sources],
+    return { candidateId: randomUUID(), revision, candidate, sources: [...sources], contentFingerprint: entry.contentFingerprint,
       digest: hash([candidate.scope, key, entry.contentFingerprint, entry.displayName, entry.aliases, entry.version, entry.publisher]),
       ...(entry.version ? { version: entry.version } : {}), ...(entry.publisher ? { publisher: entry.publisher } : {}),
       ...(limitation ? { limitation } : {}), trust: 'discovered' };

@@ -24,7 +24,7 @@ if (-not $service.Enabled) {
 foreach ($file in @('worker.ps1', 'start-worker.ps1', 'install-worker-autostart.ps1',
         'action-worker.py', 'desktop-worker.py', 'vision.py', 'install-action-worker.ps1',
         'python-command.ps1', 'apps.json', 'input_control.py', 'human_input.py', 'subprocess_rpc.py',
-        'file_evidence.py', 'desktop_readiness.py', 'app_discovery.py', 'smoke-file-rpc.ps1')) {
+        'file_evidence.py', 'desktop_readiness.py', 'app_discovery.py', 'app_launch.py', 'smoke-file-rpc.ps1')) {
     $relative = switch ($file) {
         'desktop-worker.py' { '..\src\runtime\desktop\worker.py' }
         'vision.py' { '..\src\runtime\desktop\vision.py' }
@@ -40,5 +40,5 @@ foreach ($file in @('worker.ps1', 'start-worker.ps1', 'install-worker-autostart.
     VMName = $vm.Name
     VMId = $vm.Id.ToString()
     GuestPath = $GuestPath
-    Files = 'worker.ps1, start-worker.ps1, install-worker-autostart.ps1, action-worker.py, desktop-worker.py, vision.py, install-action-worker.ps1, python-command.ps1, apps.json, input_control.py, human_input.py, subprocess_rpc.py, file_evidence.py, desktop_readiness.py, app_discovery.py, smoke-file-rpc.ps1'
+    Files = 'worker.ps1, start-worker.ps1, install-worker-autostart.ps1, action-worker.py, desktop-worker.py, vision.py, install-action-worker.ps1, python-command.ps1, apps.json, input_control.py, human_input.py, subprocess_rpc.py, file_evidence.py, desktop_readiness.py, app_discovery.py, app_launch.py, smoke-file-rpc.ps1'
 }
