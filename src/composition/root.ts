@@ -19,6 +19,7 @@ import type { DesktopProvider as EnvironmentProvider } from "../contracts/deskto
 import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import { PhysicalDesktopProvider, type PhysicalBackendFactory } from "../desktop-provider/physical-provider.js";
 import { PhysicalTaskExecutor } from '../desktop-provider/physical-task-executor.js';
+import { LocalWorkspaceTaskExecutor } from '../desktop-provider/local-workspace-task-executor.js';
 import { registeredGuestApps } from '../runtime/desktop/app-catalog.js';
 import { ResourceInputControl } from "../desktop-provider/resource-input-control.js";
 import { LocalWorkspaceDesktopProvider, type LocalWorkspaceAppConfig,
@@ -169,7 +170,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       ...(options.vmControl || process.env.AGENT_DESKTOP_VM_ID ? ['vmControl'] : [])]);
     await mountInspected(root, {
       name: "taskController",
-      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility"],
+      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility", "localWorkspaceCompatibility"],
       apply(ctx) {
         // 从业务扩展注册表组装核心的 facet / contributor 注册表（核心本身不内置任何业务域）。
         const facetRegistry = new FacetRegistry();
@@ -199,6 +200,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               }],
               [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
+              [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
             !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&

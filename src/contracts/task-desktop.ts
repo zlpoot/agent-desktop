@@ -11,6 +11,8 @@ export interface TaskDesktopFields {
   readonly taskBindingVersion?: 1;
   readonly desktopTarget?: TaskDesktopTarget;
   readonly desktopExecutionBinding?: TaskDesktopExecutionBinding;
+  /** Explicit finite scenario selection; never inferred from the goal. */
+  readonly desktopScenario?: string;
   readonly desktopCompatibility?: {
     readonly source: 'legacy-route';
     readonly environment: 'windows' | 'agent_desktop';
@@ -37,6 +39,10 @@ export function sameDesktopBinding(a: TaskDesktopExecutionBinding, b: TaskDeskto
   return keys.every(key => a[key] === b[key]);
 }
 export function validateTaskDesktop(fields: TaskDesktopFields): void {
+  if (fields.desktopScenario !== undefined && (!identifier(fields.desktopScenario) ||
+      !fields.desktopTarget || fields.taskBindingVersion !== 1 || fields.desktopCompatibility)) {
+    throw new Error('invalid-desktop-scenario');
+  }
   if (fields.taskBindingVersion !== undefined && fields.taskBindingVersion !== 1) throw new Error('invalid-task-binding-version');
   if (fields.desktopTarget !== undefined) {
     if (!fields.desktopTarget) throw new Error("invalid-desktop-target");
@@ -59,10 +65,13 @@ export function validateTaskDesktop(fields: TaskDesktopFields): void {
 /** Durable writes and checkpoint reducers must never erase or replace selection/binding. */
 export function assertTaskDesktopUnchanged(previous: TaskDesktopFields, next: TaskDesktopFields): void {
   validateTaskDesktop(next);
-  for (const key of ['taskBindingVersion', 'desktopTarget', 'desktopExecutionBinding', 'desktopCompatibility'] as const) {
+  for (const key of ['taskBindingVersion', 'desktopTarget', 'desktopExecutionBinding', 'desktopCompatibility', 'desktopScenario'] as const) {
     if (previous[key] !== undefined && JSON.stringify(previous[key]) !== JSON.stringify(next[key])) {
       throw new Error(`immutable-task-${key}`);
     }
+  }
+  if (previous.desktopScenario === undefined && next.desktopScenario !== undefined) {
+    throw new Error('immutable-task-desktopScenario');
   }
   if (previous.taskBindingVersion === undefined && !previous.desktopTarget && next.desktopTarget &&
       !next.desktopCompatibility) throw new Error('explicit-desktop-compatibility-required');
@@ -75,5 +84,6 @@ export function assertTaskDesktopUnchanged(previous: TaskDesktopFields, next: Ta
 }
 export function taskDesktopFields(fields: TaskDesktopFields): TaskDesktopFields {
   return { taskBindingVersion: fields.taskBindingVersion, desktopTarget: fields.desktopTarget,
-    desktopExecutionBinding: fields.desktopExecutionBinding, desktopCompatibility: fields.desktopCompatibility };
+    desktopExecutionBinding: fields.desktopExecutionBinding, desktopCompatibility: fields.desktopCompatibility,
+    desktopScenario: fields.desktopScenario };
 }

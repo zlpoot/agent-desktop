@@ -1,4 +1,5 @@
 import { TaskDesktopSessions } from './task-desktop-sessions.js';
+import { runDesktopScenarioTask } from './desktop-scenario-task.js';
 import { desktopTarget, taskDesktopFields, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -42,6 +43,7 @@ import { createTaskBudget, isBudgetExceeded, parseBudgetOverride, readTaskBudget
   type BudgetOverride } from '../runtime/model-budget.js';
 
 export interface TaskController {
+  submitScenario?(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, budget?: BudgetOverride): string;
   desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
   submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
   submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget }): string;
@@ -223,6 +225,28 @@ export class DesktopTaskController implements TaskController {
     } finally { store.close(); }
   }
 
+  /** Programmatic P6-B entry. Target/scenario UI and HTTP selection remain P6-C. */
+  submitScenario(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, override?: BudgetOverride): string {
+    this.assertOpen();
+    const definition = this.requireDesktopSessions().assertScenario(request?.desktopTarget, request?.scenarioId);
+    const target = desktopTarget(request.desktopTarget.providerId, request.desktopTarget.environmentId);
+    const budget = parseBudgetOverride(override), taskId = randomUUID();
+    createTaskBudget(this.rootDir, taskId, budget);
+    const db = this.routeDb();
+    try { db.prepare('INSERT INTO generic_routes (task_id, environment, created_at) VALUES (?, ?, ?)')
+      .run(taskId, 'windows', new Date().toISOString()); }
+    finally { db.close(); }
+    const trace = this.traceStore(this.tracePath);
+    try { trace.save('queued', { ...initialState(taskId, definition.goal), taskBindingVersion: 1,
+      desktopTarget: target, desktopScenario: definition.id, summary: '等待绑定并检查固定有限场景' }); }
+    finally { trace.close(); }
+    this.enqueue(() => runWithTaskBudget(this.rootDir, taskId, () => runDesktopScenarioTask(this.rootDir, taskId,
+      this.traceStore(this.tracePath), this.requireDesktopSessions(), control => {
+        if (this.activeTask?.id === taskId) this.activeTask.control = control;
+      }, () => this.closed)), taskId);
+    return taskId;
+  }
+
   private routeDb(): DatabaseSync {
     const db = new DatabaseSync(resolve(this.rootDir, "web-task-routes.sqlite"));
     db.exec(`CREATE TABLE IF NOT EXISTS generic_routes (
@@ -270,6 +294,7 @@ export class DesktopTaskController implements TaskController {
     try {
       let queued = trace.load(taskId);
       if (!queued) throw new Error("任务记录不存在");
+      if (queued.desktopScenario) throw new Error('desktop-scenario-generic-fallback-forbidden');
       // 已排队但未开始的任务在控制器关闭后被取消，并落盘 failed（catch 分支写入）。
       if (this.closed) throw new Error("任务控制器已关闭，任务已取消");
       const db = this.routeDb();
@@ -638,6 +663,7 @@ export class DesktopTaskController implements TaskController {
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "waiting_user") throw new Error("任务未处于等待人工状态");
+      if (state.desktopScenario) throw new Error('desktop-scenario-replay-forbidden');
       this.assertSavedTaskCompatibility(state);
       if (state.desktopExecutionBinding) {
         control = this.requireDesktopSessions().control(taskId, state.desktopExecutionBinding);
@@ -699,6 +725,7 @@ export class DesktopTaskController implements TaskController {
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "paused") throw new Error("任务未处于暂停状态");
+      if (state.desktopScenario) throw new Error('desktop-scenario-replay-forbidden: explicitly submit a new task');
       this.assertSavedTaskCompatibility(state);
       if (state.desktopExecutionBinding) {
         control = this.requireDesktopSessions().control(taskId, state.desktopExecutionBinding);

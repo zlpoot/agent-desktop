@@ -5,6 +5,9 @@ import type { TargetBinding } from "../actions/semantic-target.js";
 import type { CompletionCriteria, VerificationResult } from "../verifier/verifier.js";
 
 export interface ComputerState extends TaskDesktopFields {
+  /** Written before finite scenario dispatch; recovery must never replay it. */
+  desktopScenarioDispatched?: boolean;
+  desktopScenarioVerification?: Omit<import('../contracts/desktop-scenario.js').DesktopScenarioVerification, 'observation'>;
   taskId: string;
   goal: string;
   plan?: string[];

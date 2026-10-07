@@ -2,6 +2,7 @@ import type { DesktopEnvironment, DesktopProvider, DesktopSession } from '../con
 import type { RegisteredApp } from '../runtime/desktop/app-catalog.js';
 import type { InputControl } from '../contracts/desktop-provider.js';
 import type { WorkerClient } from '../contracts/worker-client.js';
+import type { DesktopScenarioDefinition, PreparedDesktopScenario } from '../contracts/desktop-scenario.js';
 import type { TaskDesktopFields, TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { desktopTarget, desktopExecutionBinding, sameDesktopTarget, sameDesktopBinding,
   validateTaskDesktop } from '../contracts/task-desktop.js';
@@ -10,6 +11,8 @@ import { desktopTarget, desktopExecutionBinding, sameDesktopTarget, sameDesktopB
 export interface DesktopTaskExecutor {
   /** Fail before opening a Session when this executor cannot admit a generic Task. */
   assertAvailable?(): void;
+  scenario?(target: TaskDesktopTarget, id: string): DesktopScenarioDefinition;
+  prepareScenario?(session: DesktopSession, artifactDir: string, id: string): Promise<PreparedDesktopScenario>;
   appCatalog?(): Promise<RegisteredApp[]>;
   taskControl(session: DesktopSession): InputControl;
   connectRuntime(session: DesktopSession, artifactDir: string): Promise<WorkerClient>;
@@ -47,6 +50,19 @@ export class TaskDesktopSessions {
     this.executors.get(target.providerId)!.assertAvailable?.();
     return target;
   }
+  assertScenario(value: TaskDesktopTarget, id: string): DesktopScenarioDefinition {
+    if (this.closed) throw new Error('task-desktop-sessions-closed');
+    if (!value) throw new Error('invalid-desktop-target');
+    const target = desktopTarget(value.providerId, value.environmentId);
+    if (!this.providers.has(target.providerId)) throw new Error('unknown-desktop-provider');
+    const executor = this.executors.get(target.providerId);
+    if (!executor?.scenario || !executor.prepareScenario) throw new Error('desktop-scenario-unavailable');
+    const definition = executor.scenario(target, id);
+    if (!definition || definition.id !== id || typeof definition.goal !== 'string' || !definition.goal.trim()) {
+      throw new Error('invalid-desktop-scenario-definition');
+    }
+    return Object.freeze({ id: definition.id, goal: definition.goal });
+  }
   /** Discovery is read-only: it never opens Sessions, claims input or constructs runtimes. */
   async discover(): Promise<readonly TaskDesktopOption[]> {
     if (this.closed) throw new Error('task-desktop-sessions-closed');
@@ -81,7 +97,8 @@ export class TaskDesktopSessions {
       desktopTarget: requested.desktopTarget && desktopTarget(requested.desktopTarget.providerId, requested.desktopTarget.environmentId),
       desktopExecutionBinding: requested.desktopExecutionBinding && desktopExecutionBinding(requested.desktopExecutionBinding) };
     if (!fields.desktopTarget) throw new Error('desktop-target-required');
-    const target = this.assertTarget(fields.desktopTarget);
+    if (fields.desktopScenario !== undefined) this.assertScenario(fields.desktopTarget, fields.desktopScenario);
+    const target = fields.desktopScenario === undefined ? this.assertTarget(fields.desktopTarget) : fields.desktopTarget;
     let entry = this.entries.get(taskId);
     if (fields.desktopExecutionBinding) {
       // Never open another Session to stand in for a durable execution binding.
