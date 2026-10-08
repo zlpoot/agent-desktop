@@ -52,7 +52,8 @@ type Grant = { profile: EnvironmentAppBinding; guard(): void; signal: AbortSigna
 export class ControlledAppLauncher implements EnvironmentAppLauncher {
   readonly scope: EnvironmentAppScope;
   private readonly permits = new WeakMap<object, Grant>();
-  private readonly outcomes = new WeakMap<object, AppLaunchOutcome>();
+  private readonly outcomes = new WeakMap<object, { outcome: AppLaunchOutcome; profile: EnvironmentAppBinding }>();
+  private readonly issuedTargets = new Map<string, { profile: string; target: string; consumed: boolean }>();
   private readonly active = new Set<string>();
   private blocked = false;
   constructor(private readonly backend: ManagedAppLaunchBackend, private readonly now = () => new Date().toISOString()) {
@@ -146,12 +147,44 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
       ...(target ? { identity: target.identity } : {}), processOwnershipVerified: !!target, windowOwnershipVerified: !!target,
       evidence: target ? 'managed-installation-process-window-session-desktop-verification' : 'managed-launch-failure',
       ...(reason ? { reason: kind === 'unknown' ? `launch-result-unknown:${reason}` : reason } : {}) };
-    this.outcomes.set(permission, { verification, ...(target ? { target } : {}), ...(kind ? { failureKind: kind } : {}) });
+    this.outcomes.set(permission, { profile: structuredClone(profile), outcome: { verification, ...(target ? { target } : {}), ...(kind ? { failureKind: kind } : {}) } });
     return verification;
   }
   outcome(permission: Permit): AppLaunchOutcome {
     const value = this.outcomes.get(permission); this.outcomes.delete(permission);
-    if (!value) throw new Error('app-launch-outcome-unavailable'); return structuredClone(value);
+    if (!value) throw new Error('app-launch-outcome-unavailable');
+    const outcome = structuredClone(value.outcome);
+    if (outcome.target && outcome.verification.result === 'verified') {
+      // A native target token need not identify a verification issuance. Never rearm
+      // it: retain consumed/reissued tombstones for this issuer's whole lifetime.
+      // At the bounded history limit, new provenance stays unavailable; no eviction
+      // may erase replay history. Historical launch verification remains unchanged.
+      const previous = this.issuedTargets.get(outcome.target.targetToken);
+      if (previous) previous.consumed = true;
+      else if (this.issuedTargets.size < 128) this.issuedTargets.set(outcome.target.targetToken, {
+        profile: this.profileKey(value.profile), target: this.targetKey(outcome.target), consumed: false,
+      });
+    }
+    return outcome;
+  }
+  private profileKey(profile: EnvironmentAppBinding): string {
+    identityValue(profile.identity!);
+    return JSON.stringify([scopeValue(profile.scope), profile.appBindingId, profile.installationId,
+      profile.profileRevision, profile.profileDigest, [profile.identity!.productId, profile.identity!.version, profile.identity!.fingerprint], launchDefinition(profile.launchSpec)]);
+  }
+  private targetKey(target: NonNullable<AppLaunchOutcome['target']>): string {
+    contextValue(target, this.scope); textValue(target.targetToken); identityValue(target.identity);
+    return JSON.stringify([scopeValue(target.scope), target.sessionId, target.instanceId, target.windowsSessionId,
+      target.desktop, target.targetToken, [target.identity.productId, target.identity.version, target.identity.fingerprint]]);
+  }
+  /** Private composition API. Consume once; never accepts a copied permit/boolean as issuer proof.
+   * Matching this record does not prove current native lifetime, Task mapping or input authority. */
+  consumeIssuedTarget(profile: EnvironmentAppBinding, target: NonNullable<AppLaunchOutcome['target']>): void {
+    this.assertDrained();
+    const record = this.issuedTargets.get(target.targetToken);
+    if (!record || record.consumed) throw new Error('app-task-issued-target-unavailable-or-consumed');
+    if (record.profile !== this.profileKey(profile) || record.target !== this.targetKey(target)) throw new Error('app-task-issued-target-mismatch');
+    record.consumed = true;
   }
   assertDrained(): void {
     if (this.active.size || this.blocked) throw new Error('app-launch-cleanup-unconfirmed');

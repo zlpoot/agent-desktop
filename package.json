@@ -15,6 +15,7 @@
     "dashboard": "tsx src/app/start.ts",
     "dashboard:preflight": "tsx src/app/start-preflight.ts",
     "dashboard:discovery": "tsx src/app/start-preflight.ts --readonly-discovery",
+    "dashboard:bridge-preview": "tsx src/app/start-preflight.ts --bridge-preview",
     "dashboard:eval": "tsx src/app/start.ts --eval-oracle",
     "demo": "tsx src/demo.ts",
     "demo:browser": "tsx src/browser-demo.ts",

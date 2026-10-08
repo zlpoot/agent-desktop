@@ -104,3 +104,8 @@
 .apps-capability-table th:nth-child(4) { width: 30%; }
 @media(max-width:700px) { .apps-capability-table table { min-width: 680px; } .apps-capability-legend { grid-template-columns: 1fr; gap: 6px; } .apps-capability-legend dd { margin-bottom: 10px; } }
 .apps-profile,#apps-confirmation:not(:empty) { padding: 16px; margin: 14px 0; border: 1px solid #365362; border-radius: 8px; }
+#bridge-test-preview p { white-space: pre-line; overflow-wrap: anywhere; }
+#bridge-test-preview table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+#bridge-test-preview th,#bridge-test-preview td { text-align: left; vertical-align: top; border: 1px solid #344757; padding: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#bridge-test-preview th { width: 22%; }
+#bridge-test-preview li { line-height: 1.8; }
