@@ -4,6 +4,7 @@ import { desktopTarget, taskDesktopFields, type TaskDesktopTarget } from '../con
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { resolve, win32 } from "node:path";
+import { AppManagement } from './app-management.js';
 import { TaskAppOnboarding, type TaskAppRequest, type TaskAppInteraction } from './task-app-onboarding.js';
 import type { EnvironmentAppServices, EnvironmentAppBinding } from '../contracts/environment-apps.js';
 import { DatabaseSync } from "node:sqlite";
@@ -45,6 +46,7 @@ import { createTaskBudget, isBudgetExceeded, parseBudgetOverride, readTaskBudget
   type BudgetOverride } from '../runtime/model-budget.js';
 
 export interface TaskController {
+  manageApps?(request: Record<string, unknown>): Promise<unknown>;
   onboardApp?(taskId: string, request: TaskAppRequest): Promise<TaskAppInteraction>;
   submitScenario?(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, budget?: BudgetOverride): string;
   desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
@@ -58,6 +60,8 @@ export interface TaskController {
 
 /** 任务执行器的显式依赖；核心不直接读取全局配置或创建业务扩展。 */
 export interface DesktopTaskControllerOptions {
+  /** Trusted composition only; default off. Does not enable discovery/launch adapters. */
+  environmentAppManagement?: boolean;
   environmentApps?: EnvironmentAppServices;
   desktopSessions?: TaskDesktopSessions;
   /** Infrastructure validates structured legacy provenance, never the goal text. */
@@ -76,6 +80,7 @@ export interface DesktopTaskControllerOptions {
 
 export class DesktopTaskController implements TaskController {
   private readonly appOnboarding: TaskAppOnboarding;
+  private readonly appManagement?: AppManagement;
   private queue = Promise.resolve();
   private readonly continuing = new Set<string>();
   private readonly tracePath: string;
@@ -137,7 +142,7 @@ export class DesktopTaskController implements TaskController {
     this.closePromise = (async () => {
       try { if (this.activeTask?.control) this.requestShutdownPause(this.activeTask.id); }
       finally {
-        try { await this.appOnboarding.close(); await this.queue; }
+        try { await this.appManagement?.close(); await this.appOnboarding.close(); await this.queue; }
         finally { await this.options.desktopSessions?.close(); }
       }
     })();
@@ -153,6 +158,9 @@ export class DesktopTaskController implements TaskController {
     this.modelProvider = options.modelProvider ?? configuredModelProvider();
     this.traceStore = options.traceStore ?? ((path) => new SqliteTrace(path));
     this.workflowStore = options.workflowStore ?? ((path) => new WorkflowStore(path));
+    if (options.environmentAppManagement === true && options.environmentApps) {
+      this.appManagement = new AppManagement(options.environmentApps, () => this.desktopOptions());
+    }
     this.appOnboarding = new TaskAppOnboarding(options.environmentApps, {
       load: id => {
         const trace = this.traceStore(this.tracePath);
@@ -182,6 +190,11 @@ export class DesktopTaskController implements TaskController {
   private requireDesktopSessions(): TaskDesktopSessions {
     if (!this.options.desktopSessions) throw new Error('desktop-task-executor-unavailable');
     return this.options.desktopSessions;
+  }
+  async manageApps(request: Record<string, unknown>) {
+    this.assertOpen();
+    if (!this.appManagement) throw new Error('app-management-disabled');
+    return this.appManagement.act(request);
   }
   async desktopOptions() { return this.requireDesktopSessions().discover(); }
   private assertTaskCompatibility(state: import('../graph/state.js').ComputerState, environment: string | null): void {

@@ -341,6 +341,24 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    if (url.pathname === '/api/desktop/apps') {
+      if (request.method !== 'POST') return json(response, 405, { error: 'app-management-private-post-only' });
+      if (!request.headers.origin || !sameOrigin(request) || request.headers['sec-fetch-site'] === 'cross-site' ||
+          !['localhost', '127.0.0.1'].includes((request.headers.host ?? '').split(':')[0])) {
+        return json(response, 403, { error: 'app-management-local-operator-required' });
+      }
+      if (!request.headers['content-type']?.startsWith('application/json')) return json(response, 415, { error: 'JSON required' });
+      if (!controller?.manageApps) return json(response, 503, { error: 'app-management-disabled' });
+      void bodyJson(request, 4096).then(body => controller.manageApps!(body))
+        .then(result => json(response, 200, result))
+        .catch(error => {
+          // Adapter errors can contain private paths. Only stable codes cross this boundary.
+          const code = error instanceof Error && /^[a-z][a-z0-9-]{1,100}$/.test(error.message)
+            ? error.message : 'app-management-request-rejected';
+          json(response, 409, { error: code });
+        });
+      return;
+    }
     if (request.method === 'GET' && url.pathname === '/api/desktop/environments') {
       if (!controller?.desktopOptions) return json(response, 503, { error: 'desktop-selection-unavailable' });
       void Promise.resolve().then(() => controller.desktopOptions!()).then(environments => json(response, 200, { environments }))
@@ -591,6 +609,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         "/task-experience.js": ["task-experience.js", "text/javascript; charset=utf-8"],
         "/workbench.css": ["workbench.css", "text/css; charset=utf-8"],
         "/workflow-library.js": ["workflow-library.js", "text/javascript; charset=utf-8"],
+        "/app-management.js": ["app-management.js", "text/javascript; charset=utf-8"],
         "/runtime-plugins.js": ["runtime-plugins.js", "text/javascript; charset=utf-8"],
       };
       const file = files[url.pathname];

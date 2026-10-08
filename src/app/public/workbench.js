@@ -22,7 +22,7 @@ window.Workbench = (() => {
   nav.setAttribute('aria-label', '主要导航');
   sidebar.querySelector('.brand').after(nav);
   const buttons = new Map();
-  for (const [id, label] of [['live', '工作台'], ['history', '任务'], ['workflows', '流程库'], ['desktop', '桌面'], ['settings', '设置']]) {
+  for (const [id, label] of [['live', '工作台'], ['history', '任务'], ['workflows', '流程库'], ['desktop', '桌面'], ['apps', '应用管理'], ['settings', '设置']]) {
     if (id === 'live' || id === 'desktop') nav.append(create('span', 'nav-group', id === 'live' ? '工作' : '管理'));
     const button = create('button', '', label);
     button.type = 'button'; button.onclick = () => navigate(id);
@@ -138,6 +138,8 @@ window.Workbench = (() => {
     finally { saveBudget.disabled = false; }
   };
   settings.append($('prompt-editor')); main.append(settings);
+  const appsPage = create('section', 'workspace-apps panel'); main.append(appsPage);
+  const appManagement = window.createAppManagement(appsPage);
   const library = create('section', 'workspace-library'); main.append(library);
   const workflowLibrary = window.createWorkflowLibrary(library);
   const runtimePanel = create('section', 'workspace-library runtime-panel'); main.append(runtimePanel);
@@ -180,6 +182,9 @@ window.Workbench = (() => {
     home.hidden = next !== 'live'; desktopPage.hidden = next !== 'desktop';
     if (next === 'live') composer.prepend($('task-message'));
     else taskPane.prepend($('task-message'));
+    appsPage.hidden = next !== 'apps';
+    if (next === 'apps') void appManagement.load();
+    else appManagement.leave();
     library.hidden = next !== 'workflows';
     runtimePanel.hidden = next !== 'plugins';
     desktop.hidden = next !== 'desktop'; composer.hidden = next !== 'live';
@@ -192,7 +197,7 @@ window.Workbench = (() => {
     historyList.hidden = next !== 'history';
     workspace.classList.toggle('history-view', next === 'history');
     for (const [id, button] of buttons) button.setAttribute('aria-current', id === (next === 'plugins' ? 'settings' : next) ? 'page' : 'false');
-    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '桌面 / 连接与人工控制', workflows: '流程库 / 版本与参数', plugins: '设置 / 插件与扩展', settings: '设置 / 预算与提示词' }[next];
+    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '桌面 / 连接与人工控制', workflows: '流程库 / 版本与参数', apps: '应用管理 / 先选环境', plugins: '设置 / 插件与扩展', settings: '设置 / 预算与提示词' }[next];
     if (next === 'plugins') void runtimePlugins.load();
     if (next === 'workflows') void workflowLibrary.load();
     if (next === 'settings') $('prompt-editor').open = true;

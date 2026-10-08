@@ -51,6 +51,8 @@ npm run dashboard
 
 应用模板初始为空，实际应用清单不提交。Host 使用 `apps.local.json`（空模板 `apps.example.json`）；Guest 使用 `config/agent-desktop-apps.json`（从 `config/agent-desktop-apps.example.json` 自行建立），登记执行文件绝对路径及窗口类/标题。可选预算配置同样从 `config/task-budget.example.json` 建立，缺失时使用上述代码默认预算。网易云执行要求显式 `NETEASE_APP_PATH`。部署参数参考 `config/deployment.example.json`，它是说明模板，不由运行时自动读取。应用与预算配置、密钥、运行状态都应私有留存。
 
+按环境的应用接入与独立管理页见 [首次使用说明](docs/app-onboarding-guide.md) 和 [P7-E 实现/验收索引](docs/desktop-provider-p7-e.md)。管理能力默认关闭，需要可信显式装配；本轮只验证合成流程，真实环境尚未验证。
+
 ## 示例、评测与现场入口
 
 `demo` / `demo:offline` 使用现有 FakeModel + FakeRuntime；网址仅是模拟数据。`demo:browser` 使用脚本模型及临时 localhost 表单。`demo:approval -- start` 及 `resume <任务 ID> approve|reject` 保留本机浏览器批准恢复示例；它生成自己的临时浏览器状态。
