@@ -1,4 +1,5 @@
-window.createAppManagement = (root) => {
+window.createAppManagement = (root, options = {}) => {
+  const preflight = options.preflight === true;
   const node = (tag, text, id) => {
     const item = document.createElement(tag); if (text) item.textContent = text; if (id) item.id = id; return item;
   };
@@ -35,13 +36,19 @@ window.createAppManagement = (root) => {
   }
   const scan = button('扫描 / 重扫', () => act('scan'));
   const manual = button('指定路径', () => act('path', { path: path.value }));
-  const refresh = button('刷新配置', () => act('list'));
+  const refresh = button('刷新配置', () => preflight ? select() : act('list'));
   const prepare = button('查看确认内容', () => {
     const selected = state?.candidates.find(item => item.candidateId === candidates.value);
     if (selected) void act('prepare', { candidateId: selected.candidateId, candidateRevision: selected.revision });
   });
   const cancel = button('取消本次接入', () => reset());
   buttons.push(scan, manual, refresh, prepare);
+  if (preflight) {
+    path.hidden = true;
+    help.replaceChildren(node('summary', '本轮体验步骤与限制'),
+      node('p', '先保持未选环境，再明确选择本机或已配置的工作区，检查身份与缺失适配器原因；切换环境、刷新配置或重载页面，检查旧状态是否清空。'),
+      node('p', '扫描和路径检查等待 A1 体验反馈后的 A2；本轮不能确认、启动、撤销注册、发送任务、接管输入或控制 VM。'));
+  }
   const target = () => environment.value ? { providerId: JSON.parse(environment.value)[0], environmentId: JSON.parse(environment.value)[1] } : undefined;
   async function post(body, keepalive = false) {
     const response = await fetch('/api/desktop/apps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive });
@@ -62,7 +69,7 @@ window.createAppManagement = (root) => {
     try {
       const result = await post({ action: 'open', desktopTarget: selected });
       if (current !== version) { end(result); return; }
-      state = result; status.textContent = '配置已读取。扫描和启动必须由你显式操作。';
+      state = result; status.textContent = preflight ? '配置已读取。A1 仅预检；扫描和启动尚未开放。' : '配置已读取。扫描和启动必须由你显式操作。';
     } catch (error) { if (current === version) status.textContent = `环境管理不可用：${error.message}。请检查可信装配与连接后重新选择环境。`; }
     finally { if (current === version) { busy = false; render(); } }
   }
@@ -84,6 +91,7 @@ window.createAppManagement = (root) => {
     for (const item of buttons) item.disabled = !state || busy;
     path.disabled = !state || busy; cancel.disabled = !state && !busy;
     scan.disabled ||= !state?.readiness.discovery; manual.disabled ||= !state?.readiness.discovery;
+    scan.disabled ||= preflight; manual.disabled ||= preflight;
     prepare.disabled ||= !candidates.value || !state?.readiness.controlledLaunch;
     const previous = candidates.value; candidates.replaceChildren(node('option', '请选择具体安装实例'));
     candidates.firstChild.value = '';
@@ -98,8 +106,12 @@ window.createAppManagement = (root) => {
       (!selected.version || app.identity.version === selected.version) && JSON.stringify(app.launchSpec) === JSON.stringify(selected.candidate.launchSpec));
     identity.textContent = selected ? `名称：${selected.candidate.displayName}\n别名：${selected.candidate.aliases.join('、') || '无'}\n版本：${selected.version || '未知'} · 发布者：${selected.publisher || '未知'}\n来源：${selected.sources.join('、')}\n安装实例：${selected.candidate.installationId}\n${launchText(selected.candidate.launchSpec)}\n状态：discovered（仅发现，尚未确认此候选）\n限制：${selected.limitation || '业务能力仍须独立证明'}` : '';
     if (existing) identity.textContent += '\n已保存同一配置：无需重复确认，请使用下方配置的重新验证启动。';
-    prepare.disabled = !selected || busy || !state?.readiness.controlledLaunch || !!existing;
+    prepare.disabled = preflight || !selected || busy || !state?.readiness.controlledLaunch || !!existing;
     capability.textContent = state ? `${state.scope.providerId} / ${state.scope.environmentId} · 安装域 ${state.scope.installationScopeId}\n发现适配：${state.readiness.discovery}；受控启动端口：${state.readiness.controlledLaunch}；Task 兼容准入：${state.readiness.taskCompatibility} ${state.readiness.blockedReason || ''}\nBusiness-capable：not-proven。启动验证不会升级 P6 业务证据；Task 仍需可信 bridge，以及原有能力、风险、预算、输入权和独立结果验证。\nP6 有限场景（仍需独立准入）：${state.readiness.scenarios.map(item => `${item.label}：${item.availability} ${item.reason || ''} · ${item.application || '限定应用'} ${item.applicationVersion || '限定版本'}`).join('；') || '无已装配场景'}\n安装来源：${state.report?.installationOrigin || '尚未扫描'}\n扫描来源覆盖：${state.report?.coverage.map(item => `${item.source}：${item.status} ${item.reason || ''}`).join('；') || '尚无来源覆盖记录'}` : '';
+    if (state?.preflight) {
+      const info = state.preflight;
+      capability.textContent = `主机：${info.hostLabel}\nProvider：${state.scope.providerId}\n环境：${state.scope.environmentId}\n状态：配置可见；未连接原生会话（unknown / not-proven）\n应用管理：可读取预检配置；本轮 Registry 为临时空清单，不代表已安装应用\n发现适配：unavailable。${info.discoveryReason}\n安装来源：unavailable（尚未接入可信安装清单，未扫描）\n受控启动：unavailable。${info.launchReason}\n业务能力：not-proven；Provider 的 supported 声明不代表当前环境/应用已就绪\nProvider 能力声明：\n${Object.entries(info.capabilities).map(([name, declarations]) => `${name}：${declarations.map(item => item.state).join(' / ')}`).join('\n')}`;
+    }
     confirmation.replaceChildren();
     if (state?.confirmation) {
       confirmation.append(node('h3', '请核对并明确授权本环境启动验证'), node('pre', `应用：${state.confirmation.displayName} · ${state.confirmation.version} · ${state.confirmation.publisher}\n环境：${state.confirmation.scope.environmentId}\n来源：${state.confirmation.sources.join('、')}\n${launchText(state.confirmation.launchSpec)}\n配置版本：${state.confirmation.profileRevision}\n此操作会保存确认并执行受控启动验证；不会授权业务动作。`));

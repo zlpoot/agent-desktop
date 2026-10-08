@@ -18,6 +18,7 @@ import { WorkflowStore } from '../workflows/store.js';
 import type { AssemblySnapshot } from '../composition/inspection.js';
 import { compactObservationFacets } from '../contracts/facets.js';
 import { globalTaskBudget, parseBudgetOverride, readTaskBudget, saveGlobalTaskBudget } from '../runtime/model-budget.js';
+import type { DashboardPreflightView } from '../composition/dashboard-preflight.js';
 
 /** 输入控制的页面操作面；具体实现为 DesktopControl。 */
 export interface DesktopControlView {
@@ -337,9 +338,21 @@ function sameOrigin(request: IncomingMessage): boolean {
 
 export function createDashboardServer(rootDir = process.cwd(), controller?: TaskController,
   desktop?: DesktopProvider, vmControl?: VmControl, control?: DesktopControlView,
-  inspectRuntime?: () => AssemblySnapshot): Server {
+  inspectRuntime?: () => AssemblySnapshot, preflight?: DashboardPreflightView): Server {
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (preflight) {
+      // Composition-only mode. Queries/Task parameters cannot enable other routes.
+      if (!['localhost', '127.0.0.1'].includes((request.headers.host ?? '').split(':')[0]) ||
+          request.headers['sec-fetch-site'] === 'cross-site' || request.headers.origin && !sameOrigin(request)) {
+        return json(response, 403, { error: 'preflight-local-operator-required' });
+      }
+      if (request.method === 'GET' && url.pathname === '/api/dashboard/preflight') return json(response, 200, preflight);
+      const permitted = request.method === 'POST' && url.pathname === '/api/desktop/apps' ||
+        request.method === 'GET' && ['/api/desktop/environments', '/', '/style.css', '/workbench.css',
+          '/app-management.js', '/dashboard-preflight.js'].includes(url.pathname);
+      if (!permitted) return json(response, 403, { error: 'preflight-a1-operation-disabled' });
+    }
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (url.pathname === '/api/desktop/apps') {
       if (request.method !== 'POST') return json(response, 405, { error: 'app-management-private-post-only' });
@@ -602,7 +615,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         return image ? send(response, 200, image, "image/png") : json(response, 404, { error: "未找到截图" });
       }
       const files: Record<string, [string, string]> = {
-        "/": ["index.html", "text/html; charset=utf-8"],
+        "/": [preflight ? "preflight.html" : "index.html", "text/html; charset=utf-8"],
         "/app.js": ["app.js", "text/javascript; charset=utf-8"],
         "/style.css": ["style.css", "text/css; charset=utf-8"],
         "/workbench.js": ["workbench.js", "text/javascript; charset=utf-8"],
@@ -610,6 +623,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         "/workbench.css": ["workbench.css", "text/css; charset=utf-8"],
         "/workflow-library.js": ["workflow-library.js", "text/javascript; charset=utf-8"],
         "/app-management.js": ["app-management.js", "text/javascript; charset=utf-8"],
+        "/dashboard-preflight.js": ["dashboard-preflight.js", "text/javascript; charset=utf-8"],
         "/runtime-plugins.js": ["runtime-plugins.js", "text/javascript; charset=utf-8"],
       };
       const file = files[url.pathname];
