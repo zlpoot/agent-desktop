@@ -38,7 +38,7 @@ test('A1 Browser no-selection, missing collector, environment switching, late re
     assert.match(await page.locator('#apps-capability').innerText(), /环境提供方：本机交互桌面.*状态未知.*暂不可用.*不表示未安装.*业务操作：尚未验证/s);
     assert.doesNotMatch(await page.locator('#apps-capability').innerText(), /unknown|not-proven|unavailable|Provider|Registry|\bTask\b|\bVM\b/);
     assert.match(await page.locator('#apps-capability-details').innerText(), /系统全局键鼠输入.*禁止使用.*原始键鼠输入隔离.*尚未验证.*独立操作系统隔离.*不支持/s);
-    assert.match(await page.locator('#apps-capability-diagnostics').textContent(), /physical.*synthetic-host/s);
+    assert.match(await page.locator('#apps-capability-diagnostics').textContent() ?? '', /physical.*synthetic-host/s);
     assert.equal(await scan.isDisabled(), true);
     const refreshStyle = await page.getByRole('button', { name: '刷新配置', exact: true }).evaluate(button => {
       const css = getComputedStyle(button); return { background: css.backgroundColor, opacity: css.opacity, cursor: css.cursor };
@@ -56,7 +56,7 @@ test('A1 Browser no-selection, missing collector, environment switching, late re
       response.request().postDataJSON().action === 'open' && response.request().postDataJSON().desktopTarget.providerId === 'physical');
     release!(); release = undefined; await late;
     assert.match(await page.locator('#apps-capability').innerText(), /环境提供方：本地隔离工作区/);
-    assert.match(await page.locator('#apps-capability-diagnostics').textContent(), /local-workspace.*synthetic-workspace/s);
+    assert.match(await page.locator('#apps-capability-diagnostics').textContent() ?? '', /local-workspace.*synthetic-workspace/s);
     assert.equal(await page.locator('#apps-candidate option').count(), 1);
     await page.locator('#apps-environment').selectOption(''); assert.equal(await page.locator('#apps-capability').innerText(), '');
     assert.equal(await page.locator('#apps-capability-details').isVisible(), false);
