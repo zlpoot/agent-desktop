@@ -43,6 +43,10 @@
 .workbench #task-destination, .workbench #task-scenario, .workbench .task-options textarea { width: 100%; max-width: 100%; background: #13212c; color: #e4edf2; border: 1px solid #365362; border-radius: 8px; padding: 10px; box-sizing: border-box; }
 .workbench .readiness-card, .workbench .request-card { padding: 12px; border: 1px solid #365362; border-radius: 10px; margin-bottom: 12px; background: #13212c; }
 .workbench .readiness-card h3, .workbench .request-card h3, .workbench .attention-list h3 { margin: 0 0 8px; font-size: 14px; }
+.app-onboarding { min-width: 0; overflow-wrap: anywhere; }
+.app-onboarding select, .app-onboarding input { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; margin: 8px 0; padding: 9px; border: 1px solid #365362; border-radius: 8px; background: #13212c; color: #e4edf2; }
+.app-onboarding-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-onboarding-identity { white-space: pre-wrap; }
 .workbench .readiness-card p, .workbench .request-card p { font-size: 12px; line-height: 1.6; margin: 6px 0; }
 .workbench .attention-list { padding: 12px; margin-bottom: 12px; }
 .workbench .attention-list button { display: block; width: 100%; text-align: left; margin-top: 6px; overflow-wrap: anywhere; background: #223747; color: #dceaf3; border: 1px solid #486070; border-radius: 8px; padding: 9px; cursor: pointer; }

@@ -247,7 +247,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       canManualReview: source === 'web-tasks.sqlite' && genericTask(rootDir, taskId) &&
         canManuallyReviewOutcome(state),
       interactionKind: state.status === "waiting_user"
-        ? state.finalReviewPending ? "final_review"
+        ? state.appOnboarding && state.appOnboarding.state !== 'ready' ? 'app_onboarding' : state.finalReviewPending ? "final_review"
           : state.lastAction?.kind === "ask_user" ? "question" : "approval"
         : undefined,
       completionCriteria: state.completionCriteria,
@@ -257,6 +257,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       stagePlanVersion: state.stagePlanVersion,
       workflowRef: state.workflowRef,
       desktopTarget: state.desktopTarget,
+      appOnboarding: state.appOnboarding,
       desktopScenario: state.desktopScenario,
       desktopExecutionBinding: state.desktopExecutionBinding,
       desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
@@ -463,11 +464,21 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
       }
       if (url.pathname !== "/api/tasks" && url.pathname !== '/api/desktop/scenarios/tasks' &&
           !(parts[0] === "api" && parts[1] === "tasks" &&
-            ["resume", "pause", "continue", "review"].includes(parts[3]) && parts.length === 4)) {
+            ["resume", "pause", "continue", "review", "app-onboarding"].includes(parts[3]) && parts.length === 4)) {
         return json(response, 404, { error: "接口不存在" });
       }
       void bodyJson(request, 24000).then((body) => {
         try {
+          if (parts[3] === 'app-onboarding') {
+            if (!controller.onboardApp) throw new Error('app-onboarding-service-unavailable');
+            if (!request.headers.origin || !['localhost', '127.0.0.1'].includes((request.headers.host ?? '').split(':')[0])) {
+              return json(response, 403, { error: 'app-onboarding-local-operator-required' });
+            }
+            void controller.onboardApp(parts[2], body as unknown as import('./task-app-onboarding.js').TaskAppRequest)
+              .then(interaction => json(response, 200, { taskId: parts[2], interaction }))
+              .catch(error => json(response, 409, { error: String(error) }));
+            return;
+          }
           if (url.pathname === '/api/desktop/scenarios/tasks') {
             if (!controller.submitScenario) return json(response, 503, { error: 'desktop-scenario-service-unavailable' });
             if (Object.keys(body).some(key => !['desktopTarget', 'scenarioId', 'budget'].includes(key))) {
@@ -485,6 +496,9 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             return json(response, 202, { taskId, source: 'web-tasks.sqlite' });
           }
           if (url.pathname === "/api/tasks") {
+            if (Object.keys(body).some(key => !['goal', 'admin', 'destination', 'criteria', 'constraints', 'budget', 'desktopTarget'].includes(key))) {
+              throw new Error('task-fields-not-allowed');
+            }
             if (body.scenarioId !== undefined || body.desktopScenario !== undefined) throw new Error('desktop-scenario-explicit-route-required');
             if (typeof body.goal !== "string" || !body.goal.trim()) throw new Error("请输入任务需求");
             if (body.admin !== undefined && typeof body.admin !== "boolean") {
@@ -591,5 +605,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
 function requestedDesktopTarget(value: unknown) {
   if (value === undefined) return undefined;
   const selected = value as { providerId?: unknown; environmentId?: unknown } | null;
+  if (!selected || typeof selected !== 'object' || Array.isArray(selected) ||
+      Object.keys(selected).some(key => !['providerId', 'environmentId'].includes(key))) throw new Error('invalid-desktop-target-fields');
   return desktopTarget(selected?.providerId as string, selected?.environmentId as string);
 }

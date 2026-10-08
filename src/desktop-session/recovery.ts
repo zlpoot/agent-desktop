@@ -9,8 +9,12 @@ export function recoverDesktopTasks(rootDir: string): void {
   try {
     for (const saved of trace.unfinishedDesktopTasks()) {
       trace.save("host_restart", { ...saved, status: "paused", recoveryRequired: true,
+        ...(saved.appOnboarding ? { appOnboarding: {
+          ...saved.appOnboarding, state: 'new_task_required' as const, candidates: [],
+          reason: 'Host 已重启；应用配置成果保留，请新建 Task' } } : {}),
         recoveryUncertain: saved.desktopScenario && saved.desktopScenarioDispatched ? true : saved.recoveryUncertain,
         summary: saved.desktopScenario ? "Host 已重启；有限场景禁止自动重放，请显式提交新任务" :
+          saved.appOnboarding ? 'Host 已重启；应用配置成果保留，旧 Session 不复用，请新建 Task' :
           "Host 已重启；任务现场与检查点保留，点击继续后重新观察", error: undefined });
       trace.clearPause(saved.taskId);
     }

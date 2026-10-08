@@ -102,6 +102,66 @@ window.createTaskExperience = function () {
   const requestTitle = el('h3', ''); const requestNext = el('p', '');
   const reason = el('p', '', 'task-issue');
   requestBox.append(requestTitle, reason, requestNext, $('resume-controls'), $('task-controls'));
+  const appCard = el('section', '', 'app-onboarding'); appCard.id = 'app-onboarding'; requestBox.append(appCard);
+  let appRenderKey = '', appBusy = false;
+  function renderApp(run) {
+    const app = run.appOnboarding;
+    appCard.hidden = !app || ['ready', 'reusing', 'cancelled'].includes(app.state);
+    if (appCard.hidden) { appRenderKey = ''; return; }
+    const key = JSON.stringify([run.taskId, app]);
+    if (key === appRenderKey) return;
+    appRenderKey = key; appCard.replaceChildren();
+    appCard.append(el('h3', `需要应用：${app.appName}`), el('p', `当前环境：${app.desktopTarget.providerId} / ${app.desktopTarget.environmentId}`),
+      el('p', `安装域：${app.scope?.installationScopeId || '暂不可用'}`));
+    const messages = { discovering: '正在只读发现应用', candidates: '请选择候选，确认后验证启动。', not_found: '已扫描的来源中未找到应用。可自行安装后重扫。',
+      unavailable: '扫描、环境或启动不可用；这不代表应用未安装。', rejected: '已拒绝候选，不会自动采用其他应用。', launching: '正在验证启动，请等待。',
+      new_task_required: '旧 Session 无法恢复。应用配置成果保留，请新建任务。' };
+    appCard.append(el('p', messages[app.state] || app.state));
+    if (app.reason) appCard.append(el('p', app.reason));
+    const feedback = el('p', ''); feedback.id = 'app-onboarding-feedback'; feedback.setAttribute('role', 'status');
+    const selected = el('select', ''); selected.id = 'app-onboarding-candidate';
+    const placeholder = el('option', '请选择应用，单个候选也需要确认'); placeholder.value = ''; selected.append(placeholder);
+    for (const item of app.candidates) {
+      const choice = el('option', `${item.displayName} · ${item.path} · 参数 ${JSON.stringify(item.args)} · 工作目录 ${item.workingDirectory || '默认'} · ${item.version || '版本未知'} · ${item.publisher || '发布者未知'} · ${item.sources.join(', ')}${item.limitation ? ` · ${item.limitation}` : ''}`);
+      choice.value = item.candidateId; selected.append(choice);
+    }
+    selected.value = ''; appCard.append(selected);
+    selected.setAttribute('aria-label', '应用候选');
+    const candidateDetail = el('p', '', 'app-onboarding-identity'); appCard.append(candidateDetail);
+    const actions = el('div', '', 'app-onboarding-actions');
+    const path = el('input', ''); path.id = 'app-onboarding-path'; path.placeholder = '所选环境内的 .exe 或 .lnk 完整路径'; path.maxLength = 1024;
+    path.setAttribute('aria-label', '所选环境内应用路径');
+    async function act(action) {
+      if (appBusy && action !== 'cancel') return;
+      const candidate = app.candidates.find(item => item.candidateId === selected.value);
+      if (['confirm', 'reject'].includes(action) && !candidate) return;
+      appBusy = true; updateButtons(); feedback.textContent = '正在处理…';
+      try {
+        const response = await fetch(`/api/tasks/${encodeURIComponent(run.taskId)}/app-onboarding`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interactionId: app.interactionId,
+            desktopTarget: app.desktopTarget, action, ...(['confirm', 'reject'].includes(action) ? {
+              candidateId: candidate.candidateId, candidateRevision: candidate.candidateRevision } : action === 'path' ? { path: path.value.trim() } : {}) }) });
+        const data = await response.json(); if (!response.ok) throw new Error(data.error || '应用接入失败');
+        document.dispatchEvent(new CustomEvent('workbench:open-run', { detail: `${run.source}/${run.taskId}` }));
+      } catch (error) { feedback.textContent = error.message; }
+      finally { appBusy = false; updateButtons(); }
+    }
+    const buttons = [];
+    for (const [action, label] of [['confirm', '确认并验证启动'], ['reject', '不是这个应用'], ['path', '指定路径'],
+      ['rescan', '重新扫描'], ['rescan', '安装后重扫'], ['cancel', '取消任务']]) {
+      const button = el('button', label); button.type = 'button'; button.dataset.action = action;
+      button.onclick = () => act(action); buttons.push(button); actions.append(button);
+    }
+    function updateButtons() {
+      const candidate = app.candidates.find(item => item.candidateId === selected.value);
+      candidateDetail.textContent = candidate ? `${candidate.displayName} · ${candidate.path}\n参数 ${JSON.stringify(candidate.args)} · 工作目录 ${candidate.workingDirectory || '默认'}\n${candidate.version || '版本未知'} · ${candidate.publisher || '发布者未知'} · ${candidate.sources.join(', ')}` : '';
+      for (const button of buttons) button.disabled = appBusy && button.dataset.action !== 'cancel' || run.status !== 'waiting_user' ||
+        app.state === 'launching' && button.dataset.action !== 'cancel' ||
+        ['confirm', 'reject'].includes(button.dataset.action) && !selected.value || button.dataset.action === 'path' && !path.value.trim();
+    }
+    selected.onchange = updateButtons; path.oninput = updateButtons;
+    appCard.append(path, actions, feedback); updateButtons();
+  }
   document.querySelector('.hero').prepend(requestBox);
   const original = el('details', '', 'original-goal'); original.append(el('summary', '查看完整任务要求'));
   const originalText = el('p', ''); original.append(originalText); $('goal').parentElement.after(original);
@@ -209,6 +269,7 @@ window.createTaskExperience = function () {
     detail(run) {
       if (currentRun?.taskId !== run.taskId || currentRun?.source !== run.source) $('resume-answer').value = '';
       currentRun = run;
+      renderApp(run);
       const shot = [...(run.steps || [])].reverse().find(step => step.hasScreenshot);
       const url = shot ? `/api/screenshots/${encodeURIComponent(run.source)}/${encodeURIComponent(run.taskId)}/${shot.step}` : '';
       if (url !== evidenceUrl) {
@@ -223,10 +284,12 @@ window.createTaskExperience = function () {
       requestBox.hidden = !waiting && !paused && run.status !== 'failed' && run.status !== 'stopped' && !(run.canPause && run.status === 'running');
       reason.textContent = run.error || run.summary || '尚未记录具体原因，请查看执行过程。';
       reason.hidden = run.status === 'running';
-      requestTitle.textContent = waiting ? ({ question: '需要补充信息', final_review: '请确认最终结果', approval: '需要批准下一步动作' }[run.interactionKind] || '需要你处理') : '任务已暂停或正在暂停';
+      requestTitle.textContent = waiting ? ({ app_onboarding: '需要确认应用配置', question: '需要补充信息', final_review: '请确认最终结果', approval: '需要批准下一步动作' }[run.interactionKind] || '需要你处理') : '任务已暂停或正在暂停';
       requestNext.textContent = waiting ? run.interactionKind === 'final_review' ? '核对下方结果与截图后，再确认完成；未满足目标请选择“尚未完成”。' : run.interactionKind === 'question' ? '提交回答后任务继续处理。' : '查看动作说明后决定是否允许。' : run.recoveryRequired ? '任务现场已保留。先确认环境就绪，继续时会重新观察，再判断下一步。' : '核对原因及现场后继续，或在桌面页接管处理。';
       if (run.status === 'failed' || run.status === 'stopped') { requestTitle.textContent = run.status === 'failed' ? '任务未完成' : '任务已停止'; requestNext.textContent = '查看原因和历史证据，可用下方“新建草稿”修改要求后重新提交。'; }
       if (run.status === 'running') { requestTitle.textContent = '任务正在执行'; requestNext.textContent = '需要介入时可请求暂停，等待当前动作到达安全边界。'; }
+      if (run.interactionKind === 'app_onboarding') requestNext.textContent = '配置完成后继续当前任务，无需重输要求；应用启动不代表业务完成。';
+      if (run.appOnboarding?.state === 'new_task_required') requestNext.textContent = '应用配置成果保留。请用下方“以此任务新建草稿”明确创建新任务；旧动作不会重放。';
       resultTitle.textContent = run.status === 'done' ? '完成结果' : run.status === 'failed' ? '未完成 · 原因' : '当前进展';
     },
   };

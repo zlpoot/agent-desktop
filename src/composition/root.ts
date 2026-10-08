@@ -188,7 +188,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
     }, 'Root', ['environmentApps']);
     await mountInspected(root, {
       name: "taskController",
-      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility", "localWorkspaceCompatibility"],
+      inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility", "localWorkspaceCompatibility", "environmentApps"],
       apply(ctx) {
         // 从业务扩展注册表组装核心的 facet / contributor 注册表（核心本身不内置任何业务域）。
         const facetRegistry = new FacetRegistry();
@@ -199,6 +199,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         }
         const domainEvaluator = createDomainEvaluator(contributorRegistry, facetRegistry);
         const created = new DesktopTaskController(rootDir, {
+          environmentApps: ctx.environmentApps,
           acceptanceVerifier: configuredVerifier(rootDir,
             { facets: facetRegistry, contributors: contributorRegistry }),
           registry: ctx.extensionRegistry,
