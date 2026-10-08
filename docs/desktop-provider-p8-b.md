@@ -2,7 +2,7 @@
 
 基线：`4d727be358efdfd660d1251dd4a2aec0a7707e64`。P8-A 的独立审查和操作者报告已完成，但只覆盖本机预检/只读发现与未配置工作区诊断，不证明网易云音乐或工作区已经安装、配置或准入。
 
-本候选交付 **签发来源校验的结构性适配器、明确不可用的原生桥接诊断，以及不会执行的测试预览**。没有真实 Worker 接入，没有声明 `appTrustFence`，没有修改 Host/Guest、Provider、Workflow 或启动契约。**原生桥接不可用；P8-B 五步只读页面体验已收到操作者通过反馈；独立审查及实际目标核验仍待完成。** 操作者已选择已有证据的网易云音乐候选作预览，这不等于选择了真实目标或授权启动/输入。#29/#27/#16 保持 OPEN，P8-C 不启动。A5 safety FAIL / Windows PAUSED / overall INCOMPLETE 不变。
+本候选交付 **签发来源校验的结构性适配器、明确不可用的原生桥接诊断，以及不会执行的测试预览**。没有真实 Worker 接入，没有声明 `appTrustFence`，没有修改 Host/Guest、Provider、Workflow 或启动契约。**原生桥接不可用；P8-B 五步只读页面体验已收到操作者通过反馈；结构性候选独立审查已接受并合并；实际目标核验仍待完成。** 操作者已选择已有证据的网易云音乐候选作预览，这不等于选择了真实目标或授权启动/输入。#29/#27/#16 保持 OPEN，P8-C 不启动。A5 safety FAIL / Windows PAUSED / overall INCOMPLETE 不变。
 
 ## B0：源码可行性表
 
@@ -29,7 +29,7 @@
 1. 保留现有 v1 Host/Guest 和 D0 方法。本次不增加 RPC。后续必须另行审查一个独立版本的私有管理能力协商；老端点或缺失能力一律拒绝，不能把客户端 boolean 当证明。
 2. 同一原生签发者在私有记录中解析 token，核验安装内容/版本/argv/cwd、保留的进程句柄及创建生命期、窗口销毁/重建生命期、Windows Session/Desktop 和原 helper incarnation；再经可信 ownership 映射到不可变 Provider/Task Session/instance。D0 自行启动的新目标不能补成同一实例。
 3. 在实际 producer 端用同一串行边界处理固定动作、focus/restore 和应用撤销。所有 await/排队结束后、真实效果提交前重查完整 Registry profile 授权、目标生命期、InputAuthority/lease/epoch 和精确 action/role/mechanism；不得把 Host 预检与以后效果分离。
-4. 本地 Registry 先持久拒绝新授权，原生端确认该应用撤销代次、排空/拒绝旧提交并返回不可倒退的最后提交序列，管理层收到 ACK 才报告撤销成功。当前 P7-C `revoke` 是同步契约，不能在后台发异步 RPC 后仍立即声称完成；需要先审查专用异步管理接口或可证明的同进程串行集成方案，不静默替换冻结契约。
+4. 后续兼容候选已具体化为 [原生管理面与 producer 参考决策](desktop-provider-p8-b-native-fence.md)：先停止 Host 新 admission，producer 在实际效果边界拒绝并排空、返回关联 ACK 后，才持久化 Registry revoke；不能先把 Registry 写成 revoked 却仍允许 ACK 前旧队列效果。当前 P7-C 同步 `revoke` 不变；独立异步管理面和所有失效写入的封闭方式必须先审查。该参考只在合成测试中存在，未接入生产或更换冻结契约。
 5. ACK 丢失、超时、迟到或重排保持 blocked/unknown；不重放、不重启、不替换目标，不杀用户已有进程。保留撤销前已经提交的动作和 audit。需要确定性的 0/1 先前提交、阻塞→撤销 ACK→释放、丢失/晚 ACK、身份/版本/生命期漂移与 pause/abort 反例，才能声明原生 fence。
 
 最窄备选仍是已有版本限定的 D0/P6 固定场景；它需要另行真实目标核验与运行授权，不能宣称是 P7 启动到 Task 的桥接。本候选不执行该备选。
