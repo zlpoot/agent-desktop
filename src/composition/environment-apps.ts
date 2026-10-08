@@ -42,6 +42,9 @@ export function composeEnvironmentApps(store: SqliteEnvironmentAppStore,
       ...(launcher ? { launcher } : {}), ...(onboarding ? { onboarding } : {}) }));
   }
   return Object.freeze({ async close() {
+    for (const service of services.values()) {
+      if (service.launcher instanceof ControlledAppLauncher) service.launcher.retireIssuer();
+    }
     const results = await Promise.allSettled([...services.values()].map(async service => {
       await service.onboarding?.close();
     }));

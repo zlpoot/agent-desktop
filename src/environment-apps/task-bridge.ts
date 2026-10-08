@@ -32,10 +32,9 @@ export class UnavailableAppTaskBridge {
       }
     };
     current();
-    const status = await session.status();
+    const handoff = await this.issuer.handoffIssuedTarget(this.registry, snapshot.profile, snapshot.target, session);
     current(); // Host checks after await reject races; they do NOT establish a producer fence.
-    if (status.state !== 'open') throw new Error('app-task-provider-session-stale');
-    this.issuer.consumeIssuedTarget(snapshot.profile, snapshot.target);
+    this.issuer.assertIssuedTargetHandoff(handoff, session);
     // P7 reservation IDs and Provider Session IDs cannot be equated. Existing D0
     // starts its own target and has no same-issuer resolver or Registry effect RPC.
     throw new Error('app-task-native-issuer-resolution-and-revoke-fence-unavailable');

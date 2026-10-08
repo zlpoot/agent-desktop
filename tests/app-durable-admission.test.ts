@@ -99,7 +99,7 @@ test('failed denial commit and unreadable journal refuse admission; damaged exis
   } finally { other.close(); sql.close(); f.close(); }
 });
 
-test('persistent gate wins a bridge status await without consuming the original receipt or creating any Worker', async () => {
+test('persistent gate wins a claimed bridge handoff status await without creating any Worker', async () => {
   const f = await appTaskBridgeFixture();
   try {
     f.hooks.status = async () => {
