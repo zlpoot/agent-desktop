@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { producerReferenceFixture, SyntheticRevokeManagement } from './fixtures/app-producer-fence.js';
+import { producerReferenceFixture, SyntheticRevokeManagement, SyntheticDenyJournal, SyntheticAppAdmissions, SyntheticAppProducer } from './fixtures/app-producer-fence.js';
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void, reject!: (error: Error) => void;
@@ -77,7 +77,7 @@ test('reference producer freezes submitted context; caller mutations cannot reta
 test('reference ACK rejects wrong nonce/epoch/version/context, incomplete drain, sequence rollback and extra fields', async () => {
   for (const mode of ['nonce', 'epoch', 'version', 'context', 'deny', 'drain', 'rollback', 'fraction', 'extra']) {
     const f = producerReferenceFixture(); await f.producer.dispatch('before', f.binding, 'search', 'fixed-search');
-    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, 1);
+    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, f.journal, 1);
     await assert.rejects(management.revoke(async request => {
       const ack = f.producer.revoke(request);
       if (mode === 'nonce') ack.nonce = 'late-other-request';
@@ -123,10 +123,10 @@ test('reference persists Registry revoke only after producer ACK; failed write o
   for (const mode of ['write-failure', 'peer-change']) {
     const f = producerReferenceFixture();
     let writes = 0;
-    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, 0, () => {
+    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, f.journal, 0, () => {
       writes++;
       if (mode === 'write-failure') throw new Error('synthetic-persist-failure');
-      f.producer.current.issuerIncarnation = 'replacement-during-write';
+      f.registry.current = false; f.producer.current.issuerIncarnation = 'replacement-during-write';
     });
     await assert.rejects(management.revoke(async request => {
       assert.equal(writes, 0); assert.equal(management.registryRevoked, false);
@@ -136,5 +136,71 @@ test('reference persists Registry revoke only after producer ACK; failed write o
     assert.equal(management.localDenied, true); assert.equal(management.registryRevoked, mode === 'peer-change');
     await assert.rejects(f.producer.dispatch('after-failed-write', f.binding, 'play', 'fixed-play'), /app-revoked/);
     await assert.rejects(management.revoke(async () => ({})), /no-retry-or-recovery/);
+  }
+});
+
+test('reference durable pending survives crashes before ACK and after ACK before final Registry write; fresh admissions all reject', async () => {
+  for (const checkpoint of ['before-ack', 'after-ack']) {
+    const f = producerReferenceFixture();
+    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, f.journal, 0,
+      () => { throw new Error('synthetic-crash-before-registry-write'); });
+    await assert.rejects(management.revoke(async request => {
+      // The intent is already committed before the first transport call.
+      assert.equal(f.journal.checkpoint()[0][1].phase, 'denied-pending');
+      assert.equal(f.registry.current, true);
+      if (checkpoint === 'before-ack') throw new Error('synthetic-crash-before-ack');
+      return f.producer.revoke(request);
+    }), /synthetic-crash/);
+    assert.equal(f.registry.current, true); assert.equal(f.journal.checkpoint()[0][1].phase, 'denied-pending');
+    const reopened = new SyntheticDenyJournal(f.journal.checkpoint());
+    const freshBinding = { ...f.binding, issuerIncarnation: 'fresh-issuer', taskSession: 'fresh-task',
+      taskInstance: 'fresh-instance', inputLease: 'fresh-lease', inputEpoch: 99, profileRevision: 2, profileDigest: 'new-digest' };
+    const freshProducer = new SyntheticAppProducer(freshBinding);
+    const freshRegistry = structuredClone(f.registry), freshAdmissions = new SyntheticAppAdmissions(reopened, freshRegistry);
+    const freshManagement = new SyntheticRevokeManagement(freshBinding, () => freshProducer.current, reopened);
+    assert.equal(freshRegistry.current, true); assert.equal(freshManagement.phase, 'unknown');
+    for (const admissions of [f.admissions, freshAdmissions]) {
+      for (const admit of ['newTask', 'reuseApplication', 'authorizeInput'] as const) {
+        assert.throws(() => admissions[admit](freshBinding), /persistent-app-denial/);
+      }
+      assert.deepEqual(admissions.minted, []);
+    }
+    let sends = 0;
+    await assert.rejects(freshManagement.revoke(async () => { sends++; return {}; }), /no-retry-or-recovery/);
+    assert.equal(sends, 0); assert.deepEqual(freshProducer.effects, []);
+  }
+});
+
+test('reference pending write precedes send; pending ends only after ACK and final Registry write, never on failures', async () => {
+  const failed = producerReferenceFixture(); failed.journal.failBegin = true;
+  let sends = 0;
+  await assert.rejects(failed.management.revoke(async () => { sends++; return {}; }), /write-unconfirmed/);
+  assert.equal(sends, 0); assert.equal(failed.registry.current, true);
+  for (const admit of ['newTask', 'reuseApplication', 'authorizeInput'] as const) {
+    assert.throws(() => failed.admissions[admit](failed.binding), /journal-unavailable/);
+  }
+  for (const mode of ['success', 'bad-ack', 'final-write', 'completion-write']) {
+    const f = producerReferenceFixture(); let writes = 0;
+    f.journal.failComplete = mode === 'completion-write';
+    const management = new SyntheticRevokeManagement(f.binding, () => f.producer.current, f.journal, 0, () => {
+      writes++;
+      assert.equal(f.journal.checkpoint()[0][1].phase, 'denied-pending');
+      if (mode === 'final-write') throw new Error('synthetic-final-write-failure');
+      f.registry.current = false;
+    });
+    const revoking = management.revoke(async request => {
+      assert.equal(writes, 0); assert.equal(f.journal.checkpoint()[0][1].phase, 'denied-pending');
+      const ack = f.producer.revoke(request); if (mode === 'bad-ack') ack.nonce = 'wrong-ack'; return ack;
+    });
+    if (mode === 'success') { await revoking; assert.equal(management.phase, 'confirmed'); }
+    else { await assert.rejects(revoking, /unconfirmed|failure/); assert.equal(management.phase, 'unknown'); }
+    assert.equal(writes, mode === 'bad-ack' ? 0 : 1);
+    assert.equal(f.journal.checkpoint()[0][1].phase, mode === 'success' ? 'revoked' : 'denied-pending');
+    assert.equal(f.registry.current, ['bad-ack', 'final-write'].includes(mode));
+    const reopened = new SyntheticDenyJournal(f.journal.checkpoint());
+    const admissions = new SyntheticAppAdmissions(reopened, { current: true }); // stale current Registry cannot bypass even a completed tombstone
+    for (const admit of ['newTask', 'reuseApplication', 'authorizeInput'] as const) {
+      assert.throws(() => admissions[admit](f.binding), /persistent-app-denial/);
+    }
   }
 });

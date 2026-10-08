@@ -29,7 +29,7 @@
 1. 保留现有 v1 Host/Guest 和 D0 方法。本次不增加 RPC。后续必须另行审查一个独立版本的私有管理能力协商；老端点或缺失能力一律拒绝，不能把客户端 boolean 当证明。
 2. 同一原生签发者在私有记录中解析 token，核验安装内容/版本/argv/cwd、保留的进程句柄及创建生命期、窗口销毁/重建生命期、Windows Session/Desktop 和原 helper incarnation；再经可信 ownership 映射到不可变 Provider/Task Session/instance。D0 自行启动的新目标不能补成同一实例。
 3. 在实际 producer 端用同一串行边界处理固定动作、focus/restore 和应用撤销。所有 await/排队结束后、真实效果提交前重查完整 Registry profile 授权、目标生命期、InputAuthority/lease/epoch 和精确 action/role/mechanism；不得把 Host 预检与以后效果分离。
-4. 后续兼容候选已具体化为 [原生管理面与 producer 参考决策](desktop-provider-p8-b-native-fence.md)：先停止 Host 新 admission，producer 在实际效果边界拒绝并排空、返回关联 ACK 后，才持久化 Registry revoke；不能先把 Registry 写成 revoked 却仍允许 ACK 前旧队列效果。当前 P7-C 同步 `revoke` 不变；独立异步管理面和所有失效写入的封闭方式必须先审查。该参考只在合成测试中存在，未接入生产或更换冻结契约。
+4. 后续兼容候选已具体化为 [原生管理面与 producer 参考决策](desktop-provider-p8-b-native-fence.md)：先停止 Host 新 admission，并在发送原生请求前持久提交 denied-pending 拒绝意图；新 Task、应用复用及输入授权每次都检查该记录，包括重启后与 Registry 仍为 current 时。producer 在实际效果边界拒绝并排空、返回关联 ACK 后，才持久化最终 Registry revoke；ACK 核对和最终写入都完成后才结束待决，并保留拒绝墓碑；不能先把 Registry 写成 revoked 却仍允许 ACK 前旧队列效果。当前 P7-C 同步 `revoke` 不变；独立异步管理面和所有失效写入的封闭方式必须先审查。该参考只在合成测试中存在，未接入生产或更换冻结契约。
 5. ACK 丢失、超时、迟到或重排保持 blocked/unknown；不重放、不重启、不替换目标，不杀用户已有进程。保留撤销前已经提交的动作和 audit。需要确定性的 0/1 先前提交、阻塞→撤销 ACK→释放、丢失/晚 ACK、身份/版本/生命期漂移与 pause/abort 反例，才能声明原生 fence。
 
 最窄备选仍是已有版本限定的 D0/P6 固定场景；它需要另行真实目标核验与运行授权，不能宣称是 P7 启动到 Task 的桥接。本候选不执行该备选。
