@@ -5,6 +5,7 @@ import type { TraceStore } from '../contracts/stores.js';
 import type { DesktopSession } from '../contracts/desktop-environment.js';
 import type { ComputerState } from '../graph/state.js';
 import type { TaskDesktopSessions } from './task-desktop-sessions.js';
+import { DesktopAdmissionError } from '../desktop-provider/admission.js';
 
 /** Uses the same queue, durable Task/Session binding, budget and pause lifecycle.
  * Its entire action space is one explicit finite scenario; no generic planner/runtime fallback. */
@@ -46,11 +47,16 @@ export async function runDesktopScenarioTask(rootDir: string, taskId: string, tr
     const deadline = performance.now() + 45000;
     do {
       checkPause(); control.assertTaskAllowed(taskId);
-      verified = await prepared.verify();
-      checkPause(); control.assertTaskAllowed(taskId);
-      if (verified.verdict === 'pass') break;
       if (performance.now() >= deadline) throw new Error('desktop-scenario-verification-timeout');
-      await new Promise<void>(resolveWait => setTimeout(resolveWait, 100));
+      verified = undefined;
+      try { verified = await prepared.verify(); }
+      catch (error) {
+        if (!(error instanceof DesktopAdmissionError) || error.reason !== 'local-workspace-frame-repeated') throw error;
+      }
+      checkPause(); control.assertTaskAllowed(taskId);
+      if (performance.now() >= deadline) throw new Error('desktop-scenario-verification-timeout');
+      if (verified?.verdict === 'pass') break;
+      await new Promise<void>(resolveWait => setTimeout(resolveWait, Math.min(100, deadline - performance.now())));
     } while (true);
     state = { ...state, observation: verified.observation, verificationPending: false,
       goalVerification: { ok: true, message: '固定场景通过独立结果观察' },

@@ -9,7 +9,7 @@ import type { CapabilityContext, CapabilityDeclaration, CapabilityScope, Capabil
   DesktopProvider, DesktopSession, DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
   DesktopReadiness } from "../contracts/desktop-environment.js";
 import type { DesktopInputArbiter, InputAuthority, InputClient } from "../contracts/desktop-input-control.js";
-import { assertDesktopCapabilities, deny, sameSession } from "./admission.js";
+import { assertDesktopCapabilities, DesktopAdmissionError, deny, sameSession } from "./admission.js";
 import type { DesktopExecutionBackend, TargetBinding } from '../contracts/desktop-execution.js';
 import type { DesktopObservationBinding } from '../contracts/desktop-environment.js';
 import type { DesktopScenarioDefinition, DesktopScenarioOption, DesktopScenarioVerification } from '../contracts/desktop-scenario.js';
@@ -666,6 +666,8 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     if (authority.owner.kind !== "agent" || record.authority !== authority) deny("agent-authority-required");
     if (record.runtime) deny("local-workspace-runtime-busy");
     let closed = false, bound = false, observationDeadline = -Infinity, observationToken: string | undefined, lastFrameSequence = -1,
+      lastFrameHash: string | undefined, lastFrameHeartbeat: number | undefined,
+      lastFrameDeadline = -Infinity,
       activeOperations = 0, closing: Promise<void> | undefined;
     let drained: (() => void) | undefined;
     const check = () => {
@@ -696,6 +698,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       observe: async () => {
         const leave = enter();
         try {
+          observationToken = undefined; observationDeadline = -Infinity;
           if (!bound) deny("local-workspace-rebind-required");
           await confirm();
           await this.admit(record, "observation.pixels", "observe", "d0-local-workspace");
@@ -710,13 +713,23 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
           const image = Buffer.from(frame.png, "base64");
           const hash = createHash("sha256").update(image).digest("hex");
           const inspected = inspectD0Png(image);
-          if (!inspected || hash !== frame.metadata.sha256 || !Number.isSafeInteger(frame.metadata.sequence) ||
-              frame.metadata.sequence <= lastFrameSequence ||
-              frame.metadata.width <= 0 || frame.metadata.width > 2048 ||
-              frame.metadata.height <= 0 || frame.metadata.height > 2048 ||
-              frame.metadata.width !== inspected.width || frame.metadata.height !== inspected.height)
-            deny("local-workspace-frame-integrity-failed");
+          if (!inspected) deny("local-workspace-frame-integrity-failed:png");
+          if (hash !== frame.metadata.sha256) deny("local-workspace-frame-integrity-failed:hash");
+          if (frame.metadata.width !== inspected.width || frame.metadata.height !== inspected.height)
+            deny("local-workspace-frame-integrity-failed:dimensions");
+          if (!Number.isSafeInteger(frame.metadata.sequence) || frame.metadata.sequence < 1 ||
+              !Number.isFinite(frame.metadata.heartbeat)) deny("local-workspace-frame-integrity-failed:metadata");
+          if (frame.metadata.sequence < lastFrameSequence) deny("local-workspace-frame-integrity-failed:sequence-regressed");
           await confirm();
+          if (performance.now() >= deadline) deny("fresh-observation-required");
+          if (frame.metadata.sequence === lastFrameSequence) {
+            if (performance.now() >= lastFrameDeadline) deny("fresh-observation-required");
+            if (hash !== lastFrameHash || frame.metadata.heartbeat !== lastFrameHeartbeat)
+              deny("local-workspace-frame-integrity-failed:sequence-reused");
+            // Never publish a repeated frame or retain its new backend input token.
+            // Only the already-dispatched Task may retry this read within its original deadline.
+            deny("local-workspace-frame-repeated");
+          }
           const folder = resolve(artifactDir, "local-workspace", record.runId);
           if (!folder.startsWith(resolve(artifactDir) + "/") && !folder.startsWith(resolve(artifactDir) + "\\"))
             deny("invalid-local-workspace-artifact-path");
@@ -743,8 +756,15 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
           await confirm();
           if (performance.now() >= deadline) deny("fresh-observation-required");
           lastFrameSequence = frame.metadata.sequence; observationDeadline = deadline;
+          lastFrameHash = hash; lastFrameHeartbeat = frame.metadata.heartbeat;
+          lastFrameDeadline = deadline;
           observationToken = frame.observationToken; return observation;
-        } catch (error) { if (!(closed && record.state === "open")) this.invalidate(record); throw error; }
+        } catch (error) {
+          const repeatedAfterDispatch = record.scenarioStarted && error instanceof DesktopAdmissionError &&
+            error.reason === "local-workspace-frame-repeated";
+          if (!repeatedAfterDispatch && !(closed && record.state === "open")) this.invalidate(record);
+          throw error;
+        }
         finally { leave(); }
       },
       runValidatedScenario: async () => {
