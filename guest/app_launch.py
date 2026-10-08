@@ -122,7 +122,8 @@ class OriginalProcessRecords:
                 if len(self.records) >= 128:
                     raise LaunchFailure('unavailable', 'app-original-record-limit')
                 token = uuid.uuid4().hex
-                self.records[token] = {'pin': pin, 'probe': probe, 'original': original, 'retired': False}
+                self.records[token] = {'pin': pin, 'probe': probe, 'original': original, 'retired': False,
+                                       'windowGeneration': uuid.uuid4().hex, 'prebinding': None}
                 self.keys[key] = token
                 retained = True
                 return token
@@ -162,6 +163,103 @@ class OriginalProcessRecords:
                     failures.append(error)
             if failures:
                 raise LaunchFailure('unknown', 'app-original-process-close-unconfirmed') from failures[0]
+
+    def invalidate_window(self, token):
+        """Negative notification only. No event or polling result can certify continuity.
+
+        Until an ordered native observer exists, all generations are unavailable.
+        Destroy/reuse, observation gaps and late subscription retire the original;
+        restoring HWND/metadata cannot resurrect either it or its prebinding.
+        """
+        with self.lock:
+            self._available()
+            record = self.records.get(token)
+            if record is None:
+                raise LaunchFailure('unavailable', 'app-original-target-not-issued')
+            self._retire(record)
+
+    @staticmethod
+    def _admission(admission):
+        # A read-only Host admission port is a prerequisite, never a native grant.
+        # Missing, failed or ambiguous reads cannot be treated as no denial.
+        if admission() is not True:
+            raise LaunchFailure('unavailable', 'app-prebinding-admission-unconfirmed')
+
+    @staticmethod
+    def _binding_facts(task_session, producer):
+        task = copy.deepcopy(task_session.prebinding_identity())
+        worker = copy.deepcopy(producer.original_issuer_prebinding_facts())
+        required = {'providerId', 'environmentId', 'sessionId', 'instanceId', 'inputResourceId'}
+        if not isinstance(task, dict) or set(task) != required or not all(
+                isinstance(task[key], str) and task[key] for key in required - {'inputResourceId'}) or \
+                (task['inputResourceId'] is not None and
+                 (not isinstance(task['inputResourceId'], str) or not task['inputResourceId'])):
+            raise LaunchFailure('unavailable', 'app-prebinding-task-identity-unavailable')
+        if not isinstance(worker, dict) or not worker.get('incarnation'):
+            raise LaunchFailure('unavailable', 'app-prebinding-producer-identity-unavailable')
+        return task, worker
+
+    def prepare_prebinding(self, token, profile, context, task_session, producer, admission):
+        """One bounded opaque read-only candidate per original, exact in-process ports.
+
+        This cannot be serialized into an authority, consume a Task bridge or
+        attach a producer. Caller-supplied string equality is diagnostic only.
+        """
+        with self.lock:
+            original = self.resolve_process(token, profile, context)
+            record = self.records[token]
+            try:
+                self._admission(admission)  # committed denial must win before ports/binding
+                previous = record['prebinding']
+                if previous is not None:
+                    self._read_prebinding(record, previous, task_session, producer, admission)
+                    return previous['handle']
+                task, worker = self._binding_facts(task_session, producer)
+                self._admission(admission)
+                if self._read(record) != original or self._binding_facts(task_session, producer) != (task, worker):
+                    raise LaunchFailure('unknown', 'app-prebinding-lifetime-changed')
+                self._available()
+                candidate = {'handle': object(), 'taskPort': task_session, 'producerPort': producer,
+                             'admissionPort': admission, 'task': task, 'worker': worker}
+                record['prebinding'] = candidate
+                return candidate['handle']
+            except Exception:
+                self._retire(record)
+                raise
+
+    def _read_prebinding(self, record, candidate, task_session, producer, admission):
+        try:
+            self._available()
+            if candidate['taskPort'] is not task_session or candidate['producerPort'] is not producer or \
+                    candidate['admissionPort'] is not admission:
+                raise LaunchFailure('unknown', 'app-prebinding-port-incarnation-changed')
+            self._admission(admission)
+            original = self._read(record)
+            expected = candidate['task'], candidate['worker']
+            if self._binding_facts(task_session, producer) != expected:
+                raise LaunchFailure('unknown', 'app-prebinding-lifetime-changed')
+            self._admission(admission)
+            if self._read(record) != original or self._binding_facts(task_session, producer) != expected:
+                raise LaunchFailure('unknown', 'app-prebinding-lifetime-changed')
+            self._available()
+            # Local generation is a tombstone key, NOT a Win32 continuity proof.
+            return {'version': 'p8-b-original-prebinding-v1', 'status': 'unavailable',
+                    'blockers': ['window-lifetime-unavailable', 'same-issuer-producer-unavailable',
+                                 'authenticated-admission-channel-unavailable'],
+                    'original': original, 'windowGeneration': record['windowGeneration'],
+                    'taskSession': copy.deepcopy(candidate['task']), 'producer': copy.deepcopy(candidate['worker'])}
+        except Exception:
+            self._retire(record)
+            raise
+
+    def read_prebinding(self, handle, task_session, producer, admission):
+        with self.lock:
+            self._available()
+            for record in self.records.values():
+                candidate = record['prebinding']
+                if candidate is not None and candidate['handle'] is handle:
+                    return self._read_prebinding(record, candidate, task_session, producer, admission)
+            raise LaunchFailure('unavailable', 'app-prebinding-not-issued')
 
 
 def fields(value, allowed, required):
@@ -407,6 +505,12 @@ class WindowsNativeLauncher:
     def resolve_original_process(self, token, profile, context):
         """Private read-only process resolution; no RPC or target/input grant."""
         return self.original_processes.resolve_process(token, profile, context)
+
+    def prepare_original_prebinding(self, token, profile, context, task_session, producer, admission):
+        return self.original_processes.prepare_prebinding(token, profile, context, task_session, producer, admission)
+
+    def read_original_prebinding(self, handle, task_session, producer, admission):
+        return self.original_processes.read_prebinding(handle, task_session, producer, admission)
 
     def resolve_original_target(self, token, profile, context):
         self.resolve_original_process(token, profile, context)

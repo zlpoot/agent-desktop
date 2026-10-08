@@ -39,6 +39,27 @@ class ProviderWorker:
         self.control_token = None
         self.observation = None
         self.bound_session = None
+        self._prebinding_controller = None
+        self._prebinding_observed = self._prebinding_changed = False
+
+    def original_issuer_prebinding_facts(self):
+        """Private read-only topology report; never runs start/attach/identity_facts.
+
+        This bridge owns an independently launched D0 controller/OS worker. Its
+        metadata cannot certify the P7 issuer's process, Job or HWND continuity.
+        No stdio method exposes this report or accepts a prebinding handle.
+        """
+        with self.control_lock:
+            if self._prebinding_observed and self.controller is not self._prebinding_controller:
+                self._prebinding_changed = True
+            if self._prebinding_changed:
+                raise Blocked('workspace_prebinding_controller_changed')
+            self._prebinding_controller, self._prebinding_observed = self.controller, True
+            return {'version': 'p8-b-d0-topology-v1', 'incarnation': self.backend_nonce,
+                    'topology': 'independent-d0-launch', 'sameIssuer': False,
+                    'run': self.run_id, 'backendInstance': self.backend_instance_id,
+                    'windowsSession': self.windows_session_id, 'target': self.target_id,
+                    'stale': self.stale}
 
     def identity_facts(self):
         controller = self.controller
