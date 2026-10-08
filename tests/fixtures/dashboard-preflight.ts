@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { DesktopProvider, DesktopCapabilities } from '../../src/contracts/desktop-environment.js';
 import { createDashboardPreflight } from '../../src/composition/dashboard-preflight.js';
+import { createDashboardBridgePreview } from '../../src/composition/dashboard-bridge-preview.js';
 import { createDashboardServer } from '../../src/app/server.js';
 import type { AppCollection, AppDiscoveryCollector } from '../../src/contracts/app-discovery.js';
 
-export async function preflightFixture(options: { mode?: 'a2'; identity?: string | Error } = {}) {
+export async function preflightFixture(options: { mode?: 'a2' | 'bridge-preview'; identity?: string | Error } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'p8a-synthetic-'));
   const config = join(dir, 'operator.json'); writeFileSync(config, '{}');
   let opens = 0;
@@ -26,7 +27,7 @@ export async function preflightFixture(options: { mode?: 'a2'; identity?: string
         'isolation.separateOs': [{ state: 'unsupported', scope: {} }] };
     }, open: async () => { opens++; throw new Error('synthetic-must-not-open'); } }));
   let identityReads = 0;
-  const assembly = await createDashboardPreflight(config, dir, { providers, hostLabel: 'Synthetic Host', installationScopeId: 'synthetic-domain' },
+  const assembly = await (options.mode === 'bridge-preview' ? createDashboardBridgePreview : createDashboardPreflight)(config, dir, { providers, hostLabel: 'Synthetic Host', installationScopeId: 'synthetic-domain' },
     options.mode === 'a2' ? { identity: async () => {
       identityReads++; if (options.identity instanceof Error) throw options.identity;
       return options.identity ?? `windows:${'a'.repeat(64)}`;

@@ -1,6 +1,7 @@
 window.createAppManagement = (root, options = {}) => {
   const preflight = options.preflight === true;
   const readonlyDiscovery = preflight && options.readonlyDiscovery === true;
+  const bridgePreview = preflight && options.bridgePreview === true;
   const node = (tag, text, id) => {
     const item = document.createElement(tag); if (text) item.textContent = text; if (id) item.id = id; return item;
   };
@@ -163,7 +164,7 @@ window.createAppManagement = (root, options = {}) => {
     }
     help.replaceChildren(node('summary', '本轮体验步骤与限制'),
       node('p', '先保持未选环境，再明确选择本机或已配置的工作区，检查身份与缺失适配器原因；切换环境、刷新配置或重载页面，检查旧状态是否清空。'),
-      node('p', readonlyDiscovery ? '选择环境后点击扫描，用名称筛选已扫描结果；多版本请分别核对安装实例、版本与路径。扫描不完整或不可用不表示未安装。指定路径只读取本地安全 EXE / 快捷方式，不会执行它；自行安装后可以点击重扫。真实路径和清单只保留在本机页面，请勿公开上传。'
+      node('p', bridgePreview ? '本轮只查看环境诊断与拟议测试预览；发现、历史启动验证、任务桥接和本次操作授权分别核对。实际目标验收仍待反馈，不会执行预览。' : readonlyDiscovery ? '选择环境后点击扫描，用名称筛选已扫描结果；多版本请分别核对安装实例、版本与路径。扫描不完整或不可用不表示未安装。指定路径只读取本地安全 EXE / 快捷方式，不会执行它；自行安装后可以点击重扫。真实路径和清单只保留在本机页面，请勿公开上传。'
         : '扫描和路径检查等待 A1 体验反馈后的 A2；本轮不能确认、启动、撤销注册、发送任务、接管输入或控制虚拟机。'),
       node('p', '本轮不能确认、启动、撤销注册、发送任务、接管输入或控制虚拟机。刷新或切换环境会丢弃旧结果；不会自动重扫。'));
   }
@@ -188,7 +189,7 @@ window.createAppManagement = (root, options = {}) => {
       const result = await post({ action: 'open', desktopTarget: selected });
       if (current !== version) { end(result); return; }
       state = result; status.textContent = readonlyDiscovery ? '配置已读取。点击扫描或指定路径才读取应用信息；启动保持关闭。'
-        : preflight ? '配置已读取。A1 仅预检；扫描和启动尚未开放。' : '配置已读取。扫描和启动必须由你显式操作。';
+        : bridgePreview ? '配置已读取。P8-B 只读预览；扫描、启动和任务保持关闭。' : preflight ? '配置已读取。A1 仅预检；扫描和启动尚未开放。' : '配置已读取。扫描和启动必须由你显式操作。';
     } catch (error) { if (current === version) status.textContent = `环境管理不可用：${error.message}。请检查可信装配与连接后重新选择环境。`; }
     finally { if (current === version) { busy = false; render(); } }
   }
@@ -245,6 +246,7 @@ window.createAppManagement = (root, options = {}) => {
         ? info.installationOrigin === 'shared-host-os' ? '本机共享操作系统的安装来源，只读；不继承本机启动或输入许可。' : '所选本机环境的限定安装来源，只读。'
         : '暂不可用，尚未接入可信安装清单，也没有扫描。';
       capability.textContent = `主机：${info.hostLabel}\n环境提供方：${providerLabel}\n执行环境：${environmentLabel}\n连接状态：配置可见，尚未连接原生会话；实际运行状态未知，能力就绪情况尚未验证。\n应用管理：可读取预检配置；本轮配置清单临时且为空，不代表电脑没有安装应用。\n应用发现：${discoveryLabel}${info.discoveryReason}\n安装来源：${originLabel}\n受控启动：暂不可用。${launchReason}\n业务操作：尚未验证；声明支持某项基础能力，不代表已经能够完成你的具体任务。`;
+      if (info.taskBridge) capability.textContent += `\n任务桥接：不可用。${info.taskBridge.reason}\n受控实测：尚未授权，需单独授权；发现与历史启动验证都不能开放任务或输入。`;
       renderCapabilities(info);
     }
     reportView.replaceChildren(); reportView.hidden = !readonlyDiscovery || !state?.report;

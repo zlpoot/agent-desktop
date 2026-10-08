@@ -23,6 +23,7 @@ export interface DashboardReadonlyDiscovery {
 
 export interface DashboardPreflightView {
   readonly mode: 'a1' | 'a2';
+  readonly bridgePreview?: typeof import('./app-task-bridge.js').appBridgeCandidatePreview;
   readonly hostLabel: string;
   readonly configuration: 'explicit-operator-file';
   readonly localWorkspaceConfigured: boolean;
