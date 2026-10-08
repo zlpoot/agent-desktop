@@ -57,6 +57,8 @@ export interface RootAssemblyOptions {
   rootDir: string;
   /** Trusted environment/installation scope adapters. P7-A production default is empty. */
   environmentApps?: readonly EnvironmentAppInfrastructure[];
+  /** Enable private Dashboard app management only through trusted assembly. */
+  environmentAppManagement?: boolean;
   model?: ModelProvider;
   /** Synthetic registry port; production registers Hyper-V and explicitly configured Physical executors. */
   desktopSessions?: TaskDesktopSessions;
@@ -200,6 +202,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const domainEvaluator = createDomainEvaluator(contributorRegistry, facetRegistry);
         const created = new DesktopTaskController(rootDir, {
           environmentApps: ctx.environmentApps,
+          environmentAppManagement: options.environmentAppManagement === true,
           acceptanceVerifier: configuredVerifier(rootDir,
             { facets: facetRegistry, contributors: contributorRegistry }),
           registry: ctx.extensionRegistry,

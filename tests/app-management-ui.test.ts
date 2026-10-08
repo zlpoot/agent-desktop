@@ -1,0 +1,94 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { resolve } from 'node:path';
+import { managementFixture } from './fixtures/app-management.js';
+
+test('Browser application page requires explicit environment and candidate, handles manual/multiple/offline/revoke and refresh with independent capability labels', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const f = await managementFixture(); const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage(), errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    const requests: Record<string, unknown>[] = [];
+    page.on('request', request => { if (request.url().endsWith('/api/desktop/apps')) requests.push(request.postDataJSON()); });
+    await page.goto(`${f.base}/#/apps`);
+    await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 5);
+    assert.equal(await page.locator('#apps-environment').inputValue(), ''); assert.equal(requests.length, 0);
+    const root = page.locator('#app-management'), scan = root.getByRole('button', { name: '扫描 / 重扫', exact: true });
+    assert.equal(await scan.isDisabled(), true); assert.ok(f.backends.every(item => item.scans === 0 && item.starts === 0));
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:a']));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    assert.equal(f.backends[0].scans, 0);
+    await scan.click(); await page.waitForFunction(() => (document.querySelector('#apps-candidate') as HTMLSelectElement)?.options.length === 2);
+    assert.equal(await page.locator('#apps-candidate').inputValue(), ''); assert.equal(f.backends[0].starts, 0);
+    const prepare = root.getByRole('button', { name: '查看确认内容', exact: true }); assert.equal(await prepare.isDisabled(), true);
+    await page.locator('#apps-candidate').selectOption({ index: 1 }); assert.match(await page.locator('#apps-identity').innerText(), /Synthetic.*Music.exe/s);
+    await prepare.click();
+    const confirm = root.getByRole('button', { name: '确认并验证启动', exact: true }); await confirm.waitFor();
+    assert.equal(f.backends[0].starts, 0); assert.match(await root.innerText(), /discovered.*confirmed: false.*launch-verified: false/s);
+    await confirm.click(); await page.waitForFunction(() => document.querySelector('#apps-registered')?.textContent?.includes('launch-verified: true'));
+    assert.equal(f.backends[0].starts, 1); assert.match(await root.innerText(), /business-capable: not-proven/);
+    assert.equal(await prepare.isDisabled(), true);
+    assert.match(await page.locator('#apps-identity').innerText(), /无需重复确认/);
+    assert.equal(requests.filter(item => item.action === 'confirm').length, 1);
+    await root.getByRole('button', { name: '重新验证启动（允许受控启动）', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.startsWith('扫描：'));
+    assert.equal(f.backends[0].starts, 1); assert.equal(f.backends[0].scans, 1);
+    f.backends[0].offline = true;
+    await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('unavailable'));
+    assert.match(await page.locator('#apps-registered').innerText(), /confirmed: true/);
+    f.backends[0].offline = false;
+    await root.getByRole('button', { name: '撤销注册', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#apps-registered')?.textContent?.includes('revoked'));
+    assert.equal(f.backends[0].running, true); assert.equal(f.backends[0].cleanups, 0);
+    f.backends[0].entries.push({ ...f.backends[0].entries[0], launchSpec: { kind: 'exe', executable: 'D:\\Synthetic\\Music.exe', args: [] } });
+    await scan.click(); await page.waitForFunction(() => (document.querySelector('#apps-candidate') as HTMLSelectElement)?.options.length === 3);
+    assert.equal(await page.locator('#apps-candidate').inputValue(), '');
+    await page.locator('#apps-path').fill('D:\\Synthetic\\Music.exe'); await root.getByRole('button', { name: '指定路径', exact: true }).click();
+    await page.waitForFunction(() => (document.querySelector('#apps-candidate') as HTMLSelectElement)?.options.length === 2);
+    assert.equal(await page.locator('#apps-candidate').inputValue(), '');
+    await page.screenshot({ path: resolve('.validation/p7-e-app-management.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    const scansBefore = f.backends[0].scans, startsBefore = f.backends[0].starts;
+    await page.reload(); await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 5);
+    assert.equal(await page.locator('#apps-environment').inputValue(), ''); assert.equal(f.backends[0].scans, scansBefore); assert.equal(f.backends[0].starts, startsBefore);
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['local-workspace', 'hidden']));
+    await page.waitForFunction(() => document.querySelector('#apps-capability')?.textContent?.includes('local-workspace-managed-backend-owned-hidden'));
+    await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-capability')?.textContent?.includes('shared-host-os'));
+    await page.locator('#apps-candidate').selectOption({ index: 1 }); assert.equal(await prepare.isDisabled(), true);
+    await root.getByText('第一次使用与失败处理', { exact: true }).click();
+    assert.match(await root.innerText(), /Physical generic 不支持.*dispatch fence.*owned Hidden Desktop binding/s);
+    assert.deepEqual(f.counts(), { models: 0, runtime: 0, leases: 0 }); assert.deepEqual(errors, []);
+  } finally { await browser.close(); await f.close(); }
+});
+
+test('Browser switching VM-A to VM-B drops late candidates/confirmation and untrusted display text is inert', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const f = await managementFixture(); const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  let release: (() => void) | undefined;
+  try {
+    const page = await browser.newPage(); await page.goto(`${f.base}/#/apps`);
+    await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 5);
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:a']));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    let entered!: () => void; const waiting = new Promise<void>(done => { entered = done; });
+    f.backends[0].beforeScan = async () => { entered(); await new Promise<void>(done => { release = done; }); };
+    await page.getByRole('button', { name: '扫描 / 重扫', exact: true }).click(); await waiting;
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:b']));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    const lateResponse = page.waitForResponse(response => response.url().endsWith('/api/desktop/apps') && response.request().postDataJSON().action === 'scan');
+    release!(); release = undefined; await lateResponse;
+    assert.equal(await page.locator('#apps-candidate option').count(), 1); assert.match(await page.locator('#apps-capability').innerText(), /vm:b/);
+    f.backends[1].entries = [{ ...f.backends[1].entries[0], displayName: '<img src=x onerror=alert(1)>', aliases: [] }];
+    await page.getByRole('button', { name: '扫描 / 重扫', exact: true }).click();
+    await page.waitForFunction(() => (document.querySelector('#apps-candidate') as HTMLSelectElement)?.options.length === 2);
+    await page.locator('#apps-candidate').selectOption({ index: 1 });
+    assert.match(await page.locator('#apps-identity').innerText(), /<img src=x onerror=alert\(1\)>/);
+    assert.equal(await page.locator('#app-management img').count(), 0);
+    await page.getByRole('button', { name: '查看确认内容', exact: true }).click();
+    await page.getByRole('button', { name: '确认并验证启动', exact: true }).waitFor();
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:a']));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    assert.equal(await page.getByRole('button', { name: '确认并验证启动', exact: true }).count(), 0);
+    assert.equal(f.backends[0].starts, 0); assert.equal(f.backends[1].starts, 0);
+  } finally { release?.(); await browser.close(); await f.close(); }
+});

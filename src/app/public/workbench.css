@@ -83,3 +83,9 @@
 .task-load-feedback{padding:16px;margin:12px 0}.task-load-feedback button{background:#24453f;color:#d9f3eb;border:1px solid #52776d;border-radius:8px;padding:9px 12px;cursor:pointer}.task-pane:has(.task-load-feedback:not([hidden]))>.empty{display:none!important}.task-list-empty{font-size:13px;color:#aabfce;padding:14px;line-height:1.7}
 
 .readiness-card button{background:#24453f;color:#d9f3eb;border:1px solid #52776d;border-radius:8px;padding:9px 12px;cursor:pointer;margin-top:8px}
+.workspace-apps { overflow: auto; min-width: 0; padding: 20px; width: 100%; box-sizing: border-box; }
+.workspace-apps p { white-space: pre-wrap; line-height: 1.7; overflow-wrap: anywhere; }
+.workspace-apps pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.workspace-apps select,.workspace-apps input { display: block; box-sizing: border-box; width: 100%; min-width: 0; margin: 12px 0; padding: 10px; background: #13212c; color: #e4edf2; border: 1px solid #365362; border-radius: 8px; }
+.workspace-apps button { margin: 6px 8px 6px 0; padding: 10px; border: 1px solid #52776d; border-radius: 8px; background: #24453f; color: #d9f3eb; cursor: pointer; }
+.apps-profile,#apps-confirmation:not(:empty) { padding: 16px; margin: 14px 0; border: 1px solid #365362; border-radius: 8px; }

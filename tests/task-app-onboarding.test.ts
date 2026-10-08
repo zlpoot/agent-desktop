@@ -75,16 +75,18 @@ test('verified launch A cannot be replaced by B at the same path/PID/HWND, or by
   }
 });
 
-test('executor without a trusted launch-to-Worker bridge fails before input/model with no generic fallback', async () => {
-  const f = await taskAppFixture({ bridge: false });
-  try {
-    const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
-    await f.controller.onboardApp(id, confirmation(f, id));
-    const failed = await f.wait(id, state => state.status === 'failed');
-    assert.match(failed.error!, /app-task-target-bridge-unavailable/);
-    assert.equal(f.counters.leases, 0); assert.equal(f.counters.models, 0); assert.equal(f.counters.runtime, 0);
-    assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.businessEffects, 0);
-  } finally { await f.close(); }
+test('executor without a trusted launch-to-Worker bridge or registry effect fence fails before input/model with no generic fallback', async () => {
+  for (const options of [{ bridge: false }, { trustFence: false }]) {
+    const f = await taskAppFixture(options);
+    try {
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      await f.controller.onboardApp(id, confirmation(f, id));
+      const failed = await f.wait(id, state => state.status === 'failed');
+      assert.match(failed.error!, /app-task-target-bridge-unavailable/);
+      assert.equal(f.counters.leases, 0); assert.equal(f.counters.models, 0); assert.equal(f.counters.runtime, 0);
+      assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.businessEffects, 0);
+    } finally { await f.close(); }
+  }
 });
 
 test('target-scoped Worker rejects substitution after connection and at atomic business dispatch', async () => {

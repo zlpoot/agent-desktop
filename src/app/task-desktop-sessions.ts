@@ -14,6 +14,11 @@ export interface TaskAppRuntimeBinding {
   readonly profile: EnvironmentAppBinding;
   readonly target: AppRuntimeTarget;
 }
+/** Private trust predicate, bound to the original Registry incarnation/profile.
+ * Never serialized into a receipt, Task history, model input or Guest protocol. */
+export interface TaskAppDispatchBinding extends TaskAppRuntimeBinding {
+  readonly assertCurrentTrust: () => void;
+}
 /** Composition-owned executor; core never selects a backend from goal text or Provider kind. */
 export interface DesktopTaskExecutor {
   /** Fail before opening a Session when this executor cannot admit a generic Task. */
@@ -24,16 +29,24 @@ export interface DesktopTaskExecutor {
   appCatalog?(): Promise<RegisteredApp[]>;
   taskControl(session: DesktopSession): InputControl;
   connectRuntime(session: DesktopSession, artifactDir: string): Promise<WorkerClient>;
+  /** Explicit trusted bridge capability; legacy target-only bridges fail closed. */
+  readonly appTrustFence?: 'registry-at-effect';
   /** Resolve targetToken against the launch issuer's private live records, and prove
    * installation contents, argv/cwd, process/window lifetime and this Session's
    * Windows session/desktop. Return an already-bound, target-scoped Worker.
    * Every operation must revalidate; effects must fence identity atomically at
-   * dispatch. PID/HWND/path equality alone is insufficient. attach/restore must
+   * dispatch. assertCurrentTrust must ALSO run at that same effect-time fence,
+   * after all awaited preparation, for execute/focus/restore and every effect.
+   * No await or queued effect may separate the predicate from effect commitment.
+   * An asynchronous/remote bridge must serialize Registry revocation with effect
+   * admission/commit before declaring appTrustFence; a host-side preflight alone
+   * is insufficient. Once revoke is acknowledged no new effect may commit.
+   * PID/HWND/path equality alone is insufficient. attach/restore must
    * never substitute a target; ensureApp cannot launch one. close drains normally.
    * Missing proof/capability must throw, with no generic connectRuntime fallback.
    * Connection/binding is read-only (no focus/input). The existing Task control
    * remains mandatory before any effect; this receipt grants no input authority. */
-  connectAppRuntime?(session: DesktopSession, artifactDir: string, binding: TaskAppRuntimeBinding): Promise<WorkerClient>;
+  connectAppRuntime?(session: DesktopSession, artifactDir: string, binding: TaskAppDispatchBinding): Promise<WorkerClient>;
   /** Infrastructure's lifecycle owner, separate from the per-Task control shim. */
   lifecycleOwner?(session: DesktopSession): object;
   /** Complete a manually reviewed outcome after input has already been released. */

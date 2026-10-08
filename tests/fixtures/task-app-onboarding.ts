@@ -8,7 +8,7 @@ import type { DesktopProvider } from '../../src/contracts/desktop-environment.js
 import type { WorkerClient } from '../../src/contracts/worker-client.js';
 import type { PlanningModel } from '../../src/contracts/model-provider.js';
 import type { ComputerAction } from '../../src/actions/schema.js';
-import type { DesktopTaskExecutor, TaskAppRuntimeBinding } from '../../src/app/task-desktop-sessions.js';
+import type { DesktopTaskExecutor, TaskAppDispatchBinding } from '../../src/app/task-desktop-sessions.js';
 import { composeEnvironmentApps } from '../../src/composition/environment-apps.js';
 import { ScopedAppDiscovery } from '../../src/environment-apps/discovery.js';
 import { SqliteEnvironmentAppStore } from '../../src/environment-apps/sqlite-registry.js';
@@ -17,13 +17,13 @@ import { TaskDesktopSessions } from '../../src/app/task-desktop-sessions.js';
 import { FakeModel } from '../../src/agent/model-adapter.js';
 import { SqliteTrace } from '../../src/trace/sqlite-trace.js';
 
-export async function taskAppFixture(options: { bridge?: boolean; actions?: ComputerAction[] } = {}) {
+export async function taskAppFixture(options: { bridge?: boolean; trustFence?: boolean; management?: boolean; actions?: ComputerAction[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'task-app-synthetic-'));
   const target = { providerId: 'synthetic-provider', environmentId: 'selected-environment' };
   const scope = { ...target, installationScopeId: 'synthetic-installation' };
   const identity = { productId: 'synthetic-app', version: '1', fingerprint: 'synthetic-binary' };
   const counters = { scans: 0, inspections: 0, starts: 0, leases: 0, releases: 0, models: 0, runtime: 0, resumes: 0,
-    genericRuntime: 0, businessEffects: 0, attaches: 0 };
+    genericRuntime: 0, businessEffects: 0, attaches: 0, cleanups: 0 };
   let offline = false, stale = false, blocked = false, running = false;
   let beforeObserve: (() => Promise<void>) | undefined;
   let beforePlan: (() => void) | undefined, beforeDispatch: (() => Promise<void>) | undefined;
@@ -51,7 +51,7 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
           args: profile.launchSpec.args, workingDirectory: profile.launchSpec.workingDirectory };
         return 'synthetic-owned'; },
       observe: async profile => { await beforeObserve?.(); return instance(profile); },
-      cleanupOwned: async () => { running = false; }, close: async () => {} };
+      cleanupOwned: async () => { counters.cleanups++; running = false; }, close: async () => {} };
   } };
   function issueTarget() {
     const token = `synthetic-target-${live.birth}-${live.windowBirth}`;
@@ -64,7 +64,7 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
     discover: async () => [{ ...target, kind: 'virtual-machine' }], open: async () => ({ ...target,
       sessionId: 'task-session', instanceId: 'task-instance', inputResourceId: 'synthetic-input', capabilities: async () => ({}),
       status: async () => ({ state: stale ? 'stale' : 'open', readiness: {} }), close: async () => {} }) };
-  function assertBound(binding: TaskAppRuntimeBinding) {
+  function assertBound(binding: TaskAppDispatchBinding) {
     const record = targets.get(binding.target.targetToken), spec = binding.profile.launchSpec;
     if (!running || stale || !record || JSON.stringify(record) !== JSON.stringify(live) ||
         JSON.stringify(binding.target.scope) !== JSON.stringify(scope) ||
@@ -84,11 +84,12 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
       counters.genericRuntime++;
       return makeWorker();
     },
+    ...(options.trustFence === false ? {} : { appTrustFence: 'registry-at-effect' as const }),
     ...(options.bridge === false ? {} : { connectAppRuntime: async (session, _dir, binding) => {
       // Trusted fixture maps Provider Session to this Windows session/desktop.
       if (session.sessionId !== 'task-session' || session.instanceId !== 'task-instance' ||
           session.providerId !== scope.providerId || session.environmentId !== scope.environmentId) throw new Error('synthetic-session-mismatch');
-      assertBound(binding);
+      binding.assertCurrentTrust(); assertBound(binding);
       const worker = makeWorker();
       return new Proxy(worker, { get(object, key: keyof WorkerClient) {
         if (typeof object[key] !== 'function') return object[key];
@@ -98,7 +99,7 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
           if (key === 'execute') await beforeDispatch?.();
           // Atomic identity fence immediately before the simulated effect; all
           // observation/grounding/focus operations are also scoped to this target.
-          assertBound(binding);
+          binding.assertCurrentTrust(); assertBound(binding);
           return (object[key] as (...values: unknown[]) => unknown).apply(object, args);
         };
       } });
@@ -126,7 +127,7 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
     planStage: async () => ({ goal: 'original task', successCondition: 'business result', isFinal: true }),
     verifyStage: async () => ({ ok: false, confidence: 1, evidence: 'synthetic-business-not-complete', source: 'uia' as const }),
   }) as unknown as PlanningModel;
-  const controller = new DesktopTaskController(dir, { environmentApps: apps, desktopSessions: sessions,
+  const controller = new DesktopTaskController(dir, { environmentApps: apps, desktopSessions: sessions, environmentAppManagement: options.management === true,
     modelProvider: { createModel: () => { counters.models++; return model(); } } });
   const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
   const submit = () => controller.submit('使用 AA音乐 搜索合成歌曲', { desktopTarget: target,
@@ -138,7 +139,7 @@ export async function taskAppFixture(options: { bridge?: boolean; actions?: Comp
     }
     throw new Error(`synthetic task timeout: ${JSON.stringify(trace.load(id))}`);
   };
-  return { dir, target, scope, counters, trace, apps, store, controller, discovery, submit, wait,
+  return { dir, target, scope, counters, running: () => running, trace, apps, store, controller, discovery, submit, wait,
     setEntries: (value: CollectedApp[]) => { entries = value; }, entries: () => structuredClone(entries),
     offline: () => { offline = true; }, stale: () => { stale = true; }, block: () => { blocked = true; },
     restoreEnvironment: () => { offline = stale = blocked = false; },
