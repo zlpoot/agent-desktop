@@ -23,6 +23,7 @@ test('unknown app waits without input/model, double confirmation continues same 
   const f = await taskAppFixture();
   try {
     const id = f.submit(), waiting = await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+    f.trace.save('synthetic-saved-retries', { ...waiting, retryCount: 2 });
     await runWithTaskBudget(f.dir, id, () => meteredModelRequest('deepseek', async () => ({ usage: { total_tokens: 13 } })));
     const before = readTaskBudget(f.dir, id);
     assert.equal(waiting.status, 'waiting_user'); assert.equal(f.counters.models, 0); assert.equal(f.counters.leases, 0);
@@ -34,6 +35,8 @@ test('unknown app waits without input/model, double confirmation continues same 
     const resumed = await f.wait(id, state => !!state.observation && state.status === 'waiting_user');
     assert.equal(resumed.goal, waiting.goal); assert.equal(resumed.taskId, id); assert.deepEqual(resumed.desktopExecutionBinding, waiting.desktopExecutionBinding);
     assert.equal(resumed.lastAction?.kind, 'ask_user'); assert.equal(resumed.goalVerification?.ok, undefined);
+    assert.equal(f.trace.events(id).find(event => event.node === 'observe')!.state.retryCount, 2);
+    assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.attaches, 0);
     assert.deepEqual(readTaskBudget(f.dir, id), before);
     assert.equal(before!.usage.deepseek.calls, 1); assert.equal(before!.usage.deepseek.tokens, 13);
     assert.equal(f.trace.events(id).filter(e => e.node === 'queued').length, 1);
@@ -50,6 +53,121 @@ test('unknown app waits without input/model, double confirmation continues same 
     assert.throws(() => f.controller.continue(second), /new-task-required/);
     assert.equal(f.apps.forEnvironment(f.target).registry.list()[0].trust, 'verified');
   } finally { await f.close(); }
+});
+
+test('verified launch A cannot be replaced by B at the same path/PID/HWND, or by changed binary/argv/cwd/desktop/window lifetime', async () => {
+  for (const kind of ['process', 'window', 'binary', 'args', 'cwd', 'desktop'] as const) {
+    const f = await taskAppFixture();
+    try {
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      const service = f.apps.forEnvironment(f.target), confirm = service.onboarding!.confirm.bind(service.onboarding);
+      service.onboarding!.confirm = async (value, operator) => {
+        const result = await confirm(value, operator); assert.ok(result.target?.targetToken);
+        f.replaceTarget(kind); return result;
+      };
+      await f.controller.onboardApp(id, confirmation(f, id));
+      const failed = await f.wait(id, state => state.status === 'failed');
+      assert.match(failed.error!, /app-target-substituted/);
+      assert.equal(f.counters.starts, 1); assert.equal(service.registry.list()[0].trust, 'verified');
+      assert.equal(f.counters.leases, 0); assert.equal(f.counters.runtime, 0); assert.equal(f.counters.models, 0);
+      assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.businessEffects, 0);
+    } finally { await f.close(); }
+  }
+});
+
+test('executor without a trusted launch-to-Worker bridge fails before input/model with no generic fallback', async () => {
+  const f = await taskAppFixture({ bridge: false });
+  try {
+    const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+    await f.controller.onboardApp(id, confirmation(f, id));
+    const failed = await f.wait(id, state => state.status === 'failed');
+    assert.match(failed.error!, /app-task-target-bridge-unavailable/);
+    assert.equal(f.counters.leases, 0); assert.equal(f.counters.models, 0); assert.equal(f.counters.runtime, 0);
+    assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.businessEffects, 0);
+  } finally { await f.close(); }
+});
+
+test('target-scoped Worker rejects substitution after connection and at atomic business dispatch', async () => {
+  for (const moment of ['planning', 'dispatch'] as const) {
+    const f = await taskAppFixture({ actions: [{ kind: 'keypress', keys: 'CTRL+F' }] });
+    let dispatched = 0;
+    try {
+      if (moment === 'planning') f.beforePlan(() => f.replaceTarget());
+      else f.beforeDispatch(async () => { dispatched++; f.replaceTarget(); });
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      await f.controller.onboardApp(id, confirmation(f, id));
+      await f.wait(id, state => ['failed', 'paused'].includes(state.status));
+      if (moment === 'dispatch') assert.ok(dispatched > 0, 'must reach the dispatch fence, not fail an unrelated setup gate');
+      assert.equal(f.counters.runtime, 1); assert.equal(f.counters.leases, 1);
+      assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.attaches, 0); assert.equal(f.counters.businessEffects, 0);
+      assert.ok(f.trace.events(id).some(event => /app-target-substituted/.test(event.state.error ?? '')));
+    } finally { await f.close(); }
+  }
+});
+
+test('business continuation reuses the original launch receipt and cannot attach a replacement process', async () => {
+  for (const replacement of [false, true]) {
+    const f = await taskAppFixture();
+    try {
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      await f.controller.onboardApp(id, confirmation(f, id));
+      await f.wait(id, state => !!state.observation && state.status === 'waiting_user');
+      const eventCount = f.trace.events(id).length;
+      if (replacement) f.replaceTarget();
+      f.controller.resume(id, { answer: 'synthetic answer' });
+      await f.wait(id, state => replacement ? state.status === 'failed' :
+        state.status === 'waiting_user' && f.counters.runtime === 2 && f.trace.events(id).length > eventCount);
+      assert.equal(f.counters.leases, replacement ? 1 : 2); assert.equal(f.counters.runtime, replacement ? 1 : 2);
+      assert.equal(f.counters.starts, 1); assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.attaches, 0);
+      assert.equal(f.counters.businessEffects, 0);
+    } finally { await f.close(); }
+  }
+});
+
+test('new_task_required remains terminal after the backend/environment recovers, including direct HTTP actions', async () => {
+  for (const cause of ['stale', 'forbidden'] as const) {
+    const f = await taskAppFixture(), server = createDashboardServer(f.dir, f.controller);
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+    const address = server.address(); if (!address || typeof address === 'string') throw Error('missing address');
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      const old = confirmation(f, id);
+      if (cause === 'stale') f.stale(); else f.block();
+      await assert.rejects(f.controller.onboardApp(id, old));
+      const terminal = f.trace.load(id)!; assert.equal(terminal.appOnboarding!.state, 'new_task_required');
+      assert.equal(terminal.status, 'waiting_user'); assert.equal(terminal.recoveryRequired, undefined);
+      f.restoreEnvironment();
+      const counters = { ...f.counters }, events = f.trace.events(id).length;
+      for (const action of ['rescan', 'path', 'confirm', 'reject', 'cancel'] as const) {
+        const value: TaskAppRequest = { desktopTarget: f.target, interactionId: terminal.appOnboarding!.interactionId, action,
+          ...(action === 'path' ? { path: 'C:\\Synthetic\\Music.exe' } : ['confirm', 'reject'].includes(action) ? {
+            candidateId: old.candidateId, candidateRevision: old.candidateRevision } : {}) };
+        await assert.rejects(f.controller.onboardApp(id, value), /new-task-required/);
+        const response = await fetch(`${base}/api/tasks/${id}/app-onboarding`, { method: 'POST',
+          headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
+        assert.equal(response.status, 409); assert.match((await response.json()).error, /new-task-required/);
+      }
+      assert.deepEqual(f.trace.load(id), terminal); assert.equal(f.trace.events(id).length, events);
+      assert.deepEqual(f.counters, counters);
+    } finally { await new Promise<void>(done => server.close(() => done())); await f.close(); }
+  }
+});
+
+test('an in-flight scan cannot overwrite a newly terminal Task when its discovery result arrives', async () => {
+  const f = await taskAppFixture(); let release!: () => void, entered!: () => void;
+  const pending = new Promise<void>(done => { release = done; }), started = new Promise<void>(done => { entered = done; });
+  try {
+    const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+    const query = f.discovery.query.bind(f.discovery);
+    f.discovery.query = async name => { entered(); await pending; return query(name); };
+    const app = f.trace.load(id)!.appOnboarding!;
+    const result = f.controller.onboardApp(id, { desktopTarget: f.target, interactionId: app.interactionId, action: 'rescan' });
+    const rejected = assert.rejects(result, /new-task-required/); await started;
+    f.trace.save('synthetic-terminal', { ...f.trace.load(id)!, appOnboarding: { ...app, state: 'new_task_required' } });
+    const terminal = f.trace.load(id)!; release(); await rejected;
+    assert.deepEqual(f.trace.load(id), terminal); assert.equal(f.counters.starts, 0); assert.equal(f.counters.leases, 0);
+  } finally { release(); await f.close(); }
 });
 test('multiple candidates require selection; rejection never selects next; path and rescan invalidate previous interaction', async () => {
   const f = await taskAppFixture();

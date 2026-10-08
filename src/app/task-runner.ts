@@ -1,4 +1,4 @@
-import { TaskDesktopSessions } from './task-desktop-sessions.js';
+import { TaskDesktopSessions, type TaskAppRuntimeBinding } from './task-desktop-sessions.js';
 import { runDesktopScenarioTask } from './desktop-scenario-task.js';
 import { desktopTarget, taskDesktopFields, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { randomUUID } from "node:crypto";
@@ -348,6 +348,7 @@ export class DesktopTaskController implements TaskController {
       }) : undefined;
       let environment: "browser" | "windows";
       let managedApp: EnvironmentAppBinding | undefined;
+      let appRuntimeBinding: TaskAppRuntimeBinding | undefined;
       let managedWindow: import('../runtime/desktop/desktop-runtime.js').WindowInfo | undefined;
       const checkManagedApp = () => {
         if (!managedApp) return;
@@ -361,9 +362,14 @@ export class DesktopTaskController implements TaskController {
         // No Agent lease/runtime/model exists during application setup. The guard freezes the Session first.
         const app = await this.appOnboarding.beforeRun(taskId);
         if (app === false) return;
-        managedApp = app;
+        appRuntimeBinding = app;
+        managedApp = app?.profile;
         queued = trace.load(taskId)!;
         if (queued.status === 'stopped') return;
+      }
+      if (response && queued.appOnboarding) {
+        appRuntimeBinding = this.appOnboarding.runtimeBinding(taskId);
+        managedApp = appRuntimeBinding.profile;
       }
       if (explicit) {
         if (explicit.workflow.environment === 'windows' && !queued.desktopTarget) throw new Error('desktop-target-required');
@@ -371,10 +377,6 @@ export class DesktopTaskController implements TaskController {
         const savedEnvironment = route.environment === 'agent_desktop' ? 'windows' : route.environment;
         if (savedEnvironment && savedEnvironment !== explicit.workflow.environment) throw new Error('workflow-route-environment-mismatch');
       }
-      const model = this.modelProvider.createModel(explicit ? {
-        environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
-        visualMode: explicit.workflow.environment === 'windows',
-      } : undefined);
       this.assertTaskCompatibility(queued, route.environment);
       let desktopApps: RegisteredApp[] = [];
       if (queued.desktopTarget) {
@@ -390,12 +392,22 @@ export class DesktopTaskController implements TaskController {
           throw new Error("检查点缺少稳定窗口身份，不能安全恢复；请停止旧任务后重新提交");
         }
         checkManagedApp();
+        const artifactDir = resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots");
+        if (appRuntimeBinding) {
+          if (!entry.executor.connectAppRuntime) throw new Error('app-task-target-bridge-unavailable: submit a new task with a trusted executor');
+          // Prove the original target before input ownership. This Worker remains
+          // fenced to that exact lifetime on every operation, including Graph actions.
+          guest = await entry.executor.connectAppRuntime(entry.session, artifactDir, appRuntimeBinding);
+        }
         await control.beginTask(taskId); desktopClaimed = true;
         checkSetupPause();
-        guest = await entry.executor.connectRuntime(entry.session,
-          resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots"));
+        if (!appRuntimeBinding) guest = await entry.executor.connectRuntime(entry.session, artifactDir);
         desktopApps = await entry.executor.appCatalog?.() ?? [];
       }
+      const model = this.modelProvider.createModel(explicit ? {
+        environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
+        visualMode: explicit.workflow.environment === 'windows',
+      } : undefined);
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
       let plan = queued.plan;
@@ -497,14 +509,19 @@ export class DesktopTaskController implements TaskController {
         if (environment === "windows" && !guest) throw new Error("desktop-target-required");
         if (environment === "browser" && guest) throw new Error("desktop-route-binding-mismatch");
         windowHandle = route.window_handle ?? undefined;
+        if (managedApp) {
+          const windows = await guest!.listWindows();
+          if (windows.length !== 1 || windows[0].handle !== windowHandle) throw new Error('app-onboarding-actual-window-unproven');
+          managedWindow = windows[0];
+        }
       }
       runtime = runtime ?? (guest
         ? await (async () => {
             checkSetupPause();
             checkManagedApp();
-            // A process restart invalidates the saved HWND/PID. Rebind by the
-            // persisted semantic identity and let the Guest enforce uniqueness.
-            await guest.attach(response?.kind === "restart" ? {
+            // Only unmanaged Tasks retain semantic restart attachment. Managed
+            // Workers are already fenced to the receipt and cannot be rebound.
+            if (!managedApp) await guest.attach(response?.kind === "restart" ? {
               ...(savedWindowIdentity!.title
                 ? { windowTitle: savedWindowIdentity!.title }
                 : { windowClass: savedWindowIdentity!.windowClass }),
@@ -627,6 +644,7 @@ export class DesktopTaskController implements TaskController {
           response.answer ? { answer: response.answer } : { approved: response.approved === true }, savedForResume?.checkpointThreadId, queued);
         else await graph.invoke({ ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), desktopBinding,
           appOnboarding: queued.appOnboarding,
+          retryCount: queued.retryCount,
           verificationContract,contractCoverage,
           ...(queued.workflowRef ? { workflowRef: queued.workflowRef } : {}),
           ...(queued.taskContract ? { taskContract: queued.taskContract, completedStages: [], stagePlanVersion: 0 } : {}),

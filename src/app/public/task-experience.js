@@ -132,6 +132,7 @@ window.createTaskExperience = function () {
     const path = el('input', ''); path.id = 'app-onboarding-path'; path.placeholder = '所选环境内的 .exe 或 .lnk 完整路径'; path.maxLength = 1024;
     path.setAttribute('aria-label', '所选环境内应用路径');
     async function act(action) {
+      if (app.state === 'new_task_required') return;
       if (appBusy && action !== 'cancel') return;
       const candidate = app.candidates.find(item => item.candidateId === selected.value);
       if (['confirm', 'reject'].includes(action) && !candidate) return;
@@ -153,9 +154,11 @@ window.createTaskExperience = function () {
       button.onclick = () => act(action); buttons.push(button); actions.append(button);
     }
     function updateButtons() {
+      const terminal = app.state === 'new_task_required';
+      selected.disabled = terminal; path.disabled = terminal;
       const candidate = app.candidates.find(item => item.candidateId === selected.value);
       candidateDetail.textContent = candidate ? `${candidate.displayName} · ${candidate.path}\n参数 ${JSON.stringify(candidate.args)} · 工作目录 ${candidate.workingDirectory || '默认'}\n${candidate.version || '版本未知'} · ${candidate.publisher || '发布者未知'} · ${candidate.sources.join(', ')}` : '';
-      for (const button of buttons) button.disabled = appBusy && button.dataset.action !== 'cancel' || run.status !== 'waiting_user' ||
+      for (const button of buttons) button.disabled = terminal || appBusy && button.dataset.action !== 'cancel' || run.status !== 'waiting_user' ||
         app.state === 'launching' && button.dataset.action !== 'cancel' ||
         ['confirm', 'reject'].includes(button.dataset.action) && !selected.value || button.dataset.action === 'path' && !path.value.trim();
     }

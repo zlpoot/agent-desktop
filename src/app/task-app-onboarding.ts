@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { ComputerState } from '../graph/state.js';
-import type { EnvironmentAppServices, EnvironmentAppBinding } from '../contracts/environment-apps.js';
+import type { EnvironmentAppServices } from '../contracts/environment-apps.js';
 import type { ReadonlyAppDiscovery, DiscoveredApp } from '../contracts/app-discovery.js';
 import type { AppLaunchOutcome } from '../contracts/app-launch.js';
+import type { TaskAppRuntimeBinding } from './task-desktop-sessions.js';
 import { sameDesktopTarget } from '../contracts/task-desktop.js';
 import { sameAppScope, textValue } from '../environment-apps/validation.js';
 
@@ -45,12 +46,13 @@ export class TaskAppOnboarding {
     return service as typeof service & { discovery: ReadonlyAppDiscovery; onboarding: NonNullable<typeof service.onboarding> };
   }
   private eligible(state: ComputerState): void {
-    if (this.closed || ['done', 'failed', 'stopped'].includes(state.status) || state.recoveryRequired || state.recoveryUncertain || state.inFlightAction || state.verificationPending ||
+    if (this.closed || state.appOnboarding?.state === 'new_task_required' || ['done', 'failed', 'stopped'].includes(state.status) || state.recoveryRequired || state.recoveryUncertain || state.inFlightAction || state.verificationPending ||
         state.step !== 0 || state.observation || state.desktopBinding || state.desktopScenario) {
       throw new Error('app-onboarding-new-task-required');
     }
   }
   private write(state: ComputerState, app: TaskAppInteraction, node = 'app_onboarding'): TaskAppInteraction {
+    if (this.ports.load(state.taskId).appOnboarding?.state === 'new_task_required') throw new Error('app-onboarding-new-task-required');
     this.ports.save(node, { ...state, appOnboarding: app,
       status: app.state === 'cancelled' ? 'stopped' : ['ready', 'reusing'].includes(app.state) ? 'running' : 'waiting_user',
       summary: app.state === 'ready' ? '应用配置已验证，继续原任务；业务结果仍需独立验收' :
@@ -77,7 +79,23 @@ export class TaskAppOnboarding {
         state.status !== 'waiting_user' && !(state.status === 'running' && state.appOnboarding.state === 'reusing')) throw new Error('app-onboarding-interaction-expired');
     return state;
   }
-  async beforeRun(taskId: string): Promise<EnvironmentAppBinding | false | undefined> {
+  /** Continuations also need the original in-memory receipt; saved profile/HWND is insufficient. */
+  runtimeBinding(taskId: string): TaskAppRuntimeBinding {
+    const state = this.ports.load(taskId), app = state.appOnboarding;
+    if (this.closed || app?.state !== 'ready' || app.taskId !== taskId) throw new Error('app-onboarding-new-task-required');
+    const profile = this.service(state).registry.get(app.appBindingId!);
+    const receipt = this.receipts.get(app.interactionId);
+    if (!profile || profile.validity !== 'current' || profile.availability !== 'available' || profile.trust !== 'verified' ||
+        profile.profileRevision !== app.profileRevision || profile.profileDigest !== app.profileDigest ||
+        receipt?.verification.result !== 'verified' || receipt.verification.profileRevision !== profile.profileRevision ||
+        receipt.verification.profileDigest !== profile.profileDigest || !receipt.target || !sameAppScope(receipt.target.scope, profile.scope) ||
+        !profile.identity || receipt.target.identity.productId !== profile.identity.productId ||
+        receipt.target.identity.version !== profile.identity.version || receipt.target.identity.fingerprint !== profile.identity.fingerprint) {
+      throw new Error('app-onboarding-new-task-required');
+    }
+    return structuredClone({ profile, target: receipt.target });
+  }
+  async beforeRun(taskId: string): Promise<TaskAppRuntimeBinding | false | undefined> {
     let state = this.ports.load(taskId);
     if (!state.desktopTarget) return undefined;
     const name = state.appOnboarding?.appName ?? requestedApp(state.goal);
@@ -85,12 +103,7 @@ export class TaskAppOnboarding {
     this.eligible(state);
     if (state.appOnboarding?.state === 'ready') {
       await this.ports.guard(state);
-      const profile = this.service(state).registry.get(state.appOnboarding.appBindingId!);
-      const receipt = this.receipts.get(state.appOnboarding.interactionId);
-      if (!profile || profile.validity !== 'current' || profile.availability !== 'available' || profile.trust !== 'verified' ||
-          profile.profileRevision !== state.appOnboarding.profileRevision || profile.profileDigest !== state.appOnboarding.profileDigest ||
-          !receipt?.target || !sameAppScope(receipt.target.scope, profile.scope)) throw new Error('app-onboarding-new-task-required');
-      return profile;
+      return this.runtimeBinding(taskId);
     }
     const app: TaskAppInteraction = { taskId, interactionId: randomUUID(), appName: name,
       desktopTarget: state.desktopTarget, state: 'discovering', candidates: [] };
@@ -112,7 +125,7 @@ export class TaskAppOnboarding {
       await this.scan(taskId, app.interactionId);
     } catch (error) {
       const current = this.ports.load(taskId);
-      if ((!current.appOnboarding || current.appOnboarding.interactionId === app.interactionId) && ['running', 'waiting_user'].includes(current.status)) {
+      if (current.appOnboarding?.state !== 'new_task_required' && (!current.appOnboarding || current.appOnboarding.interactionId === app.interactionId) && ['running', 'waiting_user'].includes(current.status)) {
         this.write(current, { ...(current.appOnboarding ?? app),
           state: /binding|scope-changed|new-task-required/.test(String(error)) ? 'new_task_required' : 'unavailable', reason: String(error) });
       }
@@ -144,6 +157,7 @@ export class TaskAppOnboarding {
     if (!app || app.taskId !== taskId || !value.desktopTarget || Object.keys(value.desktopTarget).some(key => !['providerId', 'environmentId'].includes(key)) ||
         !sameDesktopTarget(value.desktopTarget, app.desktopTarget) || !sameDesktopTarget(value.desktopTarget, state.desktopTarget!) ||
         app.interactionId !== value.interactionId) throw new Error('app-onboarding-task-target-or-interaction-mismatch');
+    if (app.state === 'new_task_required') throw new Error('app-onboarding-new-task-required');
     if (value.action === 'cancel') {
       if (state.status !== 'waiting_user' || app.state === 'cancelled') throw new Error('app-onboarding-interaction-expired');
       this.cancellations.get(taskId)?.();
@@ -160,7 +174,7 @@ export class TaskAppOnboarding {
     const operation = this.actBody(taskId, value).catch(error => {
       const current = this.ports.load(taskId);
       const reason = String(error);
-      if (current.status === 'waiting_user' && current.appOnboarding?.interactionId === value.interactionId &&
+      if (current.status === 'waiting_user' && current.appOnboarding?.state !== 'new_task_required' && current.appOnboarding?.interactionId === value.interactionId &&
           !/candidate-mismatch|invalid-app-text|app-path-too-long/.test(reason)) {
         this.write(current, { ...current.appOnboarding, candidates: [], interactionId: randomUUID(),
           state: /binding|scope-changed|new-task-required|forbidden|task-ineligible/.test(reason) ? 'new_task_required' : 'unavailable', reason });

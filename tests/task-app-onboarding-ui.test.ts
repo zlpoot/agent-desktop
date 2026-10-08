@@ -63,6 +63,21 @@ test('Browser covers real waiting card/confirm API, explicit single/multi select
     for (const label of ['指定路径', '重新扫描', '安装后重扫', '取消任务']) assert.equal(await card.getByRole('button', { name: label, exact: true }).count(), 1);
     await card.getByRole('button', { name: '取消任务', exact: true }).click();
     await f.wait(unknown, state => state.status === 'stopped');
+    // A recovered backend must not revive a terminal waiting_user card.
+    f.block();
+    const rejectedApp = f.trace.load(multi)!.appOnboarding!;
+    await assert.rejects(f.controller.onboardApp(multi, { desktopTarget: f.target,
+      interactionId: rejectedApp.interactionId, action: 'rescan' }));
+    f.restoreEnvironment();
+    assert.equal(f.trace.load(multi)!.status, 'waiting_user');
+    await page.evaluate(task => document.dispatchEvent(new CustomEvent('workbench:open-run', { detail: `web-tasks.sqlite/${task}` })), multi);
+    await page.waitForFunction(() => document.querySelector('#app-onboarding')?.textContent?.includes('请新建任务'));
+    assert.equal(await card.locator('button:enabled').count(), 0);
+    assert.equal(await card.locator('select:enabled, input:enabled').count(), 0);
+    const requestsBefore = confirms.length;
+    await card.locator('button').evaluateAll(buttons => buttons.forEach(button => (button as HTMLButtonElement).click()));
+    assert.equal(confirms.length, requestsBefore);
+    assert.equal(f.trace.load(multi)!.appOnboarding!.state, 'new_task_required');
     recoverDesktopTasks(f.dir);
     await page.evaluate(task => document.dispatchEvent(new CustomEvent('workbench:open-run', { detail: `web-tasks.sqlite/${task}` })), id);
     await page.waitForFunction(() => document.querySelector('#app-onboarding')?.textContent?.includes('请新建任务'));

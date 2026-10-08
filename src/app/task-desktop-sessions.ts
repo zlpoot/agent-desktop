@@ -2,11 +2,18 @@ import type { DesktopEnvironment, DesktopProvider, DesktopSession } from '../con
 import type { RegisteredApp } from '../runtime/desktop/app-catalog.js';
 import type { InputControl } from '../contracts/desktop-provider.js';
 import type { WorkerClient } from '../contracts/worker-client.js';
+import type { AppRuntimeTarget } from '../contracts/app-launch.js';
+import type { EnvironmentAppBinding } from '../contracts/environment-apps.js';
 import type { DesktopScenarioDefinition, DesktopScenarioOption, PreparedDesktopScenario } from '../contracts/desktop-scenario.js';
 import type { TaskDesktopFields, TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { desktopTarget, desktopExecutionBinding, sameDesktopTarget, sameDesktopBinding,
   validateTaskDesktop } from '../contracts/task-desktop.js';
 
+/** Private, live launch receipt; never serialized as Task/model input or input authority. */
+export interface TaskAppRuntimeBinding {
+  readonly profile: EnvironmentAppBinding;
+  readonly target: AppRuntimeTarget;
+}
 /** Composition-owned executor; core never selects a backend from goal text or Provider kind. */
 export interface DesktopTaskExecutor {
   /** Fail before opening a Session when this executor cannot admit a generic Task. */
@@ -17,6 +24,16 @@ export interface DesktopTaskExecutor {
   appCatalog?(): Promise<RegisteredApp[]>;
   taskControl(session: DesktopSession): InputControl;
   connectRuntime(session: DesktopSession, artifactDir: string): Promise<WorkerClient>;
+  /** Resolve targetToken against the launch issuer's private live records, and prove
+   * installation contents, argv/cwd, process/window lifetime and this Session's
+   * Windows session/desktop. Return an already-bound, target-scoped Worker.
+   * Every operation must revalidate; effects must fence identity atomically at
+   * dispatch. PID/HWND/path equality alone is insufficient. attach/restore must
+   * never substitute a target; ensureApp cannot launch one. close drains normally.
+   * Missing proof/capability must throw, with no generic connectRuntime fallback.
+   * Connection/binding is read-only (no focus/input). The existing Task control
+   * remains mandatory before any effect; this receipt grants no input authority. */
+  connectAppRuntime?(session: DesktopSession, artifactDir: string, binding: TaskAppRuntimeBinding): Promise<WorkerClient>;
   /** Infrastructure's lifecycle owner, separate from the per-Task control shim. */
   lifecycleOwner?(session: DesktopSession): object;
   /** Complete a manually reviewed outcome after input has already been released. */
