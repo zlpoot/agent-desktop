@@ -35,4 +35,4 @@ Onboarding 和 composition 关闭时，在任何异步 drain/backend close 前�
 
 规定检查为 `npm run check`、`npm run test:offline`、`npm run test:python`。网页未变，不追加 Browser 矩阵。检查结果由交付记录报告；本项作者执行的合成验证不是独立 Review 或远端 CI。日志只在忽略的 `.validation/` 中，不提交生成资产或私有数据。
 
-作者本轮最终源码验证（2026-10-08）：TypeScript PASS；上述定向测试 57/57 PASS；完整 offline 732/732 PASS（0 skipped）；Python 15/15 契约文件 PASS。实现期间的失败已修正后重跑，以上只报告最终源码结果。独立 Review 待完成，远端 CI 未执行；未进行 Browser 或真实应用测试。按本次用户约束仅本地交付，不 push、创建远端 PR、同步 Issue 或更改仓库可见性。
+作者本轮源码验证（2026-10-08，代码提交 `e04b9becce7122f419e66c4daf85c68182060489`）：TypeScript PASS；上述定向测试 57/57 PASS；完整 offline 732/732 PASS（0 skipped）；Python 15/15 契约文件 PASS。实现期间的失败已修正后重跑，以上只报告该源码结果。独立 Review 待完成，远端 CI 未报告；未进行 Browser 或真实应用测试。用户随后明确授权 push 供 review，因此推送工作分支并提供独立 PR；本次后续提交只更新此交付说明，不更改已验证代码。不合并、不关闭 Issue、不更改仓库可见性，也不启动实机测试。
