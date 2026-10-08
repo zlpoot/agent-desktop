@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createDashboardServer } from '../src/app/server.js';
@@ -8,6 +8,86 @@ import type { TaskController } from '../src/app/task-runner.js';
 import { SqliteTrace } from '../src/trace/sqlite-trace.js';
 import { initialState } from '../src/graph/state.js';
 import { WorkflowStore } from '../src/workflows/store.js';
+import { createFixtureDashboard } from '../src/composition/fixture-dashboard.js';
+import { createRootAssembly } from '../src/composition/root.js';
+import { ScenarioWorkspace } from './fixtures/local-workspace-scenario.js';
+
+test('finite Dashboard stops pending execution, shows UNKNOWN with confirmed cleanup and hides Resume', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'mvp-stop-ui-'));
+  const backend = new ScenarioWorkspace(); backend.autoComplete = false;
+  const assembly = await createRootAssembly({ rootDir: directory, localWorkspace: { app: 'fixture' },
+    localWorkspaceBackendFactory: () => backend, model: { createModel() { assert.fail('no model'); } } });
+  const server = createDashboardServer(directory, assembly.controller);
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage(); await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.locator('#task-destination').selectOption(JSON.stringify(['windows-local-workspace', 'local-workspace:fixture']));
+    await page.locator('#task-scenario').selectOption('d0-fixture-text-click-v1');
+    await page.locator('#task-submit').click();
+    await page.waitForFunction(() => document.querySelector('#scenario-status')?.textContent?.includes('阶段：独立验证'));
+    await page.getByRole('button', { name: '停止并清理', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('#scenario-status')?.textContent?.includes('清理 PASS'));
+    assert.equal(backend.acts, 1);
+    assert.match(await page.locator('#scenario-status').innerText(), /BLOCKED.*执行 UNKNOWN.*验证 UNKNOWN.*清理 PASS/);
+    assert.equal(await page.locator('#task-continue').isVisible(), false);
+    assert.match(await page.locator('.request-card').first().innerText(), /不支持 Dashboard 接管或 Resume/);
+    assert.equal(await page.locator('#scenario-report').isVisible(), true);
+  } finally {
+    await browser.close(); await new Promise<void>(done => server.close(() => done())); await assembly.dispose();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('synthetic Dashboard uses production Task chain, shows independent facts/cleanup and downloads feedback', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'mvp-dashboard-'));
+  const assembly = await createFixtureDashboard(directory);
+  const server = createDashboardServer(directory, assembly.controller, undefined, undefined, undefined, undefined, undefined, true);
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+  const base = `http://127.0.0.1:${address.port}`;
+  const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto(base);
+    await page.waitForFunction(() => document.querySelector('#task-destination option[value=""]'));
+    assert.equal(await page.locator('#task-destination').inputValue(), '');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    await page.locator('#task-destination').selectOption(JSON.stringify(['windows-local-workspace', 'local-workspace:fixture']));
+    assert.equal(await page.locator('#task-scenario').inputValue(), '');
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    await page.locator('#task-scenario').selectOption('d0-fixture-text-click-v1');
+    await page.locator('#task-submit').click();
+    await page.waitForFunction(() => document.querySelector('#scenario-status')?.textContent?.includes('阶段：完成'));
+    assert.match(await page.locator('#scenario-status').innerText(), /执行 PASS.*验证 PASS.*清理 PASS.*NOT HUMAN VERIFIED/);
+    assert.match(await page.locator('#scenario-facts').innerText(), /"text_length": 26/);
+    assert.match(await page.locator('#scenario-facts').innerText(), /"clicks": 1/);
+    assert.match(await page.locator('#scenario-history').innerText(), /环境与目标预检.*执行一次.*独立验证.*停止与清理.*完成/s);
+    assert.equal(await page.locator('#task-continue').isVisible(), false);
+    await page.locator('#scenario-issue-note').fill('合成体验反馈');
+    mkdirSync(resolve('.artifacts/mvp-01'), { recursive: true });
+    await page.locator('#scenario-result').screenshot({ path: resolve('.artifacts/mvp-01/result.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const downloading = page.waitForEvent('download'); await page.locator('#scenario-report').click();
+    const download = await downloading; const stream = await download.createReadStream();
+    const chunks: Buffer[] = []; for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+    const report = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    assert.equal(report.note, '合成体验反馈'); assert.equal(report.result.cleanup, 'PASS');
+    assert.equal(report.result.humanAcceptance, 'NOT HUMAN VERIFIED');
+    assert.equal(report.scenarioId, 'd0-fixture-text-click-v1');
+    for (const path of ['/api/tasks', '/api/desktop/apps', '/api/workflows/test/execute'])
+      assert.equal((await fetch(base + path, { method: 'POST' })).status, 403);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close(); await new Promise<void>(done => server.close(() => done())); await assembly.dispose();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('finite Task UI requires explicit scene, persists exact selection and refuses stale scene without fallback', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');

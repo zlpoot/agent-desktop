@@ -145,6 +145,23 @@ function readRun(rootDir: string, source: string, taskId: string) {
       WHERE task_id = ? ORDER BY id`).all(taskId) as Array<{
         step: number; node: string; payload_json: string; created_at: string;
       }>;
+    const scenarioEvents = events.filter(event => event.node.startsWith('desktop_scenario_') ||
+      event.node === 'queued' || event.node === 'shutdown_cancelled').map(event => ({ kind: event.node,
+        detail: (JSON.parse(event.payload_json) as ComputerState).summary, time: event.created_at }));
+    const lastScenarioEvent = scenarioEvents.at(-1)?.kind;
+    const scenarioResult = state.desktopScenario ? {
+      phase: lastScenarioEvent ?? 'unknown',
+      execution: state.desktopScenarioDispatched ? state.desktopScenarioVerification?.verdict === 'pass' ? 'PASS' : 'UNKNOWN' : 'NOTRUN',
+      verification: state.desktopScenarioVerification?.verdict === 'pass' ? 'PASS' : state.desktopScenarioDispatched ? 'UNKNOWN' : 'NOTRUN',
+      cleanup: events.some(event => event.node === 'desktop_scenario_cleanup_error') ? 'FAIL' :
+        events.some(event => event.node === 'desktop_scenario_cleanup_done') && state.desktopExecutionBinding ? 'PASS' :
+        lastScenarioEvent === 'desktop_scenario_cleanup' ? 'RUNNING' :
+        state.desktopExecutionBinding || state.desktopScenarioDispatched ||
+          events.some(event => event.node === 'desktop_scenario_preparing') ? 'UNKNOWN' : 'NOTRUN',
+      blocked: state.status === 'failed' || state.status === 'paused',
+      facts: state.desktopScenarioVerification?.facts ?? {}, events: scenarioEvents,
+      humanAcceptance: 'NOT HUMAN VERIFIED',
+    } : undefined;
     const workflowEvents = events.filter((event) => event.node.startsWith("workflow_"))
       .map((event) => ({ step: event.step, kind: event.node,
         detail: (JSON.parse(event.payload_json) as ComputerState).summary,
@@ -260,6 +277,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       desktopTarget: state.desktopTarget,
       appOnboarding: state.appOnboarding,
       desktopScenario: state.desktopScenario,
+      desktopScenarioResult: scenarioResult,
       desktopExecutionBinding: state.desktopExecutionBinding,
       desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
       workflowReplayState: state.workflowReplayState,
@@ -338,9 +356,13 @@ function sameOrigin(request: IncomingMessage): boolean {
 
 export function createDashboardServer(rootDir = process.cwd(), controller?: TaskController,
   desktop?: DesktopProvider, vmControl?: VmControl, control?: DesktopControlView,
-  inspectRuntime?: () => AssemblySnapshot, preflight?: DashboardPreflightView): Server {
+  inspectRuntime?: () => AssemblySnapshot, preflight?: DashboardPreflightView, fixtureOnly = false): Server {
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    if (fixtureOnly && request.method !== 'GET' && !(request.method === 'POST' &&
+        (url.pathname === '/api/desktop/scenarios/tasks' || /^\/api\/tasks\/[^/]+\/pause$/.test(url.pathname)))) {
+      return json(response, 403, { error: 'synthetic-fixture-operation-disabled' });
+    }
     if (preflight) {
       // Composition-only mode. Queries/Task parameters cannot enable other routes.
       if (!['localhost', '127.0.0.1'].includes((request.headers.host ?? '').split(':')[0]) ||
@@ -374,7 +396,8 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
     }
     if (request.method === 'GET' && url.pathname === '/api/desktop/environments') {
       if (!controller?.desktopOptions) return json(response, 503, { error: 'desktop-selection-unavailable' });
-      void Promise.resolve().then(() => controller.desktopOptions!()).then(environments => json(response, 200, { environments }))
+      void Promise.resolve().then(() => controller.desktopOptions!()).then(environments => json(response, 200,
+        { environments, mode: fixtureOnly ? 'synthetic-fixture' : 'standard' }))
         .catch(error => json(response, 503, { error: String(error) }));
       return;
     }

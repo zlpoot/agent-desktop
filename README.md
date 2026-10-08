@@ -65,6 +65,10 @@ npm run dashboard
 
 详见 [架构](docs/architecture.md)、[开发与测试](docs/development.md)、[限制](docs/limitations.md)、[安全边界](SECURITY.md)、[来源审查](docs/provenance.md)、[文件分类](docs/extraction-manifest.csv)、[验证记录](docs/validation.md) 和 [归档边界](docs/extraction.md)。
 
+## MVP 固定场景 Task
+
+MVP 固定场景入口：`npm run dashboard:fixture`，打开终端显示的本机地址，明确选择环境和场景后提交生产 Task，查看独立验证与清理结果，并下载问题记录。这个入口只用合成后端，无真实输入、应用启动或模型调用；保持 NOT HUMAN VERIFIED。见 [五步使用及范围核对](docs/mvp-01.md)。
+
 ## P8-A 环境预检（A1）
 
 Windows 本地首次体验入口：`npm run dashboard:preflight -- --config config/desktop-environments.example.json`，访问 `http://127.0.0.1:4173/#/apps`。环境不默认选择；只展示配置身份及缺失适配器诊断，扫描、启动、任务、模型、输入和 VM 控制关闭。A1、A2 已收到操作者通过反馈，独立审查待完成。详见 [A1 五步体验与停止说明](docs/desktop-provider-p8-a.md)。A2 提供由操作者点击触发的只读应用发现，使用单独的 `dashboard:discovery` 入口，仍关闭启动和输入；启动命令、体验步骤及反馈修订见 [A2 只读扫描五步手册](docs/desktop-provider-p8-a2.md)。

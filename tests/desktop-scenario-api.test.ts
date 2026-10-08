@@ -96,6 +96,12 @@ for (const app of ['fixture', 'netease'] as const) {
         assert.equal(backend.acts, 1);
         const detail = await (await fetch(`${base}/api/runs/web-tasks.sqlite/${taskId}`)).json();
         assert.equal(detail.desktopScenario, scenarioId);
+        assert.equal(detail.desktopScenarioResult.verification, 'PASS');
+        assert.equal(detail.desktopScenarioResult.cleanup, 'PASS');
+        assert.equal(detail.desktopScenarioResult.humanAcceptance, 'NOT HUMAN VERIFIED');
+        assert.equal(detail.outcome.autoVerification.verdict, 'pass');
+        assert.equal(detail.steps[0].hasScreenshot, true);
+        assert.equal((await fetch(`${base}/api/screenshots/web-tasks.sqlite/${taskId}/1`)).status, 200);
       } finally { trace.close(); }
     } finally {
       await new Promise<void>(done => server.close(() => done())); await assembly.dispose();
@@ -103,3 +109,46 @@ for (const app of ['fixture', 'netease'] as const) {
     }
   });
 }
+
+test('finite HTTP result preserves NOTRUN, UNKNOWN and cleanup FAIL at real Task boundaries', async () => {
+  for (const fault of ['before-stop', 'dispatch', 'cleanup', 'opening-cleanup']) {
+    const directory = mkdtempSync(join(tmpdir(), 'mvp-fault-'));
+    const backend = new ScenarioWorkspace();
+    backend.failAct = fault === 'dispatch';
+    backend.failStop = fault === 'cleanup' || fault === 'opening-cleanup';
+    if (fault === 'opening-cleanup') backend.target = '';
+    const assembly = await createRootAssembly({ rootDir: directory, localWorkspace: { app: 'fixture' },
+      localWorkspaceBackendFactory: () => backend,
+      model: { createModel() { assert.fail('scenario must not call models'); } } });
+    const server = createDashboardServer(directory, assembly.controller);
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      const taskId = assembly.controller.submitScenario({ desktopTarget: {
+        providerId: 'windows-local-workspace', environmentId: 'local-workspace:fixture' }, scenarioId: 'd0-fixture-text-click-v1' });
+      if (fault === 'before-stop') assembly.controller.pause(taskId);
+      let detail: any;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        detail = await (await fetch(`${base}/api/runs/web-tasks.sqlite/${taskId}`)).json();
+        if (detail.desktopScenarioResult.events.some((event: { kind: string }) =>
+          ['desktop_scenario_cleanup_done', 'desktop_scenario_cleanup_error'].includes(event.kind))) break;
+        await new Promise(done => setTimeout(done, 10));
+      }
+      assert.notEqual(detail.status, 'done', fault);
+      assert.equal(detail.desktopScenarioResult.blocked, true);
+      assert.equal(detail.desktopScenarioResult.execution, fault === 'before-stop' || fault === 'opening-cleanup' ? 'NOTRUN' : fault === 'cleanup' ? 'PASS' : 'UNKNOWN');
+      assert.equal(detail.desktopScenarioResult.cleanup, fault === 'cleanup' || fault === 'opening-cleanup' ? 'FAIL' : fault === 'before-stop' ? 'NOTRUN' : 'PASS');
+      assert.equal(backend.acts, fault === 'before-stop' || fault === 'opening-cleanup' ? 0 : 1);
+      assert.equal(detail.desktopScenarioResult.humanAcceptance, 'NOT HUMAN VERIFIED');
+      const continued = await fetch(`${base}/api/tasks/${taskId}/continue`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      assert.equal(continued.status, 400);
+      if (fault === 'before-stop') assert.deepEqual(backend.calls, []);
+    } finally {
+      await new Promise<void>(done => server.close(() => done()));
+      try { await assembly.dispose(); } catch (error) { if (!backend.failStop) throw error; }
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
