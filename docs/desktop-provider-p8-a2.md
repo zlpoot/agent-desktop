@@ -7,12 +7,14 @@ A1 已由操作者反馈通过（2026-10-08，候选 `6468ea491213a0193380aed5f5
 在 `E:\projects\agent-desktop\.worktrees\p8-a` 的 PowerShell 运行这一条命令。最终 exact SHA 在本轮交付消息和私有 `.validation/p8-a-handoff.md` 记录。
 
 ```powershell
-npm run dashboard:discovery -- --config config/desktop-environments.example.json --port 4175 --python E:\projects\agent-desktop\.venv\Scripts\python.exe
+npm run dashboard:discovery -- --config config/desktop-environments.example.json --port 4175 --python E:\ProgramData\anaconda3\python.exe
 ```
 
 访问 [http://127.0.0.1:4175/#/apps](http://127.0.0.1:4175/#/apps)，标题应为“只读应用发现 A2”。4173 / 4174 的旧页面不会自动变成 A2。无需停止已有服务；端口被占用时换一个端口并访问对应地址。
 
-显式配置沿用已有解析器，不读取私有数据库、旧确认、模型配置或 VM 凭证。命令指定仓库已有的可信 Python 环境，不安装或下载依赖。如果安装域身份核对失败，页面显示收集器不可用和检查依赖的原因，不回退未经核对的清单。`--python` 可指向操作者已有的可信 Python（需 pywin32）。启动仅读取 MachineGuid / 当前执行用户 SID 生成安装域摘要，不枚举软件或窗口；扫描前后再次校验身份，原始身份不显示。与 A1 一样，不创建桌面 Session。
+显式配置沿用已有解析器，不读取私有数据库、旧确认、模型配置或 VM 凭证。命令指定操作者机器已有的可信 Anaconda Python 环境，不安装或下载依赖。2026-10-08 已核对该解释器包含 pywin32，并通过仅身份入口检查（不扫描应用、不显示身份摘要）。仓库 `.venv` 是离线契约测试环境，未安装 pywin32；此前命令误用它，导致页面显示“无法核对本机安装域身份”并禁用扫描。请在 A2 启动终端按 `Ctrl+C` 后运行上面的修正命令，再重载页面并重新选环境；解释器绑定在服务启动时，单独刷新页面不会更换解释器。
+
+`--python` 也可指向操作者已有的其他可信 Python（需 pywin32）。如果安装域身份核对失败，页面显示收集器不可用和检查依赖的原因，不回退未经核对的清单。启动仅读取 MachineGuid / 当前执行用户 SID 生成安装域摘要，不枚举软件或窗口；扫描前后再次校验身份，原始身份不显示。与 A1 一样，不创建桌面 Session。
 
 ## 五步体验与预期
 
