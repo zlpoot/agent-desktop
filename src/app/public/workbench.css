@@ -88,4 +88,6 @@
 .workspace-apps pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .workspace-apps select,.workspace-apps input { display: block; box-sizing: border-box; width: 100%; min-width: 0; margin: 12px 0; padding: 10px; background: #13212c; color: #e4edf2; border: 1px solid #365362; border-radius: 8px; }
 .workspace-apps button { margin: 6px 8px 6px 0; padding: 10px; border: 1px solid #52776d; border-radius: 8px; background: #24453f; color: #d9f3eb; cursor: pointer; }
+.workspace-apps button:disabled { background: #1b2630; border-color: #34424e; color: #8e9dab; opacity: .6; cursor: not-allowed; box-shadow: none; }
+.workspace-apps [hidden] { display: none !important; }
 .apps-profile,#apps-confirmation:not(:empty) { padding: 16px; margin: 14px 0; border: 1px solid #365362; border-radius: 8px; }
