@@ -6,6 +6,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve, win32 } from "node:path";
 import { AppManagement } from './app-management.js';
 import { TaskAppOnboarding, type TaskAppRequest, type TaskAppInteraction } from './task-app-onboarding.js';
+import { assertAppAdmission } from '../environment-apps/admission-gate.js';
 import type { EnvironmentAppServices, EnvironmentAppBinding } from '../contracts/environment-apps.js';
 import { DatabaseSync } from "node:sqlite";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
@@ -365,7 +366,10 @@ export class DesktopTaskController implements TaskController {
       let managedWindow: import('../runtime/desktop/desktop-runtime.js').WindowInfo | undefined;
       const checkManagedApp = () => {
         if (!managedApp) return;
-        const current = this.options.environmentApps?.forEnvironment(queued!.desktopTarget!).registry.get(managedApp.appBindingId);
+        const registry = this.options.environmentApps?.forEnvironment(queued!.desktopTarget!).registry;
+        if (!registry) throw new Error('app-admission-registry-unavailable');
+        assertAppAdmission(registry, managedApp.appBindingId);
+        const current = registry.get(managedApp.appBindingId);
         if (!current || current.validity !== 'current' || current.trust !== 'verified' || current.availability !== 'available' ||
             current.profileDigest !== managedApp.profileDigest || current.profileRevision !== managedApp.profileRevision) {
           throw new Error('app-onboarding-profile-no-longer-current');
@@ -415,7 +419,9 @@ export class DesktopTaskController implements TaskController {
           guest = await entry.executor.connectAppRuntime(entry.session, artifactDir,
             { ...appRuntimeBinding, assertCurrentTrust: checkManagedApp });
         }
+        checkManagedApp(); // bridge connection may have awaited a pending denial
         await control.beginTask(taskId); desktopClaimed = true;
+        checkManagedApp();
         checkSetupPause();
         if (!appRuntimeBinding) guest = await entry.executor.connectRuntime(entry.session, artifactDir);
         desktopApps = await entry.executor.appCatalog?.() ?? [];

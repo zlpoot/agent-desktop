@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ReadonlyAppDiscovery } from '../contracts/app-discovery.js';
 import type { AppConfirmationDisplay, AppLaunchOutcome } from '../contracts/app-launch.js';
 import type { EnvironmentAppBinding, EnvironmentAppRegistry } from '../contracts/environment-apps.js';
+import { assertLegacyAppAdmission } from './admission-gate.js';
 import { AppLaunchError, ControlledAppLauncher } from './launcher.js';
 import { candidateValue, sameAppScope, textValue } from './validation.js';
 
@@ -63,9 +64,10 @@ export class AppOnboardingService {
     if (pending.operation) {
       if (pending.operatorId !== operatorId) throw new Error('app-confirmation-operator-mismatch');
       // Idempotency never restores revoked/changed trust or launches again.
+      assertLegacyAppAdmission(this.registry, pending.app.appBindingId);
       const current = this.registry.get(pending.app.appBindingId);
       if (!current || current.validity !== 'current' || current.profileDigest !== pending.app.profileDigest) throw new Error('app-confirmation-no-longer-current');
-      return pending.operation.then(result => structuredClone(result));
+      return pending.operation.then(result => { assertLegacyAppAdmission(this.registry, pending.app.appBindingId); return structuredClone(result); });
     }
     if (this.discovery.candidate(pending.display.candidateId, pending.display.candidateRevision).digest !== pending.candidateDigest) {
       throw new Error('app-candidate-changed');
@@ -80,7 +82,7 @@ export class AppOnboardingService {
         throw new AppLaunchError('stale', 'app-candidate-changed');
       }
     }).finally(() => this.running.delete(value.confirmationId));
-    return pending.operation.then(result => structuredClone(result));
+    return pending.operation.then(result => { assertLegacyAppAdmission(this.registry, pending.app.appBindingId); return structuredClone(result); });
   }
   /** Lightweight inspect + actual-instance validation. No discovery.scan/query, no new confirmation. */
   reuse(value: { appBindingId: string; expectedRevision: number; operationId: string }, operatorId: string): Promise<AppLaunchOutcome> {
@@ -88,10 +90,12 @@ export class AppOnboardingService {
     const old = this.uses.get(value.operationId);
     if (old) {
       if (old.id !== value.appBindingId || old.revision !== value.expectedRevision || old.operatorId !== operatorId) throw new Error('app-operation-conflict');
+      assertLegacyAppAdmission(this.registry, old.id);
       const app = this.registry.get(old.id);
       if (!app || app.validity !== 'current' || app.trust === 'discovered') throw new Error('app-profile-not-reusable');
-      return old.operation.then(result => structuredClone(result));
+      return old.operation.then(result => { assertLegacyAppAdmission(this.registry, old.id); return structuredClone(result); });
     }
+    assertLegacyAppAdmission(this.registry, value.appBindingId);
     const app = this.registry.get(value.appBindingId);
     if (this.uses.size >= 512) throw new Error('app-operation-limit');
     if (!app || app.revision !== value.expectedRevision) throw new Error('app-revision-conflict');
@@ -101,12 +105,12 @@ export class AppOnboardingService {
     const controller = new AbortController();
     const operation = this.run(app, controller, () => {});
     this.uses.set(value.operationId, { id: value.appBindingId, revision: value.expectedRevision, operatorId, operation, cancel: controller });
-    return operation.then(result => structuredClone(result));
+    return operation.then(result => { assertLegacyAppAdmission(this.registry, value.appBindingId); return structuredClone(result); });
   }
   private async run(original: EnvironmentAppBinding, controller: AbortController, guard: () => void): Promise<AppLaunchOutcome> {
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     let app = original;
-    const check = () => { this.current(); guard(); if (controller.signal.aborted) throw new AppLaunchError('unavailable', 'app-launch-cancelled-or-timeout'); };
+    const check = () => { this.current(); assertLegacyAppAdmission(this.registry, original.appBindingId); guard(); if (controller.signal.aborted) throw new AppLaunchError('unavailable', 'app-launch-cancelled-or-timeout'); };
     try {
       check();
       if (app.availability === 'unavailable') {
@@ -123,7 +127,7 @@ export class AppOnboardingService {
       await this.launcher.verify(authorization.profile, authorization.permission);
       const outcome = this.launcher.outcome(authorization.permission);
       // No current target escapes when cancellation, revocation or CAS wins during drain.
-      this.current(); guard();
+      this.current(); assertLegacyAppAdmission(this.registry, original.appBindingId); guard();
       if (controller.signal.aborted && outcome.target) throw new AppLaunchError('unknown', 'app-launch-cancelled-during-drain');
       this.registry.recordVerification(app.appBindingId, app.revision, outcome.verification);
       return outcome;
