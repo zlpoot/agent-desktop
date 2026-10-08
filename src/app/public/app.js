@@ -194,7 +194,7 @@ function renderDetail() {
     ? `人工验收：${run.humanReview.approved ? '确认完成' : '暂不确认'} · ${when(run.humanReview.reviewedAt)} · ${run.humanReview.note}` : '';
   byId("facet-state").textContent = facetSummaryLine(run.facets);
   const resume = byId("resume-controls");
-  resume.hidden = !(run.source === "web-tasks.sqlite" && run.status === "waiting_user");
+  resume.hidden = !(run.source === "web-tasks.sqlite" && run.status === "waiting_user" && run.interactionKind !== 'app_onboarding');
   byId("resume-question").textContent = run.error || "任务等待人工处理";
   const interaction = run.interactionKind || (run.steps.at(-1)?.action?.kind === "ask_user"
     ? "question" : "approval");
@@ -208,7 +208,7 @@ function renderDetail() {
     ? `自动验收未能确认最终结果（${run.acceptanceReport?.message || '证据不足'}）。请独立核对实际结果并填写依据；人工结论不计为自动验收或 Workflow 晋级。`
     : '';
   const controls = byId("task-controls");
-  controls.hidden = !run.canPause ||
+  controls.hidden = !run.canPause || run.appOnboarding?.state === 'new_task_required' ||
     !["running", "pause_requested", "paused"].includes(run.status);
   byId("task-pause").hidden = run.status !== "running";
   byId("task-continue").hidden = run.status !== "paused";

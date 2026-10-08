@@ -1,4 +1,5 @@
 [
+  "task-app-onboarding-ui.test.ts",
   "desktop-selection-ui.test.ts",
   "browser-form-rebind.test.ts",
   "browser-resume.test.ts",

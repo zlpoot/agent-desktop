@@ -1,9 +1,11 @@
-import { TaskDesktopSessions } from './task-desktop-sessions.js';
+import { TaskDesktopSessions, type TaskAppRuntimeBinding } from './task-desktop-sessions.js';
 import { runDesktopScenarioTask } from './desktop-scenario-task.js';
 import { desktopTarget, taskDesktopFields, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, win32 } from "node:path";
+import { TaskAppOnboarding, type TaskAppRequest, type TaskAppInteraction } from './task-app-onboarding.js';
+import type { EnvironmentAppServices, EnvironmentAppBinding } from '../contracts/environment-apps.js';
 import { DatabaseSync } from "node:sqlite";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import type { ModelAdapter } from "../agent/model-adapter.js";
@@ -43,6 +45,7 @@ import { createTaskBudget, isBudgetExceeded, parseBudgetOverride, readTaskBudget
   type BudgetOverride } from '../runtime/model-budget.js';
 
 export interface TaskController {
+  onboardApp?(taskId: string, request: TaskAppRequest): Promise<TaskAppInteraction>;
   submitScenario?(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, budget?: BudgetOverride): string;
   desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
   submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
@@ -55,6 +58,7 @@ export interface TaskController {
 
 /** 任务执行器的显式依赖；核心不直接读取全局配置或创建业务扩展。 */
 export interface DesktopTaskControllerOptions {
+  environmentApps?: EnvironmentAppServices;
   desktopSessions?: TaskDesktopSessions;
   /** Infrastructure validates structured legacy provenance, never the goal text. */
   legacyDesktopTarget?: (state: import("../graph/state.js").ComputerState, environment: string, target: TaskDesktopTarget) => boolean;
@@ -71,6 +75,7 @@ export interface DesktopTaskControllerOptions {
 }
 
 export class DesktopTaskController implements TaskController {
+  private readonly appOnboarding: TaskAppOnboarding;
   private queue = Promise.resolve();
   private readonly continuing = new Set<string>();
   private readonly tracePath: string;
@@ -132,7 +137,7 @@ export class DesktopTaskController implements TaskController {
     this.closePromise = (async () => {
       try { if (this.activeTask?.control) this.requestShutdownPause(this.activeTask.id); }
       finally {
-        try { await this.queue; }
+        try { await this.appOnboarding.close(); await this.queue; }
         finally { await this.options.desktopSessions?.close(); }
       }
     })();
@@ -148,6 +153,30 @@ export class DesktopTaskController implements TaskController {
     this.modelProvider = options.modelProvider ?? configuredModelProvider();
     this.traceStore = options.traceStore ?? ((path) => new SqliteTrace(path));
     this.workflowStore = options.workflowStore ?? ((path) => new WorkflowStore(path));
+    this.appOnboarding = new TaskAppOnboarding(options.environmentApps, {
+      load: id => {
+        const trace = this.traceStore(this.tracePath);
+        try { const state = trace.load(id); if (!state) throw new Error('task-not-found'); return state; }
+        finally { trace.close(); }
+      },
+      save: (node, state) => { const trace = this.traceStore(this.tracePath);
+        try { trace.save(node, state); } finally { trace.close(); } },
+      guard: async state => {
+        this.assertOpen();
+        if (!state.desktopTarget || state.desktopScenario) throw new Error('app-onboarding-task-ineligible');
+        this.requireDesktopSessions().assertTarget(state.desktopTarget);
+        const trace = this.traceStore(this.tracePath);
+        try { await this.requireDesktopSessions().acquire(state.taskId, state, binding => {
+          const current = trace.load(state.taskId)!;
+          trace.save('desktop_bound', { ...current, desktopExecutionBinding: binding });
+        }); } finally { trace.close(); }
+      },
+      resume: id => this.enqueue(() => this.runGeneric(id), id),
+    });
+  }
+
+  onboardApp(taskId: string, request: TaskAppRequest): Promise<TaskAppInteraction> {
+    this.assertOpen(); return this.appOnboarding.act(taskId, request);
   }
 
   private requireDesktopSessions(): TaskDesktopSessions {
@@ -318,16 +347,36 @@ export class DesktopTaskController implements TaskController {
         destination: routeWorkflowDestination(pinnedWorkflow),
       }) : undefined;
       let environment: "browser" | "windows";
+      let managedApp: EnvironmentAppBinding | undefined;
+      let appRuntimeBinding: TaskAppRuntimeBinding | undefined;
+      let managedWindow: import('../runtime/desktop/desktop-runtime.js').WindowInfo | undefined;
+      const checkManagedApp = () => {
+        if (!managedApp) return;
+        const current = this.options.environmentApps?.forEnvironment(queued!.desktopTarget!).registry.get(managedApp.appBindingId);
+        if (!current || current.validity !== 'current' || current.trust !== 'verified' || current.availability !== 'available' ||
+            current.profileDigest !== managedApp.profileDigest || current.profileRevision !== managedApp.profileRevision) {
+          throw new Error('app-onboarding-profile-no-longer-current');
+        }
+      };
+      if (!response && queued.desktopTarget) {
+        // No Agent lease/runtime/model exists during application setup. The guard freezes the Session first.
+        const app = await this.appOnboarding.beforeRun(taskId);
+        if (app === false) return;
+        appRuntimeBinding = app;
+        managedApp = app?.profile;
+        queued = trace.load(taskId)!;
+        if (queued.status === 'stopped') return;
+      }
+      if (response && queued.appOnboarding) {
+        appRuntimeBinding = this.appOnboarding.runtimeBinding(taskId);
+        managedApp = appRuntimeBinding.profile;
+      }
       if (explicit) {
         if (explicit.workflow.environment === 'windows' && !queued.desktopTarget) throw new Error('desktop-target-required');
         if (explicit.workflow.environment === 'browser' && queued.desktopTarget) throw new Error('desktop-target-destination-conflict');
         const savedEnvironment = route.environment === 'agent_desktop' ? 'windows' : route.environment;
         if (savedEnvironment && savedEnvironment !== explicit.workflow.environment) throw new Error('workflow-route-environment-mismatch');
       }
-      const model = this.modelProvider.createModel(explicit ? {
-        environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
-        visualMode: explicit.workflow.environment === 'windows',
-      } : undefined);
       this.assertTaskCompatibility(queued, route.environment);
       let desktopApps: RegisteredApp[] = [];
       if (queued.desktopTarget) {
@@ -342,12 +391,23 @@ export class DesktopTaskController implements TaskController {
           (!savedWindowIdentity.title && (!savedWindowIdentity.windowClass || !savedWindowIdentity.processPath)))) {
           throw new Error("检查点缺少稳定窗口身份，不能安全恢复；请停止旧任务后重新提交");
         }
+        checkManagedApp();
+        const artifactDir = resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots");
+        if (appRuntimeBinding) {
+          if (!entry.executor.connectAppRuntime) throw new Error('app-task-target-bridge-unavailable: submit a new task with a trusted executor');
+          // Prove the original target before input ownership. This Worker remains
+          // fenced to that exact lifetime on every operation, including Graph actions.
+          guest = await entry.executor.connectAppRuntime(entry.session, artifactDir, appRuntimeBinding);
+        }
         await control.beginTask(taskId); desktopClaimed = true;
         checkSetupPause();
-        guest = await entry.executor.connectRuntime(entry.session,
-          resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots"));
+        if (!appRuntimeBinding) guest = await entry.executor.connectRuntime(entry.session, artifactDir);
         desktopApps = await entry.executor.appCatalog?.() ?? [];
       }
+      const model = this.modelProvider.createModel(explicit ? {
+        environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
+        visualMode: explicit.workflow.environment === 'windows',
+      } : undefined);
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
       let plan = queued.plan;
@@ -357,7 +417,12 @@ export class DesktopTaskController implements TaskController {
       const dir = resolve(this.rootDir, ".artifacts", "web-tasks", taskId);
       await mkdir(dir, { recursive: true });
       if (!response) {
-        const discovered = guest ? await guest.listWindows() : [];
+        const allWindows = guest ? await guest.listWindows() : [];
+        const spec = managedApp?.launchSpec;
+        const discovered = spec && spec.kind !== 'package' ? allWindows.filter(window => window.visible && window.processPath &&
+          win32.normalize(window.processPath).toLowerCase() === win32.normalize(spec.executable).toLowerCase()) : allWindows;
+        if (managedApp && discovered.length !== 1) throw new Error('app-onboarding-actual-window-unproven');
+        if (managedApp) managedWindow = discovered[0];
         const profile = taskProfile(queued.goal, this.registry);
         const windows = profile?.selectWindows?.(discovered) ?? discovered;
         const fixedWindow = guest && explicit ? explicitWorkflowWindow(explicit.workflow, windows) : undefined;
@@ -391,6 +456,12 @@ export class DesktopTaskController implements TaskController {
             durationMs: performance.now() - started, actor: "model", operator: "任务规划",
             modelName: model.name, ...planned.usage });
           ({ environment, windowHandle, plan, completionCriteria, verificationContract } = planned.task);
+          if (managedApp) {
+            if (environment !== 'windows' || planned.task.appId || windowHandle !== undefined && windowHandle !== discovered[0].handle) {
+              throw new Error('app-onboarding-planned-target-mismatch');
+            }
+            windowHandle = discovered[0].handle;
+          }
           if (explicit) {
             if (environment !== explicit.workflow.environment) throw new Error('workflow-plan-environment-mismatch');
             plan = explicit.workflow.steps.map(step => step.goal);
@@ -438,13 +509,19 @@ export class DesktopTaskController implements TaskController {
         if (environment === "windows" && !guest) throw new Error("desktop-target-required");
         if (environment === "browser" && guest) throw new Error("desktop-route-binding-mismatch");
         windowHandle = route.window_handle ?? undefined;
+        if (managedApp) {
+          const windows = await guest!.listWindows();
+          if (windows.length !== 1 || windows[0].handle !== windowHandle) throw new Error('app-onboarding-actual-window-unproven');
+          managedWindow = windows[0];
+        }
       }
       runtime = runtime ?? (guest
         ? await (async () => {
             checkSetupPause();
-            // A process restart invalidates the saved HWND/PID. Rebind by the
-            // persisted semantic identity and let the Guest enforce uniqueness.
-            await guest.attach(response?.kind === "restart" ? {
+            checkManagedApp();
+            // Only unmanaged Tasks retain semantic restart attachment. Managed
+            // Workers are already fenced to the receipt and cannot be rebound.
+            if (!managedApp) await guest.attach(response?.kind === "restart" ? {
               ...(savedWindowIdentity!.title
                 ? { windowTitle: savedWindowIdentity!.title }
                 : { windowClass: savedWindowIdentity!.windowClass }),
@@ -463,14 +540,21 @@ export class DesktopTaskController implements TaskController {
       if (environment === "windows") {
         checkSetupPause();
         const probe = await guest!.probe(true);
+        if (managedApp && (probe.processId !== managedWindow?.processId || probe.windowClass !== managedWindow.windowClass ||
+            managedApp.launchSpec.kind === 'package' || !probe.processPath ||
+            win32.normalize(probe.processPath).toLowerCase() !== win32.normalize(managedApp.launchSpec.executable).toLowerCase())) {
+          throw new Error('app-onboarding-attached-process-mismatch');
+        }
         if (!probe.permissionsCompatible) throw new Error("窗口权限高于当前工程，无法控制");
         if (queued.taskContract && !response) queued.taskContract.windowIdentity = {
           title: probe.title, windowClass: probe.windowClass,
           ...(probe.processPath ? { processPath: probe.processPath } : {}),
         };
         const snapshot = await runtime.observe();
+        checkManagedApp();
         if (guest) {
-          if (snapshot.windowHandle === undefined || snapshot.windowTitle !== probe.title) {
+          if (snapshot.windowHandle === undefined || snapshot.windowTitle !== probe.title ||
+              managedApp && snapshot.windowHandle !== windowHandle) {
             throw new Error("重新绑定后的 Guest 窗口身份不完整或已改变");
           }
           windowHandle = snapshot.windowHandle;
@@ -559,6 +643,8 @@ export class DesktopTaskController implements TaskController {
         else if (response) await resumeSavedTask(graph, runtime, taskId,
           response.answer ? { answer: response.answer } : { approved: response.approved === true }, savedForResume?.checkpointThreadId, queued);
         else await graph.invoke({ ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), desktopBinding,
+          appOnboarding: queued.appOnboarding,
+          retryCount: queued.retryCount,
           verificationContract,contractCoverage,
           ...(queued.workflowRef ? { workflowRef: queued.workflowRef } : {}),
           ...(queued.taskContract ? { taskContract: queued.taskContract, completedStages: [], stagePlanVersion: 0 } : {}),
@@ -663,6 +749,7 @@ export class DesktopTaskController implements TaskController {
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "waiting_user") throw new Error("任务未处于等待人工状态");
+      if (state.appOnboarding && state.appOnboarding.state !== 'ready') throw new Error('app-onboarding-dedicated-interaction-required');
       if (state.desktopScenario) throw new Error('desktop-scenario-replay-forbidden');
       this.assertSavedTaskCompatibility(state);
       if (state.desktopExecutionBinding) {
@@ -725,6 +812,7 @@ export class DesktopTaskController implements TaskController {
     try {
       const state = trace.load(taskId);
       if (!state || state.status !== "paused") throw new Error("任务未处于暂停状态");
+      if (state.appOnboarding && state.appOnboarding.state !== 'ready') throw new Error('app-onboarding-new-task-required');
       if (state.desktopScenario) throw new Error('desktop-scenario-replay-forbidden: explicitly submit a new task');
       this.assertSavedTaskCompatibility(state);
       if (state.desktopExecutionBinding) {
