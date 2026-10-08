@@ -41,6 +41,6 @@ npm run dashboard:discovery -- --config config/desktop-environments.example.json
 - 切换/刷新关闭旧页面会话并忽略晚到结果；已开始的只读 helper 可能执行到原有 5 秒上限后结束，不作为新环境结果显示，也不重试。
 - 在启动终端 `Ctrl+C` 停止，关闭页面。候选和临时 Registry 随进程丢弃，不保存安装数据库或用户路径；没有用户应用需要终止。可重新运行 A1 的 `dashboard:preflight` 命令回到扫描关闭的阶段。
 
-验证只使用合成身份、Fake collector 和固定假 helper，不执行真实扫描、启动、输入、模型或 VM。检查日志与合成截图保留于私有 `.validation/`，不提交生成资产。本候选仅本地提交，未 push。必要检查和已知失败以最终交付记录为准。
+验证只使用合成身份、Fake collector 和固定假 helper，不执行真实扫描、启动、输入、模型或 VM。检查日志与合成截图保留于私有 `.validation/`，不提交生成资产。操作者已授权通过工作分支和 PR 交付，推送不代表独立审查或合并通过。必要检查和已知失败以最终交付记录为准。
 
 本轮完整检查：类型通过；离线 689/689 通过（含实际 CLI + 固定假 helper）；Python 15 个契约文件通过；Browser 59/60 通过，唯一失败为既有流程库报告下载 `download.saveAs: canceled`，此前已在任务基线复现。A2 和 A1/P7 的页面回归均通过。此记录只代表合成检查，不宣布独立审查或 A2 人工体验通过。

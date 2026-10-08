@@ -30,7 +30,7 @@ npm run dashboard:preflight -- --config config/desktop-environments.example.json
 
 A1 禁止扫描/路径检查、确认/启动/重验/撤销、发送或恢复 Task、模型调用、桌面输入、Viewer、VM 控制与 Windows A5 实验。UI 不提供任务和桌面控制；服务器独立拒绝相关 API，查询参数不能开启它们。
 
-在启动终端按 `Ctrl+C`，等待进程退出，关闭浏览器页面。端口随服务释放；A1 Registry 仅内存，不创建或导入应用数据库、启动配置、Task 或用户进程，无需清理用户应用。回到原仓库目录即可继续原工作；本候选未修改原 P4 checkout、未 push 或更改仓库可见性。
+在启动终端按 `Ctrl+C`，等待进程退出，关闭浏览器页面。端口随服务释放；A1 Registry 仅内存，不创建或导入应用数据库、启动配置、Task 或用户进程，无需清理用户应用。回到原仓库目录即可继续原工作；本候选未修改原 P4 checkout 或更改仓库可见性。操作者已授权通过工作分支和 PR 交付，推送不代表独立审查或合并通过。
 
 ### 已知限制 / UX blocker
 
