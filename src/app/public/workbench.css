@@ -109,3 +109,7 @@
 #bridge-test-preview th,#bridge-test-preview td { text-align: left; vertical-align: top; border: 1px solid #344757; padding: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 #bridge-test-preview th { width: 22%; }
 #bridge-test-preview li { line-height: 1.8; }
+#scenario-result { overflow-wrap: anywhere; }
+#scenario-status { white-space: pre-line; }
+#scenario-facts { white-space: pre-wrap; }
+#scenario-issue-note { display: block; width: 100%; box-sizing: border-box; min-height: 80px; }

@@ -211,8 +211,9 @@ function renderDetail() {
   controls.hidden = !run.canPause || run.appOnboarding?.state === 'new_task_required' ||
     !["running", "pause_requested", "paused"].includes(run.status);
   byId("task-pause").hidden = run.status !== "running";
-  byId("task-continue").hidden = run.status !== "paused";
-  byId("task-control-note").textContent = run.status === "pause_requested"
+  byId("task-continue").hidden = !!run.desktopScenario || run.status !== "paused";
+  byId("task-pause").textContent = run.desktopScenario ? '停止并清理' : '暂停任务';
+  byId("task-control-note").textContent = run.desktopScenario ? '停止后撤销许可并清理；UNKNOWN 不重放，只能显式新建任务。' : run.status === "pause_requested"
     ? "当前动作完成并验证后暂停" : run.status === "paused"
       ? run.recoveryRequired ? "任务现场已保留；继续时重新观察，旧动作不会直接重放"
         : "可手动操作目标应用，继续时会重新观察" : "可在安全边界暂停";

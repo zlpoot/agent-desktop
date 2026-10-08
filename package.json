@@ -13,6 +13,7 @@
     "grounding:stats": "tsx src/grounding-stats.ts",
     "workflows:migrate-targets": "tsx scripts/migrate-workflow-targets.ts",
     "dashboard": "tsx src/app/start.ts",
+    "dashboard:fixture": "tsx src/app/start-fixture.ts",
     "dashboard:preflight": "tsx src/app/start-preflight.ts",
     "dashboard:discovery": "tsx src/app/start-preflight.ts --readonly-discovery",
     "dashboard:bridge-preview": "tsx src/app/start-preflight.ts --bridge-preview",
