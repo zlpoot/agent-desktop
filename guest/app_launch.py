@@ -12,6 +12,7 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
 import time
 import uuid
 
@@ -22,6 +23,145 @@ class LaunchFailure(Exception):
     def __init__(self, kind, reason):
         super().__init__(reason)
         self.kind = kind
+
+
+class WindowsProcessPin:
+    """Query-only handle to one kernel process object; never reopens it by PID."""
+    def __init__(self, pid):
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        signatures = {
+            'OpenProcess': ([wintypes.DWORD, wintypes.BOOL, wintypes.DWORD], wintypes.HANDLE),
+            'WaitForSingleObject': ([wintypes.HANDLE, wintypes.DWORD], wintypes.DWORD),
+            'GetProcessId': ([wintypes.HANDLE], wintypes.DWORD),
+            'GetProcessTimes': ([wintypes.HANDLE, *([ctypes.POINTER(wintypes.FILETIME)] * 4)], wintypes.BOOL),
+            'QueryFullProcessImageNameW': ([wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)], wintypes.BOOL),
+            'CloseHandle': ([wintypes.HANDLE], wintypes.BOOL),
+        }
+        for name, (args, result) in signatures.items():
+            getattr(kernel, name).argtypes, getattr(kernel, name).restype = args, result
+        self.pid = pid
+        self.kernel, self.handle = kernel, kernel.OpenProcess(0x00100000 | 0x1000, False, pid)
+        if not self.handle:
+            raise LaunchFailure('unknown', 'app-original-process-open-unavailable')
+
+    def snapshot(self):
+        kernel, handle = self.kernel, self.handle
+        # Only WAIT_TIMEOUT means the retained object is still unsignaled/alive.
+        if not handle or kernel.WaitForSingleObject(handle, 0) != 0x102:
+            raise LaunchFailure('unknown', 'app-original-process-exited-or-unreadable')
+        times = [wintypes.FILETIME() for _ in range(4)]
+        pid = kernel.GetProcessId(handle)
+        image, size = ctypes.create_unicode_buffer(32768), wintypes.DWORD(32768)
+        if pid != self.pid or not kernel.GetProcessTimes(handle, *(ctypes.byref(value) for value in times)) or \
+                not kernel.QueryFullProcessImageNameW(handle, 0, image, ctypes.byref(size)):
+            raise LaunchFailure('unknown', 'app-original-process-identity-unavailable')
+        if kernel.WaitForSingleObject(handle, 0) != 0x102:
+            raise LaunchFailure('unknown', 'app-original-process-exited-or-unreadable')
+        created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        if not created:
+            raise LaunchFailure('unknown', 'app-original-process-creation-unavailable')
+        return {'pid': pid, 'createdTicks': created,
+                'image': ntpath.normcase(image.value)}
+
+    def close(self):
+        handle, self.handle = self.handle, None
+        if handle and not self.kernel.CloseHandle(handle):
+            # Never retry closing an uncertain numeric handle that could be reused.
+            raise LaunchFailure('unknown', 'app-original-process-close-unconfirmed')
+
+
+class OriginalProcessRecords:
+    """Issuer-private bounded originals. Window facts are consistency checks only.
+    Reads/retirement share a lock; this lock does NOT serialize any native effect.
+    """
+    def __init__(self):
+        self.records, self.keys = {}, {}
+        self.lock = threading.RLock()
+        self.blocked, self.closed = False, False
+
+    def _available(self):
+        if self.blocked or self.closed:
+            raise LaunchFailure('unavailable', 'app-original-records-unavailable')
+
+    def assert_available(self):
+        with self.lock:
+            self._available()
+
+    def _close_pin(self, pin):
+        try:
+            pin.close()
+        except Exception as error:
+            self.blocked = True
+            raise LaunchFailure('unknown', 'app-original-process-close-unconfirmed') from error
+
+    def _retire(self, record):
+        pin, record['pin'] = record['pin'], None
+        record['retired'] = True
+        if pin is not None:
+            self._close_pin(pin)
+
+    def enroll(self, pin, probe):
+        # Takes ownership of the candidate pin, including all error paths.
+        with self.lock:
+            retained = False
+            try:
+                self._available()
+                original = copy.deepcopy(probe())
+                process, window, context = original['process'], original['window'], original['context']
+                key = (process['pid'], process['createdTicks'], window['hwnd'], window['thread'],
+                       context['sessionId'], context['instanceId'])
+                previous = self.records.get(self.keys.get(key))
+                if previous:
+                    if previous['retired']:
+                        raise LaunchFailure('unknown', 'app-original-target-retired')
+                    self._read(previous)
+                    if previous['original'] != original:
+                        self._retire(previous)
+                        raise LaunchFailure('unknown', 'app-original-target-changed')
+                    return self.keys[key]
+                if len(self.records) >= 128:
+                    raise LaunchFailure('unavailable', 'app-original-record-limit')
+                token = uuid.uuid4().hex
+                self.records[token] = {'pin': pin, 'probe': probe, 'original': original, 'retired': False}
+                self.keys[key] = token
+                retained = True
+                return token
+            finally:
+                if not retained:
+                    self._close_pin(pin)
+
+    def _read(self, record):
+        if record['retired']:
+            raise LaunchFailure('unknown', 'app-original-target-retired')
+        try:
+            if record['probe']() != record['original']:
+                raise LaunchFailure('unknown', 'app-original-target-changed')
+        except Exception:
+            self._retire(record)
+            raise
+        return copy.deepcopy(record['original'])
+
+    def resolve_process(self, token, profile, context):
+        with self.lock:
+            self._available()
+            record = self.records.get(token)
+            if record is None:
+                raise LaunchFailure('unavailable', 'app-original-target-not-issued')
+            if record['original']['profile'] != profile or record['original']['context'] != context:
+                raise LaunchFailure('unknown', 'app-original-request-mismatch')
+            return self._read(record)
+
+    def retire_all(self, close=False):
+        with self.lock:
+            self.closed = self.closed or close
+            failures = []
+            for record in self.records.values():
+                try:
+                    self._retire(record)
+                except Exception as error:
+                    failures.append(error)
+            if failures:
+                raise LaunchFailure('unknown', 'app-original-process-close-unconfirmed') from failures[0]
 
 
 def fields(value, allowed, required):
@@ -128,6 +268,8 @@ class AppLaunchManager:
                             self.current(request['reservationId'])
                         except Exception:
                             keep = False
+                    if hasattr(self.native, 'finish_targets'):
+                        self.native.finish_targets(keep)
                     for value in self.owned.values():
                         value['verified'] = value.get('verified', False) and keep
                         self.native.release(value)
@@ -138,6 +280,11 @@ class AppLaunchManager:
                 return None
             except Exception as error:
                 self.blocked = True
+                if hasattr(self.native, 'finish_targets'):
+                    try:
+                        self.native.finish_targets(False)
+                    except Exception:
+                        pass
                 raise LaunchFailure('unknown', 'app-launch-cleanup-unconfirmed') from error
         self.current(request['reservationId'])
         if operation == 'current':
@@ -196,11 +343,12 @@ class WindowsNativeLauncher:
     """Conservative Win32 EXE adapter. No shell, elevation, focus or Default Desktop fallback.
     Only one exact executable/argv/window is accepted. Unproven launcher delegation is unknown.
     """
-    def __init__(self, scope, instance_id=None, dispatch_fence=None):
+    def __init__(self, scope, instance_id=None, dispatch_fence=None, process_pin_factory=WindowsProcessPin):
         self.scope, self.instance = scope, instance_id or uuid.uuid4().hex
         self.session = uuid.uuid4().hex
         self.scanner = WindowsAppScanner()
-        self.targets = {}
+        self.original_processes = OriginalProcessRecords()
+        self.process_pin_factory = process_pin_factory
         # Trusted native-side fence: entering it must serialize against permission revoke,
         # and yield a current-reservation check. A check callback alone is not a fence.
         self.dispatch_fence = dispatch_fence
@@ -244,9 +392,27 @@ class WindowsNativeLauncher:
                 'windowsSessionId': session, 'desktop': self.desktop_name()}
 
     def reserve_context(self):
+        self.original_processes.retire_all()
+        self.original_processes.assert_available()
         self.session = uuid.uuid4().hex
-        self.targets.clear()
         return self.context()
+
+    def finish_targets(self, keep):
+        if not keep:
+            self.original_processes.retire_all()
+
+    def close(self):
+        self.original_processes.retire_all(close=True)
+
+    def resolve_original_process(self, token, profile, context):
+        """Private read-only process resolution; no RPC or target/input grant."""
+        return self.original_processes.resolve_process(token, profile, context)
+
+    def resolve_original_target(self, token, profile, context):
+        self.resolve_original_process(token, profile, context)
+        # IsWindow/owner/desktop equality cannot prove destroy/recreate continuity.
+        # No original-window observer or effect Producer exists in this helper.
+        raise LaunchFailure('unavailable', 'app-original-window-lifetime-and-producer-unavailable')
 
     def inspect(self, spec):
         definition(spec)
@@ -272,6 +438,16 @@ class WindowsNativeLauncher:
             raise LaunchFailure('stale', str(error)) from error
 
     def instances(self, profile, context):
+        self.original_processes.assert_available()
+        try:
+            return self._instances(profile, context)
+        except Exception:
+            # A failed observation is not a gap through which an older original
+            # may be revived after metadata/window facts happen to match again.
+            self.original_processes.retire_all()
+            raise
+
+    def _instances(self, profile, context):
         import psutil
         import win32gui
         import win32process
@@ -298,10 +474,28 @@ class WindowsNativeLauncher:
             # An instance on another Desktop (or no provable window) is never treated as absent.
             raise LaunchFailure('unknown', 'app-instance-window-unproven-or-other-desktop')
         hwnd, thread, pid = windows[0]
-        process = next(item for item in processes if item.pid == pid)
+        pin = self.process_pin_factory(pid)
+        frozen_profile, frozen_context = copy.deepcopy(profile), copy.deepcopy(context)
+        probe = lambda: self._target_snapshot(pin, frozen_profile, frozen_context, hwnd, thread)
+        token = self.original_processes.enroll(pin, probe)
+        original = self.resolve_original_process(token, frozen_profile, frozen_context)
+        return [{**original['evidence'], 'targetToken': token}]
+
+    def _target_snapshot(self, pin, profile, context, hwnd, thread):
+        import psutil
+        import win32gui
+        import win32process
+        before = pin.snapshot()
+        pid, spec = before['pid'], profile['launchSpec']
+        expected = ntpath.normcase(spec['executable'])
+        if before['image'] != expected or self.context() != context:
+            raise LaunchFailure('unknown', 'app-original-process-or-context-changed')
+        # Fresh metadata reads are bracketed by the ORIGINAL process handle, so a
+        # PID reuse cannot substitute a different process after the original exits.
+        process = psutil.Process(pid)
         user, session, integrity = self.token(pid)
         own_user, _, own_integrity = self.token(os.getpid())
-        if integrity != own_integrity:
+        if integrity != own_integrity or user != own_user or session != context['windowsSessionId']:
             raise LaunchFailure('stale', 'app-process-permission-changed')
         try:
             argv, working, created = process.cmdline(), process.cwd(), process.create_time()
@@ -314,19 +508,26 @@ class WindowsNativeLauncher:
         if created < os.stat(spec['executable']).st_mtime:
             raise LaunchFailure('unknown', 'app-running-image-version-unproven')
         checked = self.inspect(spec)
-        # Token identity includes process creation time and this helper incarnation, never PID alone.
-        key = (pid, created, hwnd, self.instance)
-        token = self.targets.setdefault(key, uuid.uuid4().hex)
-        result = {**context, 'windowsSessionId': session, 'desktop': self.desktop_name(thread), 'targetToken': token,
-                  'identity': checked['identity'], 'executable': process.exe(), 'args': argv[1:],
+        desktop = self.desktop_name(thread)
+        if checked['identity'] != profile['identity'] or checked['scope'] != context['scope'] or \
+                definition(checked['launchSpec']) != definition(spec) or desktop != context['desktop'] or \
+                not win32gui.IsWindow(hwnd) or not win32gui.IsWindowVisible(hwnd) or \
+                win32process.GetWindowThreadProcessId(hwnd) != (thread, pid) or pin.snapshot() != before or self.context() != context:
+            raise LaunchFailure('unknown', 'app-original-target-changed')
+        result = {**context, 'windowsSessionId': session, 'desktop': desktop,
+                  'identity': checked['identity'], 'executable': before['image'], 'args': argv[1:],
                   'processOwnedByInstallation': checked['identity'] == profile['identity'],
                   'windowOwnedByProcess': win32process.GetWindowThreadProcessId(hwnd) == (thread, pid),
                   'sameUser': user == own_user, 'permissionsCompatible': True}
         if 'workingDirectory' in spec:
             result['workingDirectory'] = working
-        return [result]
+        return {'profile': copy.deepcopy(profile), 'context': copy.deepcopy(context), 'process': before,
+                'window': {'hwnd': hwnd, 'thread': thread}, 'evidence': result,
+                'workingDirectory': ntpath.normcase(working), 'arguments': list(argv),
+                'user': user, 'integrity': integrity, 'observedCreated': created}
 
     def start(self, profile, context):
+        self.original_processes.assert_available()
         if self.dispatch_fence is None:
             raise LaunchFailure('unavailable', 'app-native-dispatch-fence-unavailable')
         # Keep revoke serialized through both actual effects, including ResumeThread.
@@ -443,6 +644,8 @@ def main():
                      'kind': error.kind if isinstance(error, LaunchFailure) else 'unknown'}
         print(json.dumps(reply, ensure_ascii=False), flush=True)
     # Unverified owned Jobs remain kill-on-close; never kill pre-existing user processes.
+    if manager is not None:
+        manager.native.close()
 
 
 if __name__ == '__main__':

@@ -200,10 +200,16 @@ class NativeWindowTests(unittest.TestCase):
         native.inspect = lambda spec: {'scope': SCOPE, 'launchSpec': spec, 'identity': IDENTITY}
         process = types.SimpleNamespace(pid=10, info={'exe': SPEC['executable']}, cmdline=lambda: [SPEC['executable'], *SPEC['args']],
                                         cwd=lambda: r'C:\Synthetic', create_time=lambda: 100, exe=lambda: SPEC['executable'])
-        gui = types.SimpleNamespace(IsWindowVisible=lambda hwnd: True, EnumWindows=lambda callback, value: callback(20, value))
+        def pin_factory(pid):
+            created = process.create_time()
+            return types.SimpleNamespace(snapshot=lambda: {'pid': pid, 'createdTicks': created, 'image': SPEC['executable'].lower()}, close=lambda: None)
+        native.process_pin_factory = pin_factory
+        gui = types.SimpleNamespace(IsWindow=lambda hwnd: True, IsWindowVisible=lambda hwnd: True, EnumWindows=lambda callback, value: callback(20, value))
         modules = {'psutil': types.SimpleNamespace(process_iter=lambda columns: [process], Error=RuntimeError),
                    'win32gui': gui, 'win32process': types.SimpleNamespace(GetWindowThreadProcessId=lambda hwnd: (30, 10))}
         context = {'scope': SCOPE, 'sessionId': 's', 'instanceId': 'i', 'windowsSessionId': 1, 'desktop': r'WinSta0\Default'}
+        native.context = lambda: copy.deepcopy(context)
+        modules['psutil'].Process = lambda pid: process
         with patch.dict(sys.modules, modules), patch('app_launch.os.stat', return_value=types.SimpleNamespace(st_mtime=50)):
             result = native.instances(PROFILE, context)[0]
             self.assertTrue(result['processOwnedByInstallation']); self.assertTrue(result['windowOwnedByProcess'])
