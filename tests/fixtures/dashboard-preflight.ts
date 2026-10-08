@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { DesktopProvider } from '../../src/contracts/desktop-environment.js';
+import type { DesktopProvider, DesktopCapabilities } from '../../src/contracts/desktop-environment.js';
 import { createDashboardPreflight } from '../../src/composition/dashboard-preflight.js';
 import { createDashboardServer } from '../../src/app/server.js';
 
@@ -14,11 +14,11 @@ export async function preflightFixture() {
     { providerId: 'local-workspace', environmentId: 'synthetic-workspace', kind: 'local-workspace' as const },
     { providerId: 'hyper-v', environmentId: 'synthetic-guest', kind: 'virtual-machine' as const },
   ];
-  const hooks: { beforeCapabilities?: (id: string) => Promise<void> } = {};
+  const hooks: { beforeCapabilities?: (id: string) => Promise<void>; capabilities?: DesktopCapabilities } = {};
   const providers: DesktopProvider[] = scopes.map(scope => ({ id: scope.providerId, kind: scope.kind,
     discover: async () => [scope], capabilities: async () => {
       await hooks.beforeCapabilities?.(scope.providerId);
-      return { 'input.globalInput': [{ state: 'forbidden', scope: {} }],
+      return hooks.capabilities ?? { 'input.globalInput': [{ state: 'forbidden', scope: {} }],
         'input.rawIsolated': [{ state: 'not-proven', scope: {} }],
         'isolation.separateOs': [{ state: 'unsupported', scope: {} }] };
     }, open: async () => { opens++; throw new Error('synthetic-must-not-open'); } }));

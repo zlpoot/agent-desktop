@@ -19,8 +19,8 @@ npm run dashboard:preflight -- --config config/desktop-environments.example.json
 ### 五步体验与预期
 
 1. 打开上述地址，核对“主机”和“配置：已显式加载操作员文件”。环境下拉保持“请选择执行环境”，扫描与指定路径按钮禁用，候选/注册清单为空。
-2. 展开环境下拉，明确选择“本机交互桌面”。核对 Provider `physical` 和环境 `current-interactive-desktop`；这是配置枚举，不表示 Worker 或应用已经就绪。
-3. 查看“发现适配：unavailable”“安装来源：unavailable”和“受控启动：unavailable”。原因明确说明尚未接入收集器、不表示未安装，原生会话状态为 unknown / not-proven。Provider 的 supported 声明也不提升当前业务能力。
+2. 展开环境下拉，明确选择“本机交互桌面”。核对“环境提供方：本机交互桌面”和“执行环境：当前登录的系统桌面”。原始 `physical` / `current-interactive-desktop` 标识保留在折叠的技术详情中；这是配置枚举，不表示应用已就绪。
+3. 查看“应用发现：暂不可用”“安装来源：暂不可用”和“受控启动：暂不可用”。原因明确说明尚未接入收集器、不表示未安装，实际运行状态未知、能力就绪情况尚未验证。能力表用中文逐项说明“已声明支持”“尚未验证”“不支持”“禁止使用”的含义和适用范围；已声明支持不代表当前机器或应用已就绪。
 4. 选择回“请选择执行环境”，确认旧环境诊断清空。若你已有可信 Local Workspace 配置，可切换到它，核对不同 Provider/environment 身份；缺少该配置时页面明确说明 Local Workspace 不可用，不自动选择夹具、本机或 VM。
 5. 再选择环境，点“刷新配置”，然后浏览器重载。刷新会关闭旧页面会话并重新读取所选环境；重载恢复未选环境，仍然没有扫描、启动或候选。记录身份/用词/切换流程中不清楚的地方。
 
@@ -49,3 +49,7 @@ Dashboard 的私有 composition 参数限制 A1 HTTP 路由，校验 localhost H
 新增合成验证：HTTP/直接 Controller 禁止效果、跨环境会话及 Guest 安装域隔离、错误 Host/Origin、零 Session、零磁盘状态；独立 CLI 从合成配置实际监听 localhost；真实 localhost Browser 的未选环境、缺收集器说明、切换、晚到响应、刷新、重载与移动端布局。所有数据和基础设施端口为合成；没有应用扫描、启动、真实模型、VM 或实机输入。检查矩阵日志保留于私有 `.validation/p8-a-{check,offline,python,browser}.log`，生成日志/截图/资产不提交。
 
 状态：**IMPLEMENTED A1 / pending required matrix and Independent Review / NOT HUMAN-VERIFIED**。合成通过不得作为 Human UAT 通过；A2 未实施。最终检查结果以交付 exact SHA 的日志及交付消息为准。
+
+## A1 体验反馈修订
+
+禁用按钮使用灰色和禁用光标；预检阶段路径框隐藏。能力名称、状态、环境诊断及安全结论改用中文。能力表逐条保留声明状态与应用、版本、操作和机制限制；同一能力的不同范围分别列出，不合并成通用支持。原始标识与声明保留在折叠的“技术标识”中，不改变 Provider 契约、能力判定或授权。新增合成 Browser 验证覆盖全部十二项能力、不同版本声明、不可信文本的安全显示、切换清空与移动端布局。
