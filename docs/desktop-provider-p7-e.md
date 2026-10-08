@@ -37,7 +37,9 @@ Dashboard 新增独立「应用管理」导航及 `#/apps` 页面，保留 P7-D 
 
 新增 `tests/app-management.test.ts` 九个 HTTP/服务用例、`tests/app-management-ui.test.ts` 两个 Browser 用例；合成首次验证和现有 P7-D 定向回归已通过。初轮新增测试失败日志保留：负向请求错误复用同一 requestId（幂等冲突）、Browser 未展开帮助即断言隐藏内容；修正的是测试请求/读取流程，未放宽行为或跳过失败。
 
-最终所需矩阵只对提交后的 exact head 运行一次，原始日志保留 `.validation/p7-e-{check,offline,python,browser}.log`，结果、完整 head 与下载基线对照写入交付 PR。日志、截图、SQLite 和生成资产不提交。Browser 历史 `download.saveAs: canceled` 必须用精确基线对照并保留 FAIL；不能用它解释其他新失败。
+首轮交付矩阵发现最后新增提示的 JavaScript 变量作用域错误，造成两个新增 Browser 用例初始化超时；这是本轮新增缺陷，不属于历史下载失败。已修复作用域并增加已确认候选禁用重复确认的 Browser 断言。首轮 Browser/offline 在诊断时中止，原日志保留 `.validation/p7-e-{browser,offline}-initial.log`，未完成项不计通过。
+
+修复后最终所需矩阵只对提交后的 exact head 运行一次，原始日志保留 `.validation/p7-e-{check,offline,python,browser}.log`，结果、完整 head 与下载基线对照写入交付 PR。日志、截图、SQLite 和生成资产不提交。Browser 历史 `download.saveAs: canceled` 必须用精确基线对照并保留 FAIL；不能用它解释其他新失败。
 
 ## P7 已合并索引与停点
 

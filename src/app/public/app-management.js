@@ -38,9 +38,6 @@ window.createAppManagement = (root) => {
   const refresh = button('刷新配置', () => act('list'));
   const prepare = button('查看确认内容', () => {
     const selected = state?.candidates.find(item => item.candidateId === candidates.value);
-    const existing = selected && state.registered.find(app => app.installationId === selected.candidate.installationId &&
-      app.validity === 'current' && app.trust !== 'discovered' && app.identity?.fingerprint === selected.contentFingerprint &&
-      (!selected.version || app.identity.version === selected.version) && JSON.stringify(app.launchSpec) === JSON.stringify(selected.candidate.launchSpec));
     if (selected) void act('prepare', { candidateId: selected.candidateId, candidateRevision: selected.revision });
   });
   const cancel = button('取消本次接入', () => reset());
@@ -96,6 +93,9 @@ window.createAppManagement = (root) => {
     }
     candidates.value = previous; candidates.disabled = !state || busy;
     const selected = state?.candidates.find(item => item.candidateId === candidates.value);
+    const existing = selected && state.registered.find(app => app.installationId === selected.candidate.installationId &&
+      app.validity === 'current' && app.trust !== 'discovered' && app.identity?.fingerprint === selected.contentFingerprint &&
+      (!selected.version || app.identity.version === selected.version) && JSON.stringify(app.launchSpec) === JSON.stringify(selected.candidate.launchSpec));
     identity.textContent = selected ? `名称：${selected.candidate.displayName}\n别名：${selected.candidate.aliases.join('、') || '无'}\n版本：${selected.version || '未知'} · 发布者：${selected.publisher || '未知'}\n来源：${selected.sources.join('、')}\n安装实例：${selected.candidate.installationId}\n${launchText(selected.candidate.launchSpec)}\n状态：discovered（仅发现，尚未确认此候选）\n限制：${selected.limitation || '业务能力仍须独立证明'}` : '';
     if (existing) identity.textContent += '\n已保存同一配置：无需重复确认，请使用下方配置的重新验证启动。';
     prepare.disabled = !selected || busy || !state?.readiness.controlledLaunch || !!existing;

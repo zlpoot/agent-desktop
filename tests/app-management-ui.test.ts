@@ -27,6 +27,8 @@ test('Browser application page requires explicit environment and candidate, hand
     assert.equal(f.backends[0].starts, 0); assert.match(await root.innerText(), /discovered.*confirmed: false.*launch-verified: false/s);
     await confirm.click(); await page.waitForFunction(() => document.querySelector('#apps-registered')?.textContent?.includes('launch-verified: true'));
     assert.equal(f.backends[0].starts, 1); assert.match(await root.innerText(), /business-capable: not-proven/);
+    assert.equal(await prepare.isDisabled(), true);
+    assert.match(await page.locator('#apps-identity').innerText(), /无需重复确认/);
     assert.equal(requests.filter(item => item.action === 'confirm').length, 1);
     await root.getByRole('button', { name: '重新验证启动（允许受控启动）', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.startsWith('扫描：'));
