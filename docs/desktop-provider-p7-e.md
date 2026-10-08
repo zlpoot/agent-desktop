@@ -39,6 +39,8 @@ Dashboard 新增独立「应用管理」导航及 `#/apps` 页面，保留 P7-D 
 
 首轮交付矩阵发现最后新增提示的 JavaScript 变量作用域错误，造成两个新增 Browser 用例初始化超时；这是本轮新增缺陷，不属于历史下载失败。已修复作用域并增加已确认候选禁用重复确认的 Browser 断言。首轮 Browser/offline 在诊断时中止，原日志保留 `.validation/p7-e-{browser,offline}-initial.log`，未完成项不计通过。
 
+修复后的首份完整矩阵在 `831c0b2a8199b22b7865d36af7c7080ad3f21ec5` 得到 check/Python PASS、offline 681/681、Browser 55/57。除历史下载失败外，旧 `workbench.test.ts` 的模拟静态资源白名单遗漏新增脚本，导致该模拟页面初始化超时。仅补上脚本路由，保留所有响应式、控制权和任务隔离断言；这项新增失败也未归入历史例外。该轮原始矩阵保留 `.validation/p7-e-*-before-fixture.log`，最终修正另行核验。
+
 修复后最终所需矩阵只对提交后的 exact head 运行一次，原始日志保留 `.validation/p7-e-{check,offline,python,browser}.log`，结果、完整 head 与下载基线对照写入交付 PR。日志、截图、SQLite 和生成资产不提交。Browser 历史 `download.saveAs: canceled` 必须用精确基线对照并保留 FAIL；不能用它解释其他新失败。
 
 ## P7 已合并索引与停点
