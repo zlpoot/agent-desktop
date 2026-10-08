@@ -9,7 +9,7 @@
     if (readonlyDiscovery) {
       document.title = document.getElementById('preflight-title').textContent = 'Agent Desktop · 只读应用发现 A2';
       document.getElementById('preflight-boundary').textContent = '只有明确选择环境并点击扫描或指定路径，才读取应用信息；不会启动应用、发送任务、调用模型、接管输入或控制虚拟机。';
-      document.getElementById('preflight-acceptance').textContent = 'A1 人工体验已通过；A2 人工体验待操作者反馈，独立审查仍待完成。A5 安全测试失败 / Windows 实验暂停 / 项目总体未完成。';
+      document.getElementById('preflight-acceptance').textContent = 'A1、A2 人工体验已收到操作者通过反馈；独立审查仍待完成。A5 安全测试失败 / Windows 实验暂停 / 项目总体未完成。';
     }
     document.getElementById('preflight-workspace').textContent = view.localWorkspaceConfigured
       ? '本地隔离工作区配置已加载；尚未创建独立隐藏桌面，未验证应用目标或启动适配器。'

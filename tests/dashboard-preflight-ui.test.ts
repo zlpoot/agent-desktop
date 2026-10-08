@@ -104,6 +104,8 @@ test('A2 Browser scans only on click; Chinese coverage, absent/ambiguous candida
     await page.locator('#apps-candidate').selectOption(id!);
     assert.match(await page.locator('#apps-identity').innerText(), /安装实例.*C:\\Synthetic1\.0.*尚未确认、注册或启动/s);
     assert.equal(await page.getByRole('button', { name: '查看确认内容', exact: true }).isDisabled(), true);
+    assert.match(await page.locator('#apps-prepare-note').innerText(), /A2.*不开放确认或启动验证.*保持禁用/);
+    assert.equal(await page.getByRole('button', { name: '查看确认内容', exact: true }).getAttribute('aria-describedby'), 'apps-prepare-note');
     await page.locator('#apps-search').fill('Absent Synthetic App');
     assert.equal(await page.locator('#apps-candidate option').count(), 1); assert.equal(await page.locator('#apps-identity').innerText(), '');
     assert.match(await page.locator('#apps-scan-report').innerText(), /不能证明没有安装/); assert.equal(f.calls.length, 1);
@@ -138,6 +140,23 @@ test('A2 Browser scans only on click; Chinese coverage, absent/ambiguous candida
     await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('读取不可用'));
     assert.match(await page.locator('#apps-scan-report').innerText(), /身份无法核对.*已拒绝結果|身份无法核对.*已拒绝结果/s);
     assert.equal(await page.locator('#apps-candidate option').count(), 1);
+    const manual = page.getByRole('button', { name: '指定路径', exact: true });
+    for (const scenario of [
+      { path: 'C:\\Synthetic\\Missing.exe', reason: 'FileNotFoundError', text: '路径不存在', collected: true },
+      { path: 'C:\\Synthetic\\Denied.exe', reason: 'PermissionError', text: '拒绝访问', collected: true },
+      { path: 'R:\\Synthetic\\Music.exe', reason: 'unsupported-nonlocal-drive', text: '不支持该位置', collected: true },
+      { path: 'C:\\Synthetic\\Music.txt', reason: 'unused', text: '不支持该文件类型', collected: false },
+      { path: '\\\\server\\share\\Music.exe', reason: 'unused', text: '路径格式不受支持', collected: false },
+    ]) {
+      f.hooks.collect = async scope => ({ scope, entries: [], coverage: [{ source: 'manual-path', status: 'unavailable',
+        inspected: 1, rejected: 1, reason: scenario.reason }] });
+      const before: number = f.calls.length;
+      await page.locator('#apps-path').fill(scenario.path); await manual.click();
+      await page.waitForFunction(text => document.querySelector('#apps-status')?.textContent?.includes(text), scenario.text);
+      assert.ok((await page.locator('#apps-scan-report').innerText()).includes(scenario.text));
+      assert.equal(await page.locator('#apps-candidate option').count(), 1);
+      assert.equal(f.calls.length, before + Number(scenario.collected), 'invalid path/type stays before collector boundary');
+    }
     await page.screenshot({ path: resolve('.validation/p8-a2-unavailable.png'), fullPage: true });
     await page.reload(); await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 4);
     assert.equal(await page.locator('#apps-environment').inputValue(), ''); assert.equal(await scan.isDisabled(), true);

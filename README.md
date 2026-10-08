@@ -67,4 +67,4 @@ npm run dashboard
 
 ## P8-A 环境预检（A1）
 
-Windows 本地首次体验入口：`npm run dashboard:preflight -- --config config/desktop-environments.example.json`，访问 `http://127.0.0.1:4173/#/apps`。环境不默认选择；只展示配置身份及缺失适配器诊断，扫描、启动、任务、模型、输入和 VM 控制关闭。A1 已收到操作者通过反馈，独立审查待完成。详见 [A1 五步体验与停止说明](docs/desktop-provider-p8-a.md)。A2 提供由操作者点击触发的只读应用发现，使用单独的 `dashboard:discovery` 入口，仍关闭启动和输入；启动命令及待人工体验的步骤见 [A2 只读扫描五步手册](docs/desktop-provider-p8-a2.md)。
+Windows 本地首次体验入口：`npm run dashboard:preflight -- --config config/desktop-environments.example.json`，访问 `http://127.0.0.1:4173/#/apps`。环境不默认选择；只展示配置身份及缺失适配器诊断，扫描、启动、任务、模型、输入和 VM 控制关闭。A1、A2 已收到操作者通过反馈，独立审查待完成。详见 [A1 五步体验与停止说明](docs/desktop-provider-p8-a.md)。A2 提供由操作者点击触发的只读应用发现，使用单独的 `dashboard:discovery` 入口，仍关闭启动和输入；启动命令、体验步骤及反馈修订见 [A2 只读扫描五步手册](docs/desktop-provider-p8-a2.md)。

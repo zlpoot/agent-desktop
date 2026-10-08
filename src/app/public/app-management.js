@@ -37,6 +37,22 @@ window.createAppManagement = (root, options = {}) => {
     if (reason.includes('windows-app-scanner')) return 'Windows 收集器不可用，请检查所指定 Python 的依赖后重启服务。';
     return '该来源或条目无法安全读取；请检查来源、权限和依赖。原始原因见技术详情。';
   }
+  function pathReason(reason) {
+    if (!reason) return '';
+    if (reason.includes('FileNotFoundError')) return '路径不存在：请核对文件名和所选环境中的完整路径。';
+    if (reason.includes('PermissionError')) return '拒绝访问：没有读取该路径的权限，请检查文件或目录权限。';
+    if (reason.includes('unsupported-app-file-type')) return '不支持该文件类型：请指定 .exe 或 .lnk 文件。';
+    if (reason.includes('unsupported-nonlocal-drive') || reason.includes('unsupported-shortcut-volume') ||
+        reason.includes('unsupported-shortcut-network')) return '不支持该位置：仅支持本地固定磁盘，不支持网络盘、可移动盘或指向网络位置的快捷方式。';
+    if (reason.includes('unsupported-local-app-path')) return '路径格式不受支持：请使用本地磁盘上的绝对路径，不支持网络路径、相对路径或附加命令。';
+    if (reason.includes('unsupported-reparse-path')) return '不支持重定向路径：文件或所在目录是重解析点或符号链接，请选择安全的本地文件。';
+    if (reason.includes('app-path-is-directory')) return '该路径是目录：请选择具体的 .exe 或 .lnk 文件。';
+    if (reason.includes('app-path-not-file')) return '该路径不是可读取的普通文件，请选择具体的 .exe 或 .lnk 文件。';
+    if (reason.includes('invalid-executable-header')) return '文件不是有效的 EXE，不能作为应用候选读取。';
+    if (reason.includes('app-target-exceeds-read-limit')) return '文件大小超过本轮读取上限，无法检查此候选。';
+    if (reason.includes('unsupported-app-wrapper')) return '不支持脚本包装器或该快捷方式目标，请选择应用本身的安全 EXE。';
+    return scanReason(reason);
+  }
   const capabilityNames = {
     'observation.pixels': ['窗口画面读取', '读取环境或目标窗口的截图，用于查看画面。此能力本身不执行点击或输入。'],
     'observation.accessibility': ['控件信息读取', '读取应用提供的按钮、输入框、名称和位置等辅助功能信息；具体控件是否能可靠读取仍需核验。'],
@@ -140,6 +156,11 @@ window.createAppManagement = (root, options = {}) => {
   buttons.push(scan, manual, refresh, prepare);
   if (preflight) {
     path.hidden = !readonlyDiscovery;
+    if (readonlyDiscovery) {
+      const explanation = 'A2 仅做只读应用发现，不开放确认或启动验证；“查看确认内容”在本阶段保持禁用。';
+      prepare.title = explanation; prepare.setAttribute('aria-describedby', 'apps-prepare-note');
+      controls.after(node('p', explanation, 'apps-prepare-note'));
+    }
     help.replaceChildren(node('summary', '本轮体验步骤与限制'),
       node('p', '先保持未选环境，再明确选择本机或已配置的工作区，检查身份与缺失适配器原因；切换环境、刷新配置或重载页面，检查旧状态是否清空。'),
       node('p', readonlyDiscovery ? '选择环境后点击扫描，用名称筛选已扫描结果；多版本请分别核对安装实例、版本与路径。扫描不完整或不可用不表示未安装。指定路径只读取本地安全 EXE / 快捷方式，不会执行它；自行安装后可以点击重扫。真实路径和清单只保留在本机页面，请勿公开上传。'
@@ -181,7 +202,7 @@ window.createAppManagement = (root, options = {}) => {
       if (current !== version) return;
       state = result; lastAction = action;
       status.textContent = readonlyDiscovery && result.report
-        ? `${action === 'path' ? '路径检查' : '扫描'}：${lookup(scanStates, result.report.status) || '未知，不能证明完整'} · ${result.candidates.length} 个候选。${scanReason(result.report.reason) || '请核对来源和覆盖限制。'}`
+        ? `${action === 'path' ? '路径检查' : '扫描'}：${lookup(scanStates, result.report.status) || '未知，不能证明完整'} · ${result.candidates.length} 个候选。${(action === 'path' ? pathReason(result.report.reason) : scanReason(result.report.reason)) || '请核对来源和覆盖限制。'}`
         : result.report ? `扫描：${result.report.status} · ${result.report.reason || (result.candidates.length ? '请明确选择候选' : '仅在已扫描来源中未找到，可指定路径或安装后重扫')}` : '配置已更新';
     } catch (error) {
       if (current === version) status.textContent = `操作被拒绝：${error.message}。先刷新配置；候选或环境发生变化时重新选择并扫描，不自动重试启动。`;
@@ -233,6 +254,7 @@ window.createAppManagement = (root, options = {}) => {
         node('p', `覆盖结论：${lookup(scanStates, report.status) || '未知'}。${report.status === 'complete'
           ? '仅代表列出的来源已按限定范围读取，不代表全盘或所有安装方式。' : '部分来源无法读取或达到限制，不能据此判断应用未安装。'}`),
         node('p', `安装来源：${report.installationOrigin === 'shared-host-os' ? '本机共享操作系统（只读，不继承启动许可）' : '所选环境（只读）'}。清单和路径仅供本机操作者查看。`));
+      if (lastAction === 'path' && report.reason) reportView.append(node('p', pathReason(report.reason)));
       for (const item of report.coverage) reportView.append(node('p', `${sourceText([item.source])}：${lookup(coverageStates, item.status) || '未知'}；检查 ${item.inspected} 条，拒绝 ${item.rejected} 条。${scanReason(item.reason)}`));
       if (!report.coverage.length) reportView.append(node('p', '这是单一路径检查，没有目录扫描覆盖记录，不能证明整体安装清单完整。'));
       reportView.append(node('p', matching.length > 1
