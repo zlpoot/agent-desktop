@@ -14,6 +14,10 @@ export class ScenarioWorkspace implements LocalWorkspaceBackend {
   grant?: InputAuthority;
   token?: string;
   sequence = 0;
+  /** Optional producer cadence: reads between captures reuse the same immutable frame. */
+  frameIntervalMs?: number;
+  frameClock = () => performance.now();
+  private frameProducedAt?: number;
   acts = 0;
   autoComplete = true;
   failStop = false;
@@ -54,9 +58,14 @@ export class ScenarioWorkspace implements LocalWorkspaceBackend {
     if (this.frameGate) await this.frameGate;
     this.frameHook?.();
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64');
-    this.token = `synthetic-observation-${++this.sequence}`;
-    return { observationToken: this.token, validForMs: 2000, png: png.toString('base64'),
-      metadata: { sequence: this.sequence, width: 1, height: 1, sha256: createHash('sha256').update(png).digest('hex'), heartbeat: 1 }, uia: [] };
+    const now = this.frameClock();
+    if (this.frameIntervalMs === undefined || this.frameProducedAt === undefined || now - this.frameProducedAt >= this.frameIntervalMs) {
+      this.sequence++; this.frameProducedAt = now;
+    }
+    this.token = `synthetic-observation-${this.calls.filter(call => call === 'frame').length}`;
+    return { observationToken: this.token, validForMs: 2000 - (now - this.frameProducedAt!), png: png.toString('base64'),
+      metadata: { sequence: this.sequence, width: 1, height: 1, sha256: createHash('sha256').update(png).digest('hex'),
+        heartbeat: this.frameIntervalMs === undefined ? 1 : this.frameProducedAt! / 1000 }, uia: [] };
   }
   complete() {
     this.current = { ...this.current, input: 'PASS', agent_progress: this.current.app === 'fixture' ? 26 : 4,

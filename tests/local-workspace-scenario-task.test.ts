@@ -13,6 +13,10 @@ import { SqliteTrace } from '../src/trace/sqlite-trace.js';
 import { readTaskBudget } from '../src/runtime/model-budget.js';
 import { recoverDesktopTasks } from '../src/desktop-session/recovery.js';
 import { ScenarioWorkspace } from './fixtures/local-workspace-scenario.js';
+import { DesktopAdmissionError } from '../src/desktop-provider/admission.js';
+import { runDesktopScenarioTask } from '../src/app/desktop-scenario-task.js';
+import type { TaskDesktopSessions } from '../src/app/task-desktop-sessions.js';
+import type { PreparedDesktopScenario } from '../src/contracts/desktop-scenario.js';
 
 const fixtureId = 'd0-fixture-text-click-v1', musicId = 'd0-netease-fixed-track-v1';
 const agent = { kind: 'agent', clientId: 'synthetic-task' } as const;
@@ -372,3 +376,152 @@ test('startup recovery retains finite dispatch uncertainty and never opens a rep
     assert.deepEqual(f.backend.calls, []); assert.equal(f.modelCalls(), 0);
   } finally { await f.dispose(); }
 });
+
+test('200ms producer with 100ms verification reads waits for a fresh frame and dispatches only once', async t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = await composition();
+  const samples: number[] = [];
+  f.backend.frameIntervalMs = 200;
+  f.backend.frameClock = () => {
+    const sampled = now;
+    if (f.backend.acts) { samples.push(sampled); now += 100; }
+    return sampled;
+  };
+  try {
+    const id = f.assembly.controller.submitScenario({ desktopTarget: f.target, scenarioId: fixtureId });
+    const state = await waitTask(f, id, state => state?.status === 'done' || state?.status === 'failed' || state?.status === 'paused');
+    assert.equal(state.status, 'done', state.error ?? 'Task did not complete');
+    assert.deepEqual(samples, [0, 100, 200]);
+    assert.equal(state.beforeObservation?.capture?.sequence, 1);
+    assert.equal(state.observation?.capture?.sequence, 2);
+    assert.equal(f.backend.acts, 1); assert.equal(f.modelCalls(), 0);
+    assert.equal(f.backend.grant, undefined); assert.ok(f.backend.calls.includes('stop'));
+  } finally { await f.dispose(); }
+});
+
+test('a repeated frame before dispatch invalidates input evidence instead of authorizing an action', async () => {
+  const f = fixture(); f.backend.frameIntervalMs = 200; f.backend.frameClock = () => 0;
+  try {
+    const s = await admitted(f), authority = await f.input.acquire(s.session, agent);
+    const captured = await s.backend.observe(authority);
+    await assert.rejects(s.backend.observe(authority), /frame-repeated/);
+    await assert.rejects(s.gate.execute({ target: s.target, action: f.id, authority, observation: captured.binding }));
+    assert.equal(f.backend.acts, 0); await s.backend.close();
+  } finally { await f.dispose(); }
+});
+
+for (const fault of ['png', 'hash', 'dimensions', 'regression', 'reused', 'expired', 'instance', 'grant', 'lease'] as const) {
+  test(`post-dispatch ${fault} remains terminal even when the producer repeats a frame`, async t => {
+    let now = 0;
+    t.mock.method(performance, 'now', () => now);
+    const f = fixture({ app: 'fixture' }, new ResourceInputControl(() => now, 1000));
+    f.backend.frameIntervalMs = 200; f.backend.frameClock = () => 0;
+    if (fault === 'regression') f.backend.sequence = 1;
+    try {
+      const s = await admitted(f), authority = await f.input.acquire(s.session, agent);
+      const captured = await s.backend.observe(authority);
+      await s.gate.execute({ target: s.target, action: f.id, authority, observation: captured.binding });
+      await assert.rejects(s.backend.verify(authority), error => error instanceof DesktopAdmissionError && error.reason === 'local-workspace-frame-repeated');
+      assert.equal((await s.session.status()).state, 'open');
+      const frame = f.backend.frame.bind(f.backend);
+      f.backend.frame = async value => {
+        const result = await frame(value);
+        if (fault === 'png') result.png = Buffer.from('invalid synthetic PNG').toString('base64');
+        if (fault === 'hash') result.metadata.sha256 = '0'.repeat(64);
+        if (fault === 'dimensions') result.metadata.width = 2;
+        if (fault === 'regression') result.metadata.sequence = Math.max(1, f.backend.sequence - 1);
+        if (fault === 'reused') result.metadata.heartbeat++;
+        if (fault === 'expired') result.validForMs = 0;
+        return result;
+      };
+      if (fault === 'instance') f.backend.instance = 'synthetic-replacement';
+      if (fault === 'grant') f.backend.grant = undefined;
+      if (fault === 'lease') now = 1001;
+      await assert.rejects(s.backend.verify(authority), error => !(error instanceof DesktopAdmissionError && error.reason === 'local-workspace-frame-repeated'));
+      await assert.rejects(s.gate.execute({ target: s.target, action: f.id, authority, observation: captured.binding }));
+      assert.equal(f.backend.acts, 1); await s.backend.close();
+    } finally { await f.dispose(); }
+  });
+}
+
+test('repeated frame cannot renew the originally accepted frame lifetime', async t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = fixture({ app: 'fixture' }, new ResourceInputControl(() => 0));
+  f.backend.frameIntervalMs = 200; f.backend.frameClock = () => 0;
+  try {
+    const s = await admitted(f), authority = await f.input.acquire(s.session, agent);
+    const captured = await s.backend.observe(authority);
+    await s.gate.execute({ target: s.target, action: f.id, authority, observation: captured.binding });
+    now = 2001; // Fake deliberately claims a renewed 2000ms TTL for the same frame.
+    await assert.rejects(s.backend.verify(authority), /fresh-observation-required/);
+    assert.equal(f.backend.acts, 1); await s.backend.close();
+  } finally { await f.dispose(); }
+});
+
+for (const result of ['repeat', 'late-pass'] as const) {
+  test(`Task verification deadline rejects ${result} without another read, input dispatch or successful completion`, async t => {
+    let now = 0, reads = 0, acts = 0, closed = 0;
+    t.mock.method(performance, 'now', () => now);
+    const f = await composition();
+    const id = `synthetic-deadline-${result}`;
+    const observation = { windowTitle: 'synthetic', screenshot: 'synthetic.png' };
+    const prepared: PreparedDesktopScenario = {
+      async preflight() {}, async observe() { return observation; }, async execute() { acts++; },
+      async verify() {
+        reads++; now = 45000;
+        if (result === 'repeat') throw new DesktopAdmissionError('local-workspace-frame-repeated');
+        return { verdict: 'pass', observation, facts: {} };
+      }, async close() { closed++; },
+    };
+    const sessions = { async acquire() { return { session: { async close() { closed++; } },
+      control: { async beginTask() {}, assertTaskAllowed() {}, async finishTask() { closed++; } },
+      executor: { async prepareScenario() { return prepared; } } }; } } as unknown as TaskDesktopSessions;
+    try {
+      f.trace.save('queued', { taskId: id, goal: 'synthetic deadline', step: 0, retryCount: 0, status: 'running',
+        taskBindingVersion: 1, desktopTarget: f.target, desktopScenario: fixtureId });
+      const runnerTrace = new SqliteTrace(join(f.directory, 'web-tasks.sqlite'));
+      await runDesktopScenarioTask(f.directory, id, runnerTrace, sessions, () => {}, () => false);
+      const trace = new SqliteTrace(join(f.directory, 'web-tasks.sqlite'));
+      try {
+        const state = trace.load(id)!;
+        assert.equal(state.status, 'paused'); assert.equal(state.recoveryUncertain, true);
+        assert.match(state.error!, /verification-timeout/);
+        assert.ok(!trace.events(id).some(event => event.node === 'desktop_scenario_done'));
+      } finally { trace.close(); }
+      assert.equal(reads, 1); assert.equal(acts, 1); assert.equal(closed, 3);
+    } finally { await f.dispose(); }
+  });
+}
+
+for (const failure of ['pause', 'cleanup'] as const) {
+  test(`repeated-frame waiting preserves ${failure} failure and never replays an uncertain Task`, async t => {
+    let now = 0;
+    t.mock.method(performance, 'now', () => now);
+    const f = await composition();
+    f.backend.frameIntervalMs = 200;
+    f.backend.frameClock = () => {
+      const sampled = now;
+      if (failure === 'cleanup' && f.backend.acts) now += 100;
+      return sampled;
+    };
+    f.backend.failStop = failure === 'cleanup';
+    try {
+      const id = f.assembly.controller.submitScenario({ desktopTarget: f.target, scenarioId: fixtureId });
+      if (failure === 'pause') {
+        await waitTask(f, id, () => f.backend.calls.filter(call => call === 'frame').length >= 2);
+        f.assembly.controller.pause(id);
+      }
+      await waitTask(f, id, state => state?.status === 'paused' || state?.status === 'failed');
+      assert.throws(() => f.assembly.controller.continue(id), failure === 'pause' ? /replay-forbidden/ : /任务未处于暂停状态/);
+      await f.assembly.dispose().catch(() => {});
+      const state = f.trace.load(id)!;
+      assert.notEqual(state.status, 'done'); assert.equal(state.recoveryUncertain, true);
+      if (failure === 'cleanup') assert.match(state.error!, /cleanup-unconfirmed/);
+      assert.ok(!f.trace.events(id).some(event => event.node === 'desktop_scenario_done'));
+      assert.equal(f.backend.acts, 1); assert.equal(f.backend.grant, undefined);
+      assert.ok(f.backend.calls.includes('stop')); assert.ok(f.backend.calls.includes('close'));
+    } finally { await f.dispose(); }
+  });
+}
