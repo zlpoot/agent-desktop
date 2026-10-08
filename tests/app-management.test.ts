@@ -4,6 +4,7 @@ import { join as joinPath } from 'node:path';
 import { test } from 'node:test';
 import { managementFixture } from './fixtures/app-management.js';
 import { taskAppFixture } from './fixtures/task-app-onboarding.js';
+import { createDashboardServer } from '../src/app/server.js';
 import { AppManagement } from '../src/app/app-management.js';
 import type { EnvironmentAppBinding } from '../src/contracts/environment-apps.js';
 import type { AppConfirmationDisplay } from '../src/contracts/app-launch.js';
@@ -227,4 +228,79 @@ test('management and P7-D card share registry; second Task reuses QQ音乐 with 
     assert.equal(f.counters.starts, 1); assert.equal(f.counters.businessEffects, 0);
     await manager.close();
   } finally { await f.close(); }
+});
+
+test('HTTP revoke fences an admitted Task at effect time; earlier effects and audit survive without cleanup or replay', { timeout: 20000 }, async () => {
+  for (const committedBeforeRevoke of [0, 1]) {
+    const f = await taskAppFixture({ management: true, actions: [
+      { kind: 'keypress', keys: 'CTRL+F' }, { kind: 'keypress', keys: 'ESC' },
+    ] });
+    const server = createDashboardServer(f.dir, f.controller);
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+    const address = server.address(); if (!address || typeof address === 'string') throw Error('missing address');
+    const base = `http://127.0.0.1:${address.port}`;
+    const post = (body: unknown) => fetch(`${base}/api/desktop/apps`, { method: 'POST',
+      headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let release!: () => void, entered!: () => void, dispatches = 0;
+    const blocked = new Promise<void>(done => { release = done; });
+    const admitted = new Promise<void>(done => { entered = done; });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      f.beforeDispatch(async () => { if (++dispatches === committedBeforeRevoke + 1) { entered(); await blocked; } });
+      const id = f.submit(); await f.wait(id, state => state.appOnboarding?.state === 'candidates');
+      const app = f.trace.load(id)!.appOnboarding!, candidate = app.candidates[0];
+      const confirmation = { desktopTarget: f.target, interactionId: app.interactionId, action: 'confirm' as const,
+        candidateId: candidate.candidateId, candidateRevision: candidate.candidateRevision };
+      await f.controller.onboardApp(id, confirmation);
+      await Promise.race([admitted, new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(Error('Task never reached blocked dispatch')), 5000);
+      })]);
+      clearTimeout(timeout);
+      assert.equal(f.counters.businessEffects, committedBeforeRevoke);
+      assert.equal(f.counters.runtime, 1); assert.equal(f.counters.leases, 1);
+      assert.equal(f.counters.genericRuntime, 0); assert.equal(f.counters.starts, 1);
+      assert.ok(f.trace.load(id)!.inFlightAction, 'Task must be admitted and blocked at dispatch, not setup');
+      const history = f.trace.events(id), before = f.trace.load(id)!;
+      const response = await post({ action: 'open', desktopTarget: f.target }); assert.equal(response.status, 200);
+      let view = await response.json() as View;
+      const profile = view.registered[0]; assert.equal(profile.validity, 'current'); assert.equal(profile.trust, 'verified');
+      const revoke = request(view, 'revoke', { appBindingId: profile.appBindingId, expectedRevision: profile.revision });
+      const acknowledged = await post(revoke); assert.equal(acknowledged.status, 200, await acknowledged.clone().text());
+      view = await acknowledged.json() as View;
+      assert.equal(view.registered[0].validity, 'revoked');
+      assert.deepEqual(f.trace.load(id), before, 'revoke preserves the Task record');
+      assert.deepEqual(f.trace.events(id), history);
+      assert.equal(f.counters.businessEffects, committedBeforeRevoke, 'no committed effect while dispatch is blocked');
+      release();
+      const terminal = await f.wait(id, state => ['paused', 'failed'].includes(state.status));
+      assert.equal(f.counters.businessEffects, committedBeforeRevoke, 'zero new effects after acknowledged revoke');
+      assert.ok(f.trace.events(id).some(event => /app-onboarding-profile-no-longer-current/.test(event.state.error ?? '')));
+      assert.deepEqual(f.trace.events(id).slice(0, history.length), history, 'prior audit remains unchanged');
+      assert.ok(f.trace.events(id).some(event => event.node === 'queued'));
+      assert.equal(f.trace.events(id).filter(event => event.node === 'queued').length, 1);
+      assert.equal(f.counters.cleanups, 0); assert.equal(f.running(), true, 'user-owned running process is preserved');
+      assert.equal(f.counters.starts, 1); assert.equal(f.counters.runtime, 1); assert.ok(f.counters.releases >= 1);
+      if (terminal.status === 'paused') {
+        f.controller.continue(id);
+        await f.wait(id, state => /app-onboarding-new-task-required/.test(state.error ?? ''));
+        assert.equal(f.counters.businessEffects, committedBeforeRevoke);
+        assert.equal(f.counters.runtime, 1); assert.equal(f.counters.starts, 1);
+      }
+      // Replays and revalidation cannot restore the revoked binding or launch a new process.
+      const repeated = await post(revoke); assert.equal(repeated.status, 200);
+      assert.equal((await repeated.json()).registered[0].validity, 'revoked');
+      assert.equal((await post(request(view, 'verify', { appBindingId: profile.appBindingId,
+        expectedRevision: view.registered[0].revision, allowLaunch: true }))).status, 409);
+      assert.throws(() => f.apps.forEnvironment(f.target).registry.confirm({ appBindingId: profile.appBindingId,
+        expectedRevision: view.registered[0].revision, profileDigest: profile.profileDigest, operatorId: 'synthetic' }), /app-revoked/);
+      const second = f.submit(); await f.wait(second, state => state.appOnboarding?.state === 'candidates');
+      assert.equal(f.counters.starts, 1); assert.equal(f.counters.runtime, 1);
+      assert.equal(f.counters.businessEffects, committedBeforeRevoke); assert.equal(f.counters.cleanups, 0);
+      assert.equal(f.apps.forEnvironment(f.target).registry.get(profile.appBindingId)!.validity, 'revoked');
+      assert.deepEqual(f.apps.forEnvironment(f.target).registry.get(profile.appBindingId)!.verifications, profile.verifications);
+    } finally {
+      clearTimeout(timeout); release();
+      await new Promise<void>(done => server.close(() => done())); await f.close();
+    }
+  }
 });

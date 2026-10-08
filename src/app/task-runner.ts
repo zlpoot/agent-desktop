@@ -407,10 +407,13 @@ export class DesktopTaskController implements TaskController {
         checkManagedApp();
         const artifactDir = resolve(this.rootDir, ".artifacts", "web-tasks", taskId, "screenshots");
         if (appRuntimeBinding) {
-          if (!entry.executor.connectAppRuntime) throw new Error('app-task-target-bridge-unavailable: submit a new task with a trusted executor');
+          if (!entry.executor.connectAppRuntime || entry.executor.appTrustFence !== 'registry-at-effect') {
+            throw new Error('app-task-target-bridge-unavailable: registry effect fence required; submit a new task with a trusted executor');
+          }
           // Prove the original target before input ownership. This Worker remains
           // fenced to that exact lifetime on every operation, including Graph actions.
-          guest = await entry.executor.connectAppRuntime(entry.session, artifactDir, appRuntimeBinding);
+          guest = await entry.executor.connectAppRuntime(entry.session, artifactDir,
+            { ...appRuntimeBinding, assertCurrentTrust: checkManagedApp });
         }
         await control.beginTask(taskId); desktopClaimed = true;
         checkSetupPause();

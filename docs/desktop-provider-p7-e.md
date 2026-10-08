@@ -12,7 +12,7 @@ Dashboard 新增独立「应用管理」导航及 `#/apps` 页面，保留 P7-D 
 
 会话是随机、五分钟有界的内存对象，绑定所选环境、安装域和原 service 身份；过期计时器撤销在途启动。列表不扫描、不取得 Session/输入权、不调用模型。每次操作重查环境和 Registry 持久代次；页面 revision CAS 和 requestId 指纹幂等限制并发、旧响应及重放。确认仍使用 P7-C prepare/display digest/安装复核/配置 CAS；重验仍使用 P7-C reuse，明确 allowLaunch 且需要可信启动后端的原 policy/permit。撤销调用原 P7-C revoke，保留历史；重复确认返回当前视图，不能把已撤销配置重新显示为有效或再启动。
 
-协调器不发起/继续 Task，不把启动 target receipt 暴露 HTTP 或持久化。P7-D 的原任务恢复、终态、预算、输入权和可信 bridge 逻辑保持原样。管理页、卡片与 Task 后续复用共享同一个 `EnvironmentAppServices` Registry/onboarding 事实源。
+协调器不发起/继续 Task，不把启动 target receipt 暴露 HTTP 或持久化。P7-D 的原任务恢复、终态、预算和输入权保持；可信 bridge 另加下述注册信任效果边界。管理页、卡片与 Task 后续复用共享同一个 `EnvironmentAppServices` Registry/onboarding 事实源。
 
 页面分别显示 discovered、当前配置 confirmed、历史 launch-verified 和业务 not-proven；从现有 `desktopOptions` 读取执行器准入、blockedReason、P6 固定场景与其应用/版本限制。安装源 shared-host-os 与环境独立确认保持分开。Physical generic、Native Physical dispatch fence、Local Workspace managed backend/owned Hidden Desktop、RAW、Notepad 和真实 Task bridge 缺失继续 fail-closed。本轮没有实施 native bridge、真实 QQ音乐业务或新的 Provider/协议/schema。
 
@@ -35,13 +35,23 @@ Dashboard 新增独立「应用管理」导航及 `#/apps` 页面，保留 P7-D 
 | 注册与业务 capability 分层，原风险/预算/输入/验证保持 | 新 capability labels/zero-model-input-runtime 与 shared-service Task 用例；既有 P6/P7-C/D 回归。 |
 | 依说明完成流程，不猜 PID/HWND/windowClass | 真实 Browser 导航、环境/候选选择、确认、手工路径、撤销、刷新及移动端布局；说明覆盖原 Task 返回及显式旧配置导入。 |
 
-新增 `tests/app-management.test.ts` 九个 HTTP/服务用例、`tests/app-management-ui.test.ts` 两个 Browser 用例；合成首次验证和现有 P7-D 定向回归已通过。初轮新增测试失败日志保留：负向请求错误复用同一 requestId（幂等冲突）、Browser 未展开帮助即断言隐藏内容；修正的是测试请求/读取流程，未放宽行为或跳过失败。
+新增 `tests/app-management.test.ts` 十个 HTTP/服务用例、`tests/app-management-ui.test.ts` 两个 Browser 用例；合成首次验证和现有 P7-D 定向回归已通过。初轮新增测试失败日志保留：负向请求错误复用同一 requestId（幂等冲突）、Browser 未展开帮助即断言隐藏内容；修正的是测试请求/读取流程，未放宽行为或跳过失败。
 
 首轮交付矩阵发现最后新增提示的 JavaScript 变量作用域错误，造成两个新增 Browser 用例初始化超时；这是本轮新增缺陷，不属于历史下载失败。已修复作用域并增加已确认候选禁用重复确认的 Browser 断言。首轮 Browser/offline 在诊断时中止，原日志保留 `.validation/p7-e-{browser,offline}-initial.log`，未完成项不计通过。
 
 修复后的首份完整矩阵在 `831c0b2a8199b22b7865d36af7c7080ad3f21ec5` 得到 check/Python PASS、offline 681/681、Browser 55/57。除历史下载失败外，旧 `workbench.test.ts` 的模拟静态资源白名单遗漏新增脚本，导致该模拟页面初始化超时。仅补上脚本路由，保留所有响应式、控制权和任务隔离断言；这项新增失败也未归入历史例外。该轮原始矩阵保留 `.validation/p7-e-*-before-fixture.log`，最终修正另行核验。
 
 修复后最终所需矩阵只对提交后的 exact head 运行一次，原始日志保留 `.validation/p7-e-{check,offline,python,browser}.log`，结果、完整 head 与下载基线对照写入交付 PR。日志、截图、SQLite 和生成资产不提交。Browser 历史 `download.saveAs: canceled` 必须用精确基线对照并保留 FAIL；不能用它解释其他新失败。
+
+## P1：撤销与运行中 Task 的效果边界
+
+Independent Review 对 PR #26 的 `8b0dcbb3404700ffb337c76c1b0d4dc67baa55d4` 给出 **BLOCKED — P1 revoke vs active Task**。旧 Task 启动前检查 Registry，但 target-scoped Worker 仅有目标身份效果边界，撤销后仍可能派发新业务效果。限定 Parent 状态摘要已发布；本修复待新 exact head 的窄范围复审，不能视为独立接受。
+
+最小修改在私有 `DesktopTaskExecutor` bridge：连接时传入绑定原 Task 配置的同步 `assertCurrentTrust`，并要求可信实现显式声明 `appTrustFence: 'registry-at-effect'`。Worker 在所有异步准备结束后、与原目标身份同一个效果提交边界重查 Registry 的 validity/trust/availability/profileDigest/profileRevision；其间不可 await 或先排队后执行。异步远端 bridge 必须先证明可将 Registry 撤销与效果提交串行化，不能把 Host 端 preflight 当作效果边界。缺 bridge 或缺此能力仍在输入租约、模型、运行时创建前 fail-closed。此要求是可信执行器能力契约，不新增用户审批步骤，也不修改 Host/Guest 协议或 Workflow schema。
+
+已有 P7-C revoke 同步提交 Registry，成功 HTTP 响应后新效果必须拒绝；它不清理用户进程。新确定性 HTTP/Task 集成用例将已准入的 Fake Worker 阻塞在效果提交之前，经真实 `/api/desktop/apps` 撤销 exact binding/revision，确认 200 响应后放行。分别验证撤销前 0 个和 1 个已提交效果：后续效果增量均为 0，原 Task/审计前缀保留，输入释放，进程仍运行，cleanup/start/replay 均不增加，旧 Task 继续和重验不能恢复 revoked binding，后续 Task 等待候选确认。另扩展 P7-D 的缺 bridge 用例覆盖缺注册信任效果边界的旧执行器。
+
+本轮仅合成 bridge 实现该边界；不宣称真实环境具备该能力。开发方必要检查结果和新 exact head 写入 PR 复审请求，保留历史 Browser 下载失败原始证据。
 
 ## P7 已合并索引与停点
 

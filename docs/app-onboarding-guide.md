@@ -23,7 +23,7 @@
 | launch-verified | 该配置曾通过受控启动及归属核验。时间和历史证据可查看；保存的记录不是当前运行目标、输入许可或 Task receipt。 |
 | business-capable | 仍须 P6 对应用、版本、角色、动作与机制的独立证据。管理页将通用业务能力显示为 not-proven，并单独列出已装配的有限场景及其真实限制。 |
 
-「Task 兼容准入」只说明执行器的通用入口是否存在，不表示这个应用已证明可操作。Physical generic 不支持；Native Physical 缺可信 dispatch fence 时拒绝新启动。Local Workspace 可能共享宿主 OS 安装来源，但确认和验证独立，需要 managed backend 与 owned Hidden Desktop binding，不能把主桌面窗口许可搬进去。真实执行器还缺 P7-D 的可信 launch-to-Task bridge 时 fail-closed。RAW、Notepad、QQ音乐、未知应用不因注册而获得通用业务能力；Guest 不支持管理协议时不会回退 Host。
+「Task 兼容准入」只说明执行器的通用入口是否存在，不表示这个应用已证明可操作。Physical generic 不支持；Native Physical 缺可信 dispatch fence 时拒绝新启动。Local Workspace 可能共享宿主 OS 安装来源，但确认和验证独立，需要 managed backend 与 owned Hidden Desktop binding，不能把主桌面窗口许可搬进去。真实执行器缺可信 launch-to-Task bridge，或该 bridge 无法在效果发生处检查当前注册信任时，继续 fail-closed。RAW、Notepad、QQ音乐、未知应用不因注册而获得通用业务能力；Guest 不支持管理协议时不会回退 Host。
 
 ## 遇到问题
 
@@ -38,7 +38,7 @@
 | 启动失败 | 看最近验证时间、失败原因和可用性。先检查连接、安装身份及适配范围，再决定重扫或显式验证。结果未知时不盲目重启；服务保留 unknown-result 防重试边界。 |
 | 取消、刷新或切换环境 | 页面丢弃候选选择与确认会话，并撤销本页在途管理操作；晚到结果不能显示或用于新环境。重新选择后读取已保存配置，不自动扫描或启动。 |
 | Host 重启 | 配置保留，页面会话/确认摘要/运行 receipt 不恢复。旧 Task 不自动重放；需要新 Task。 |
-| 撤销注册 | 点击对应配置的「撤销注册」。仅撤销本项目配置的信任，保留历史审计；不卸载软件、不关闭用户已有进程。之后使用需重新确认。 |
+| 撤销注册 | 点击对应配置的「撤销注册」。撤销本项目配置的信任，成功确认后，运行中 Task 也不能产生该配置的新业务效果。已发生的效果和历史审计保留；不卸载软件、不关闭用户已有进程、不重放原 Task。撤销记录不能靠重新验证恢复，后续接入须有效的新配置和显式确认。 |
 
 原始路径、参数、安装身份与详细历史只通过本机同源可信操作员接口读取，不进入模型视图或公开日志。不要把扫描清单、用户路径、数据库、密钥或真实截图提交到仓库。
 
