@@ -109,7 +109,9 @@
 #bridge-test-preview th,#bridge-test-preview td { text-align: left; vertical-align: top; border: 1px solid #344757; padding: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 #bridge-test-preview th { width: 22%; }
 #bridge-test-preview li { line-height: 1.8; }
-#scenario-result { overflow-wrap: anywhere; }
+#scenario-result { overflow-wrap: anywhere; padding: 16px; margin-bottom: 14px; }
+#scenario-result h3 { margin-top: 0; font-size: 15px; }
+#scenario-result p, #scenario-result li { font-size: 12px; line-height: 1.6; }
 #scenario-status { white-space: pre-line; }
 #scenario-facts { white-space: pre-wrap; }
-#scenario-issue-note { display: block; width: 100%; box-sizing: border-box; min-height: 80px; }
+#scenario-issue-note { display: block; width: 100%; box-sizing: border-box; min-height: 80px; margin-top: 8px; background: #101c29; color: #e4edf5; border: 1px solid #3a4c5d; border-radius: 8px; padding: 10px; font: inherit; }

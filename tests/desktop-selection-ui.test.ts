@@ -69,7 +69,7 @@ test('synthetic Dashboard uses production Task chain, shows independent facts/cl
     assert.equal(await page.locator('#task-continue').isVisible(), false);
     await page.locator('#scenario-issue-note').fill('合成体验反馈');
     mkdirSync(resolve('.artifacts/mvp-01'), { recursive: true });
-    await page.screenshot({ path: resolve('.artifacts/mvp-01/result.png'), fullPage: true });
+    await page.locator('#scenario-result').screenshot({ path: resolve('.artifacts/mvp-01/result.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.setViewportSize({ width: 1440, height: 900 });

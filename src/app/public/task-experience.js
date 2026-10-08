@@ -177,7 +177,7 @@ window.createTaskExperience = function () {
   const original = el('details', '', 'original-goal'); original.append(el('summary', '查看完整任务要求'));
   const originalText = el('p', ''); original.append(originalText); $('goal').parentElement.after(original);
   const resultTitle = el('h3', '执行结果'); $('summary').before(resultTitle);
-  const sceneResult = el('section', '', 'request-card'); sceneResult.id = 'scenario-result';
+  const sceneResult = el('section', '', 'scenario-card panel'); sceneResult.id = 'scenario-result';
   const sceneStatus = el('p', ''); sceneStatus.id = 'scenario-status';
   const sceneFacts = el('pre', ''); sceneFacts.id = 'scenario-facts';
   const sceneHistory = el('ol', ''); sceneHistory.id = 'scenario-history';
@@ -185,7 +185,7 @@ window.createTaskExperience = function () {
   const issueNote = el('textarea', ''); issueNote.maxLength = 2000; issueNote.id = 'scenario-issue-note'; issueLabel.append(issueNote);
   const download = el('a', '下载问题记录', 'report-download'); download.href = '#'; download.id = 'scenario-report';
   sceneResult.append(el('h3', '固定场景结果'), sceneStatus, sceneFacts, sceneHistory, issueLabel, download);
-  resultTitle.after(sceneResult); sceneResult.hidden = true;
+  document.querySelector('.task-scene').prepend(sceneResult); sceneResult.hidden = true;
   let issueReportUrl;
   download.onclick = event => {
     if (!currentRun?.desktopScenario) { event.preventDefault(); return; }
