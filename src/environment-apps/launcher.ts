@@ -5,6 +5,8 @@ import type { AppLaunchSpec, EnvironmentAppBinding, EnvironmentAppLauncher, Envi
 import type { AppInstallationCheck, AppInstanceEvidence, AppLaunchExecution, AppLaunchFailureKind,
   AppLaunchOutcome, AppRuntimeContext, ManagedAppLaunchBackend } from '../contracts/app-launch.js';
 import { identityValue, launchValue, sameAppScope, scopeValue, textValue } from './validation.js';
+import type { DesktopSession } from '../contracts/desktop-environment.js';
+import { assertAppAdmission } from './admission-gate.js';
 
 export class AppLaunchError extends Error {
   constructor(readonly kind: AppLaunchFailureKind, reason: string) { super(reason); }
@@ -45,32 +47,51 @@ function sameContext(a: AppRuntimeContext, b: AppRuntimeContext): boolean {
     a.windowsSessionId === b.windowsSessionId && a.desktop === b.desktop;
 }
 type Permit = Parameters<EnvironmentAppLauncher['verify']>[1];
-type Grant = { profile: EnvironmentAppBinding; guard(): void; signal: AbortSignal; observeOnly: boolean };
+type Grant = { profile: EnvironmentAppBinding; registry: EnvironmentAppRegistry; guard(): void; signal: AbortSignal; observeOnly: boolean };
+type IssuedTargetRecord = { profile: string; target: string; registry: EnvironmentAppRegistry; consumed: boolean; retired: boolean };
+type TargetHandoff = { record: IssuedTargetRecord; registry: EnvironmentAppRegistry;
+  profile: EnvironmentAppBinding; target: NonNullable<AppLaunchOutcome['target']>;
+  session: DesktopSession; sessionKey: string };
+
+function taskSessionKey(session: DesktopSession): string {
+  for (const value of [session.providerId, session.environmentId, session.sessionId, session.instanceId]) textValue(value);
+  if (session.inputResourceId !== null) textValue(session.inputResourceId);
+  return JSON.stringify([session.providerId, session.environmentId, session.sessionId, session.instanceId, session.inputResourceId]);
+}
 
 /** Backend-specific launch policy and native process evidence stay behind this port.
  * Permit objects are single-use, issuer-local objects; serializing/copying an ID grants nothing. */
 export class ControlledAppLauncher implements EnvironmentAppLauncher {
   readonly scope: EnvironmentAppScope;
   private readonly permits = new WeakMap<object, Grant>();
-  private readonly outcomes = new WeakMap<object, { outcome: AppLaunchOutcome; profile: EnvironmentAppBinding }>();
-  private readonly issuedTargets = new Map<string, { profile: string; target: string; consumed: boolean }>();
+  private readonly outcomes = new WeakMap<object, { outcome: AppLaunchOutcome; profile: EnvironmentAppBinding;
+    registry: EnvironmentAppRegistry; generation: object }>();
+  private readonly issuedTargets = new Map<string, IssuedTargetRecord>();
+  private readonly handoffs = new WeakMap<object, TargetHandoff>();
   private readonly active = new Set<string>();
   private blocked = false;
+  private closed = false;
+  private reservationGeneration: object = {};
   constructor(private readonly backend: ManagedAppLaunchBackend, private readonly now = () => new Date().toISOString()) {
     this.scope = scopeValue(backend.scope);
   }
   inspect(spec: AppLaunchSpec, signal: AbortSignal): Promise<AppInstallationCheck> {
+    this.assertOpen();
     launchDefinition(spec);
-    return this.backend.inspect(structuredClone(spec), signal).then(value => checkedInstallation(value, this.scope, spec));
+    return this.backend.inspect(structuredClone(spec), signal).then(value => {
+      this.assertOpen(); return checkedInstallation(value, this.scope, spec);
+    });
   }
   /** Trusted service-only API, not a path/shell endpoint. A profile is re-read from its scoped Registry. */
   authorize(registry: EnvironmentAppRegistry, id: string, revision: number, signal: AbortSignal,
     guard: () => void, observeOnly = false): { permission: Permit; profile: EnvironmentAppBinding } {
+    this.assertOpen();
     if (!sameAppScope(registry.scope, this.scope)) throw new Error('app-launch-environment-mismatch');
     const profile = registry.requireLaunchProfile(id, revision);
     const permission: Permit = Object.freeze({ scope: this.scope, appBindingId: id,
       profileRevision: profile.profileRevision, profileDigest: profile.profileDigest, permitId: randomUUID() });
-    this.permits.set(permission, { profile: structuredClone(profile), signal, observeOnly, guard: () => {
+    this.permits.set(permission, { profile: structuredClone(profile), registry, signal, observeOnly, guard: () => {
+      this.assertOpen();
       guard(); registry.requireLaunchProfile(id, revision);
       if (signal.aborted) throw new AppLaunchError('unavailable', 'app-launch-cancelled');
     } });
@@ -78,17 +99,23 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
   }
   async verify(profile: EnvironmentAppBinding, permission: Permit) {
     const grant = this.permits.get(permission); this.permits.delete(permission);
+    this.assertOpen();
     if (!grant || JSON.stringify(profile) !== JSON.stringify(grant.profile)) throw new Error('app-launch-permit-invalid-or-consumed');
     if (this.blocked) throw new Error('app-launch-resource-blocked');
     if (this.active.size) throw new AppLaunchError('unavailable', 'app-launch-resource-busy');
     this.active.add(profile.appBindingId);
     let execution: AppLaunchExecution | undefined, owned: string | undefined, target: AppLaunchOutcome['target'];
+    let generation = this.reservationGeneration;
     let kind: AppLaunchFailureKind | undefined, reason: string | undefined;
     try {
       grant.guard(); launchDefinition(profile.launchSpec);
       if (!profile.identity) throw new AppLaunchError('stale', 'app-installation-identity-unproven');
       const preflight = await this.inspect(profile.launchSpec, grant.signal); grant.guard();
       if (!identityEqual(preflight.identity, profile.identity)) throw new AppLaunchError('stale', 'app-installation-identity-changed');
+      // Native reserve_context clears its targets; even a failed new reservation
+      // cannot preserve proof of an earlier live target. Keep replay tombstones.
+      this.retireTargets();
+      generation = this.reservationGeneration = {};
       execution = await this.backend.open(grant.signal); contextValue(execution.context, this.scope);
       const boundary = structuredClone(execution.context);
       const fresh = async () => { grant.guard(); await execution!.assertCurrent(); grant.guard();
@@ -147,10 +174,12 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
       ...(target ? { identity: target.identity } : {}), processOwnershipVerified: !!target, windowOwnershipVerified: !!target,
       evidence: target ? 'managed-installation-process-window-session-desktop-verification' : 'managed-launch-failure',
       ...(reason ? { reason: kind === 'unknown' ? `launch-result-unknown:${reason}` : reason } : {}) };
-    this.outcomes.set(permission, { profile: structuredClone(profile), outcome: { verification, ...(target ? { target } : {}), ...(kind ? { failureKind: kind } : {}) } });
+    this.outcomes.set(permission, { profile: structuredClone(profile), registry: grant.registry, generation,
+      outcome: { verification, ...(target ? { target } : {}), ...(kind ? { failureKind: kind } : {}) } });
     return verification;
   }
   outcome(permission: Permit): AppLaunchOutcome {
+    this.assertOpen();
     const value = this.outcomes.get(permission); this.outcomes.delete(permission);
     if (!value) throw new Error('app-launch-outcome-unavailable');
     const outcome = structuredClone(value.outcome);
@@ -160,9 +189,11 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
       // At the bounded history limit, new provenance stays unavailable; no eviction
       // may erase replay history. Historical launch verification remains unchanged.
       const previous = this.issuedTargets.get(outcome.target.targetToken);
-      if (previous) previous.consumed = true;
+      const currentGeneration = value.generation === this.reservationGeneration;
+      if (previous) { previous.consumed = true; previous.retired = true; }
       else if (this.issuedTargets.size < 128) this.issuedTargets.set(outcome.target.targetToken, {
-        profile: this.profileKey(value.profile), target: this.targetKey(outcome.target), consumed: false,
+        profile: this.profileKey(value.profile), target: this.targetKey(outcome.target), registry: value.registry,
+        consumed: !currentGeneration, retired: !currentGeneration,
       });
     }
     return outcome;
@@ -180,11 +211,74 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
   /** Private composition API. Consume once; never accepts a copied permit/boolean as issuer proof.
    * Matching this record does not prove current native lifetime, Task mapping or input authority. */
   consumeIssuedTarget(profile: EnvironmentAppBinding, target: NonNullable<AppLaunchOutcome['target']>): void {
+    this.assertOpen();
     this.assertDrained();
     const record = this.issuedTargets.get(target.targetToken);
-    if (!record || record.consumed) throw new Error('app-task-issued-target-unavailable-or-consumed');
+    if (!record || record.consumed || record.retired) throw new Error('app-task-issued-target-unavailable-or-consumed');
     if (record.profile !== this.profileKey(profile) || record.target !== this.targetKey(target)) throw new Error('app-task-issued-target-mismatch');
     record.consumed = true;
+  }
+  /** Private source handoff, NOT native lifetime/Worker/input authority proof.
+   * The field-free object can only be resolved by this live issuer. Bind the exact
+   * Registry and Task Session objects, never equate reservation and Task IDs. */
+  async handoffIssuedTarget(registry: EnvironmentAppRegistry, profile: EnvironmentAppBinding,
+    target: NonNullable<AppLaunchOutcome['target']>, session: DesktopSession): Promise<object> {
+    this.assertOpen(); this.assertDrained();
+    const snapshot = structuredClone({ profile, target });
+    const handle = Object.freeze(Object.create(null)) as object;
+    const record = this.issuedTargets.get(snapshot.target.targetToken);
+    if (!record || record.registry !== registry || record.consumed || record.retired) {
+      throw new Error('app-task-issued-target-unavailable-or-consumed');
+    }
+    const handoff: TargetHandoff = { ...snapshot, record, registry, session, sessionKey: taskSessionKey(session) };
+    this.handoffs.set(handle, handoff);
+    this.assertIssuedTargetHandoff(handle, session);
+    // Claim before the first await: concurrent attempts cannot acquire this record.
+    this.consumeIssuedTarget(snapshot.profile, snapshot.target);
+    try {
+      const status = await session.status();
+      this.assertIssuedTargetHandoff(handle, session);
+      if (status.state !== 'open') throw new Error('app-task-provider-session-stale');
+      return handle;
+    } catch (error) {
+      this.handoffs.delete(handle); // Failed/unknown handoffs are never rearmed.
+      throw error;
+    }
+  }
+  assertIssuedTargetHandoff(handle: object, session: DesktopSession): void {
+    try { this.assertHandoff(handle, session); }
+    catch (error) { this.handoffs.delete(handle); throw error; }
+  }
+  private assertHandoff(handle: object, session: DesktopSession): void {
+    this.assertOpen(); this.assertDrained();
+    const value = this.handoffs.get(handle);
+    if (!value || value.record.retired || this.issuedTargets.get(value.target.targetToken) !== value.record) {
+      throw new Error('app-task-issued-handoff-unavailable');
+    }
+    if (session !== value.session || taskSessionKey(session) !== value.sessionKey ||
+        session.providerId !== this.scope.providerId || session.environmentId !== this.scope.environmentId) {
+      throw new Error('app-task-provider-session-mismatch');
+    }
+    assertAppAdmission(value.registry, value.profile.appBindingId);
+    const current = value.registry.get(value.profile.appBindingId);
+    if (!sameAppScope(value.registry.scope, this.scope) || !current || current.validity !== 'current' ||
+        current.trust !== 'verified' || current.availability !== 'available' ||
+        this.profileKey(current) !== value.record.profile || this.targetKey(value.target) !== value.record.target) {
+      throw new Error('app-task-profile-no-longer-current');
+    }
+  }
+  private retireTargets(): void {
+    for (const record of this.issuedTargets.values()) record.retired = true;
+  }
+  /** Synchronous invalidation precedes any asynchronous service/backend drain.
+   * It does not acknowledge native revocation or release a user-owned process. */
+  retireIssuer(): void { this.closed = true; this.retireTargets(); }
+  private assertOpen(): void {
+    if (this.closed) throw new Error('app-launch-issuer-closed');
+    if (!sameAppScope(this.scope, this.backend.scope)) {
+      this.blocked = true; this.retireTargets();
+      throw new Error('app-launch-issuer-scope-changed');
+    }
   }
   assertDrained(): void {
     if (this.active.size || this.blocked) throw new Error('app-launch-cleanup-unconfirmed');

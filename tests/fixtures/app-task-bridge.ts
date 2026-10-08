@@ -41,6 +41,6 @@ export async function appTaskBridgeFixture(options: { close?: () => Promise<void
     status: async () => { counters.sessionStatus++; return hooks.status ? hooks.status() : { state: 'open', readiness: {} }; },
     capabilities: async () => ({}), close: async () => { throw new Error('bridge-must-not-close-session'); } };
   const binding = () => ({ profile: structuredClone(profile) as Mutable<typeof profile>, target: structuredClone(outcome.target!) as Mutable<NonNullable<typeof outcome.target>>, assertCurrentTrust() {} });
-  return { scope, store, apps, service, outcome, profile, session, hooks, counters, binding,
+  return { scope, store, apps, service, outcome, profile, session, hooks, counters, binding, backend, instance,
     bridge: createUnavailableAppTaskBridge(service), async close() { try { await apps.close(); } finally { store.close(); } } };
 }

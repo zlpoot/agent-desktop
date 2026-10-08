@@ -159,6 +159,7 @@ export class AppOnboardingService {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.launcher.retireIssuer();
     for (const pending of this.pending.values()) pending.cancelled = true;
     for (const controller of this.running.values()) controller.abort();
     for (const use of this.uses.values()) use.cancel.abort();
