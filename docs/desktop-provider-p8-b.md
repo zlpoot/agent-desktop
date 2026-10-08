@@ -18,11 +18,11 @@
 
 ## B1：本次实现与拒绝边界
 
-`ControlledAppLauncher` 在成功验证及 drain 后取出 outcome 时，保留有界、仅内存的签发来源记录（最多 128 条）。记录冻结 profile scope、binding/installation ID、profile revision/digest、安装 product/version/fingerprint、启动定义，以及 receipt 的 reservation session、instance、Windows session、desktop 和 token。`consumeIssuedTarget` 只接受同一 launcher 的精确记录，消费一次；复制 permit、伪造同路径窗口或其他签发者的 receipt 不成立。记录没有写入 Registry、Task 状态或 HTTP。
+`ControlledAppLauncher` 在成功验证及 drain 后取出 outcome 时，保留有界、仅内存的签发来源记录（同一签发器生命周期最多 128 个不同 token，含已消费/重复签发的拒绝记录）。记录冻结 profile scope、binding/installation ID、profile revision/digest、安装 product/version/fingerprint、启动定义，以及 receipt 的 reservation session、instance、Windows session、desktop 和 token。`consumeIssuedTarget` 只接受同一 launcher 的精确记录，消费一次且保留拒绝记录；同一 token 再次成功验证不证明新的签发身份，因此新旧 receipt 均不可用于桥接，不覆盖/重新启用旧记录。历史启动验证仍按原契约返回，不代表桥接可用；复制 permit、伪造同路径窗口或其他签发者的 receipt 不成立。记录没有写入 Registry、Task 状态或 HTTP。
 
 `createUnavailableAppTaskBridge` 仅接受实际 `ControlledAppLauncher`，使用它的私有来源记录和原 Registry。结构性适配器冻结输入快照，读取 Provider status 后再次检查 Registry current/verified/available、profile 和 Session 一致性，消费来源记录，随后明确返回 `app-task-native-issuer-resolution-and-revoke-fence-unavailable`。它不把来源记录当作当前进程/窗口生命期证明，不等同 reservation 与 Task Session，也不返回 Worker、获得输入权或打开/清理用户进程。Host 检查不是原生效果栅栏。
 
-**适配器不声明 `appTrustFence: 'registry-at-effect'`，不注册进生产 Task executors。** 原有 Task 缺桥接/缺能力时的拒绝和零 generic `connectRuntime` fallback 保留。真实安装漂移、进程/窗口生命期、精确 Task/native 映射、producer authority 与 revoke ACK 均没有获得原生证明，不能因合成 fixture 成功而开放。128 条来源记录的淘汰只使旧凭据不可用；进程重启也不继承。
+**适配器不声明 `appTrustFence: 'registry-at-effect'`，不注册进生产 Task executors。** 原有 Task 缺桥接/缺能力时的拒绝和零 generic `connectRuntime` fallback 保留。真实安装漂移、进程/窗口生命期、精确 Task/native 映射、producer authority 与 revoke ACK 均没有获得原生证明，不能因合成 fixture 成功而开放。来源记录不淘汰消费或重复签发历史；达到 128 个不同 token 后，后续新 token 的桥接来源证明也保持不可用，不能通过容量淘汰重新启用旧凭据。进程重启不继承旧来源记录；当前无法证明独立签发身份的重复 token 情况明确拒绝，不新增公共凭据字段或更改原生 token。
 
 ## B2：最小兼容计划（待独立审查，未实现/未协商）
 

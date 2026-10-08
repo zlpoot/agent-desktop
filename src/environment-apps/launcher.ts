@@ -53,7 +53,7 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
   readonly scope: EnvironmentAppScope;
   private readonly permits = new WeakMap<object, Grant>();
   private readonly outcomes = new WeakMap<object, { outcome: AppLaunchOutcome; profile: EnvironmentAppBinding }>();
-  private readonly issuedTargets = new Map<string, { profile: string; target: string }>();
+  private readonly issuedTargets = new Map<string, { profile: string; target: string; consumed: boolean }>();
   private readonly active = new Set<string>();
   private blocked = false;
   constructor(private readonly backend: ManagedAppLaunchBackend, private readonly now = () => new Date().toISOString()) {
@@ -155,10 +155,15 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
     if (!value) throw new Error('app-launch-outcome-unavailable');
     const outcome = structuredClone(value.outcome);
     if (outcome.target && outcome.verification.result === 'verified') {
-      // Bounded issuer-private receipt records. This is provenance only: the native
-      // token's process/window lifetime still requires its original producer resolver.
-      if (this.issuedTargets.size >= 128) this.issuedTargets.delete(this.issuedTargets.keys().next().value!);
-      this.issuedTargets.set(outcome.target.targetToken, { profile: this.profileKey(value.profile), target: this.targetKey(outcome.target) });
+      // A native target token need not identify a verification issuance. Never rearm
+      // it: retain consumed/reissued tombstones for this issuer's whole lifetime.
+      // At the bounded history limit, new provenance stays unavailable; no eviction
+      // may erase replay history. Historical launch verification remains unchanged.
+      const previous = this.issuedTargets.get(outcome.target.targetToken);
+      if (previous) previous.consumed = true;
+      else if (this.issuedTargets.size < 128) this.issuedTargets.set(outcome.target.targetToken, {
+        profile: this.profileKey(value.profile), target: this.targetKey(outcome.target), consumed: false,
+      });
     }
     return outcome;
   }
@@ -177,9 +182,9 @@ export class ControlledAppLauncher implements EnvironmentAppLauncher {
   consumeIssuedTarget(profile: EnvironmentAppBinding, target: NonNullable<AppLaunchOutcome['target']>): void {
     this.assertDrained();
     const record = this.issuedTargets.get(target.targetToken);
-    if (!record) throw new Error('app-task-issued-target-unavailable-or-consumed');
+    if (!record || record.consumed) throw new Error('app-task-issued-target-unavailable-or-consumed');
     if (record.profile !== this.profileKey(profile) || record.target !== this.targetKey(target)) throw new Error('app-task-issued-target-mismatch');
-    this.issuedTargets.delete(target.targetToken);
+    record.consumed = true;
   }
   assertDrained(): void {
     if (this.active.size || this.blocked) throw new Error('app-launch-cleanup-unconfirmed');

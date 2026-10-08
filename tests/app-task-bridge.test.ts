@@ -23,6 +23,29 @@ test('structural bridge consumes only this launcher issued receipt once; no Work
   } finally { await f.close(); await other.close(); }
 });
 
+test('same-token successful reuse never rearms consumed issuer provenance', async () => {
+  const f = await appTaskBridgeFixture();
+  try {
+    const issuer = f.service.launcher as ControlledAppLauncher;
+    issuer.consumeIssuedTarget(f.profile, f.outcome.target!);
+    const reused = await f.service.onboarding!.reuse({ appBindingId: f.profile.appBindingId,
+      expectedRevision: f.profile.revision, operationId: 'synthetic-same-token-reissue' }, 'synthetic-operator');
+    const current = f.service.registry.get(f.profile.appBindingId)!;
+    assert.equal(reused.verification.result, 'verified');
+    assert.deepEqual(reused.target, f.outcome.target);
+    assert.ok(current.revision > f.profile.revision);
+    assert.equal(current.profileRevision, f.profile.profileRevision);
+    assert.equal(current.profileDigest, f.profile.profileDigest);
+    assert.throws(() => issuer.consumeIssuedTarget(current, f.outcome.target!), /issued-target-unavailable-or-consumed/);
+    // The unchanged native target token proves no distinct issuance for the new receipt either.
+    assert.throws(() => issuer.consumeIssuedTarget(current, reused.target!), /issued-target-unavailable-or-consumed/);
+    await assert.rejects(f.bridge.connectAppRuntime(f.session, '.', { ...f.binding(), profile: current, target: reused.target! }), /issued-target-unavailable-or-consumed/);
+    assert.equal(f.counters.opens, 2); assert.equal(f.counters.closes, 2);
+    assert.equal(f.counters.starts, 0); assert.equal(f.counters.cleanups, 0);
+    assert.equal('appTrustFence' in f.bridge, false);
+  } finally { await f.close(); }
+});
+
 test('issued record rejects copied profile, installation, launch definition and original context substitution before consumption', async () => {
   const f = await appTaskBridgeFixture();
   try {
