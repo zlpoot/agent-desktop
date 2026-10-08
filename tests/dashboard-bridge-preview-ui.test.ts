@@ -18,6 +18,8 @@ test('B Browser preview separates discovery/history/bridge/consent and never dis
     const preview = page.locator('#bridge-test-preview');
     assert.match(await preview.innerText(), /不会执行.*不自动选择.*网易云音乐.*3\.1\.40\.205461.*尚未验证.*发现候选.*历史启动验证.*任务桥接.*不可用.*受控实测.*尚未授权/s);
     assert.match(await preview.innerText(), /孙燕姿《我怀念的》.*单独授权/s);
+    assert.match(await preview.innerText(), /候选环境：.*当前未配置，不可用/);
+    assert.match(await preview.innerText(), /原目标窗口.*撤销授权成功后.*拒绝所有新动作/s);
     assert.equal(await preview.locator('button,input').count(), 0);
     for (const name of ['扫描 / 重扫', '指定路径', '查看确认内容']) {
       assert.equal(await page.getByRole('button', { name, exact: true }).isDisabled(), true);
@@ -39,6 +41,16 @@ test('B Browser preview separates discovery/history/bridge/consent and never dis
     assert.equal(f.opens(), 0); assert.equal(f.identityReads(), 0); assert.deepEqual(f.calls, []); assert.deepEqual(errors, []);
     mkdirSync(resolve('.validation'), { recursive: true });
     await page.screenshot({ path: resolve('.validation/p8-b-preview.png'), fullPage: true });
+    await page.route('**/api/dashboard/preflight', async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: { ...await response.json(), localWorkspaceConfigured: true } });
+    });
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#bridge-test-preview')?.textContent?.includes('已加载配置，实际应用与原目标实例尚未验证'));
+    assert.doesNotMatch(await preview.innerText(), /当前未配置，不可用/);
+    assert.equal(await page.locator('#apps-environment').inputValue(), '');
+    assert.ok(requests.every(item => ['open', 'close'].includes(item.action)));
+    assert.equal(f.opens(), 0); assert.equal(f.identityReads(), 0); assert.deepEqual(f.calls, []);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   } finally { await browser.close(); await f.close(); }
