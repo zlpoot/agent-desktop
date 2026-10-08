@@ -5,6 +5,7 @@ import type { ReadonlyAppDiscovery, DiscoveredApp } from '../contracts/app-disco
 import type { AppLaunchOutcome } from '../contracts/app-launch.js';
 import type { TaskAppRuntimeBinding } from './task-desktop-sessions.js';
 import { sameDesktopTarget } from '../contracts/task-desktop.js';
+import { assertAppAdmission } from '../environment-apps/admission-gate.js';
 import { sameAppScope, textValue } from '../environment-apps/validation.js';
 
 import type { TaskAppInteraction, TaskAppRequest } from '../contracts/task-app-onboarding.js';
@@ -83,7 +84,9 @@ export class TaskAppOnboarding {
   runtimeBinding(taskId: string): TaskAppRuntimeBinding {
     const state = this.ports.load(taskId), app = state.appOnboarding;
     if (this.closed || app?.state !== 'ready' || app.taskId !== taskId) throw new Error('app-onboarding-new-task-required');
-    const profile = this.service(state).registry.get(app.appBindingId!);
+    const registry = this.service(state).registry;
+    assertAppAdmission(registry, app.appBindingId!);
+    const profile = registry.get(app.appBindingId!);
     const receipt = this.receipts.get(app.interactionId);
     if (!profile || profile.validity !== 'current' || profile.availability !== 'available' || profile.trust !== 'verified' ||
         profile.profileRevision !== app.profileRevision || profile.profileDigest !== app.profileDigest ||
@@ -113,6 +116,7 @@ export class TaskAppOnboarding {
       const service = this.service(state); app.scope = service.registry.scope;
       const known = service.registry.resolveName(name);
       if (known.kind === 'unique' && known.app.validity === 'current' && known.app.trust !== 'discovered') {
+        assertAppAdmission(service.registry, known.app.appBindingId);
         app.state = 'reusing'; this.write(state, app, 'app_profile_reuse_started');
         const operationId = `task-app:${taskId}:${app.interactionId}`;
         this.cancellations.set(taskId, () => service.onboarding.cancel({ operationId }));
@@ -169,7 +173,9 @@ export class TaskAppOnboarding {
       if (value.action === 'confirm' && this.confirmKeys.get(taskId) === key) return old;
       throw new Error('app-onboarding-operation-busy');
     }
-    if (value.action === 'confirm' && app.state === 'ready' && this.confirmKeys.get(taskId) === key) return structuredClone(app);
+    if (value.action === 'confirm' && app.state === 'ready' && this.confirmKeys.get(taskId) === key) {
+      this.runtimeBinding(taskId); return structuredClone(app);
+    }
     this.confirmKeys.set(taskId, key);
     const operation = this.actBody(taskId, value).catch(error => {
       const current = this.ports.load(taskId);
@@ -212,6 +218,7 @@ export class TaskAppOnboarding {
       return this.write(state, { ...state.appOnboarding!, state: 'unavailable', candidates: [],
         reason: result.verification.reason ?? 'app-launch-unavailable', interactionId: randomUUID() });
     }
+    assertAppAdmission(service.registry, appBindingId);
     const profile = service.registry.get(appBindingId)!;
     if (profile.profileRevision !== result.verification.profileRevision || profile.profileDigest !== result.verification.profileDigest ||
         profile.trust !== 'verified' || profile.validity !== 'current') throw new Error('app-onboarding-profile-changed');

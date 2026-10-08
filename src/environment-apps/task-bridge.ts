@@ -2,6 +2,7 @@ import type { DesktopSession } from '../contracts/desktop-environment.js';
 import type { EnvironmentAppRegistry } from '../contracts/environment-apps.js';
 import type { WorkerClient } from '../contracts/worker-client.js';
 import type { TaskAppDispatchBinding } from '../app/task-desktop-sessions.js';
+import { assertAppAdmission } from './admission-gate.js';
 import { ControlledAppLauncher, launchDefinition } from './launcher.js';
 import { sameAppScope } from './validation.js';
 
@@ -19,7 +20,7 @@ export class UnavailableAppTaskBridge {
       session.instanceId, session.inputResourceId]);
     const originalSession = sessionKey();
     const current = () => {
-      assertTrust();
+      assertTrust(); assertAppAdmission(this.registry, snapshot.profile.appBindingId);
       const profile = this.registry.get(snapshot.profile.appBindingId);
       if (!profile || profile.validity !== 'current' || profile.trust !== 'verified' || profile.availability !== 'available' ||
           !sameAppScope(profile.scope, snapshot.profile.scope) || !sameAppScope(profile.scope, snapshot.target.scope) ||

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { AppCandidate, AppConfirmationRequest, AppLaunchVerification, EnvironmentAppBinding,
   EnvironmentAppRegistry, EnvironmentAppScope } from '../contracts/environment-apps.js';
+import { installAppAdmissionGate } from './admission-gate.js';
 import { candidateValue, identityValue, profileDigest, sameAppScope, scopeValue, textValue, timestamp } from './validation.js';
 
 type Row = { data_json: string };
@@ -15,22 +16,41 @@ const bindingTable = `CREATE TABLE environment_apps (
 /** Private SQLite configuration store; deliberately independent of Task audit/checkpoint stores. */
 export class SqliteEnvironmentAppStore {
   private readonly db: DatabaseSync;
+  private denialFault = false;
   constructor(path: string, private readonly now: () => string = () => new Date().toISOString()) {
     this.db = new DatabaseSync(path, { timeout: 1000 });
-    this.db.exec(`CREATE TABLE IF NOT EXISTS app_environments (
-      provider_id TEXT NOT NULL, environment_id TEXT NOT NULL, installation_scope_id TEXT NOT NULL,
-      scope_revision INTEGER NOT NULL DEFAULT 1,
-      PRIMARY KEY(provider_id, environment_id));
-      ${bindingTable.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ')};
-      CREATE TABLE IF NOT EXISTS environment_app_history (
-      provider_id TEXT NOT NULL, environment_id TEXT NOT NULL, app_binding_id TEXT NOT NULL,
-      revision INTEGER NOT NULL, data_json TEXT NOT NULL,
-      PRIMARY KEY(provider_id, environment_id, app_binding_id, revision));`);
-    const columns = this.db.prepare('PRAGMA table_info(app_environments)').all() as Array<{ name: string }>;
-    if (!columns.some(column => column.name === 'scope_revision')) {
-      this.db.exec('ALTER TABLE app_environments ADD COLUMN scope_revision INTEGER NOT NULL DEFAULT 1');
-    }
-    this.migrateBindingGenerations();
+    try {
+      // Commit on this same connection is the private denial barrier.
+      this.db.exec('PRAGMA synchronous=EXTRA');
+      if ((this.db.prepare('PRAGMA synchronous').get() as { synchronous: number }).synchronous !== 3) throw new Error('app-storage-durability-unavailable');
+      const gateTables = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('private_app_denials', 'private_app_denial_store')").all();
+      if (gateTables.length !== 0 && gateTables.length !== 2) throw new Error('app-denial-storage-incomplete');
+      if (gateTables.length === 0) this.transaction(() => {
+        this.db.exec(`CREATE TABLE private_app_denial_store (version INTEGER PRIMARY KEY CHECK(version=1));
+          INSERT INTO private_app_denial_store VALUES (1);
+          CREATE TABLE private_app_denials (
+            provider_id TEXT NOT NULL, environment_id TEXT NOT NULL, app_binding_id TEXT NOT NULL,
+            installation_id TEXT NOT NULL, application_id TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase='denied-pending'),
+            nonce TEXT NOT NULL, profile_json TEXT NOT NULL, intent_json TEXT NOT NULL,
+            PRIMARY KEY(provider_id, environment_id, app_binding_id));`);
+      });
+      this.assertDenialStore();
+      this.db.prepare('SELECT provider_id, environment_id, app_binding_id, installation_id, application_id, phase, nonce, profile_json, intent_json FROM private_app_denials LIMIT 0').all();
+      this.db.exec(`CREATE TABLE IF NOT EXISTS app_environments (
+        provider_id TEXT NOT NULL, environment_id TEXT NOT NULL, installation_scope_id TEXT NOT NULL,
+        scope_revision INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY(provider_id, environment_id));
+        ${bindingTable.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ')};
+        CREATE TABLE IF NOT EXISTS environment_app_history (
+        provider_id TEXT NOT NULL, environment_id TEXT NOT NULL, app_binding_id TEXT NOT NULL,
+        revision INTEGER NOT NULL, data_json TEXT NOT NULL,
+        PRIMARY KEY(provider_id, environment_id, app_binding_id, revision));`);
+      const columns = this.db.prepare('PRAGMA table_info(app_environments)').all() as Array<{ name: string }>;
+      if (!columns.some(column => column.name === 'scope_revision')) {
+        this.db.exec('ALTER TABLE app_environments ADD COLUMN scope_revision INTEGER NOT NULL DEFAULT 1');
+      }
+      this.migrateBindingGenerations();
+    } catch (error) { this.db.close(); throw error; }
   }
 
   /** Composition-only: synchronizes a trusted installation scope and invalidates old views. */
@@ -41,6 +61,7 @@ export class SqliteEnvironmentAppStore {
         .get(scope.providerId, scope.environmentId) as { installation_scope_id: string; scope_revision: number } | undefined;
       const nextRevision = previous ? previous.scope_revision + Number(previous.installation_scope_id !== scope.installationScopeId) : 1;
       if (previous && previous.installation_scope_id !== scope.installationScopeId) {
+        this.assertEnvironmentNotDenied(scope);
         for (const app of this.readList(scope, previous.scope_revision)) {
           if (app.validity !== 'revoked') this.save({ ...app, revision: app.revision + 1,
             validity: 'stale', lastError: 'installation-scope-changed' }, previous.scope_revision);
@@ -61,10 +82,11 @@ export class SqliteEnvironmentAppStore {
       this.transaction(() => {
         current();
         const app = this.require(scope, scopeRevision, id, revision);
+        this.assertNotDenied(scope, id);
         if (app.validity === 'revoked') throw new Error('app-revoked');
         return this.save(change(app), scopeRevision);
       });
-    return Object.freeze({
+    const registry: EnvironmentAppRegistry = Object.freeze({
       scope,
       list: () => { current(); return this.readList(scope, scopeRevision); },
       get,
@@ -78,7 +100,11 @@ export class SqliteEnvironmentAppStore {
           { kind: 'unique' as const, app: apps[0] } : { kind: 'ambiguous' as const, apps };
       },
       discover: (candidate: AppCandidate, expectedRevision?: number) => this.transaction(() => {
-        current(); const snapshot = candidateValue(candidate, scope);
+        current(); this.assertDenialStore(); const snapshot = candidateValue(candidate, scope);
+        // No rediscovery or new binding ID may bypass a pending logical application.
+        if (this.db.prepare(`SELECT 1 FROM private_app_denials WHERE provider_id=? AND environment_id=?
+            AND (installation_id=? OR application_id=?) LIMIT 1`).get(scope.providerId, scope.environmentId,
+              snapshot.installationId, snapshot.applicationId.normalize('NFKC').toLowerCase())) throw new Error('app-admission-denied-pending');
         const row = this.db.prepare(`SELECT data_json FROM environment_apps WHERE provider_id=? AND environment_id=?
           AND installation_scope_id=? AND scope_revision=? AND installation_id=?`)
           .get(scope.providerId, scope.environmentId, scope.installationScopeId, scopeRevision, snapshot.installationId) as Row | undefined;
@@ -135,7 +161,7 @@ export class SqliteEnvironmentAppStore {
         return { ...app, revision: app.revision + 1, validity: 'revoked', lastError: reason };
       }),
       requireLaunchProfile: (id: string, revision: number) => {
-        current(); const app = this.require(scope, scopeRevision, id, revision); this.assertReusable(app); return app;
+        current(); this.assertNotDenied(scope, id); const app = this.require(scope, scopeRevision, id, revision); this.assertReusable(app); return app;
       },
       history: (id: string) => {
         current(); textValue(id);
@@ -144,6 +170,48 @@ export class SqliteEnvironmentAppStore {
           .map(row => JSON.parse(row.data_json) as EnvironmentAppBinding);
       },
     });
+    installAppAdmissionGate(registry, id => { current(); this.assertNotDenied(scope, id); });
+    return registry;
+  }
+
+  /** Trusted composition-only denial, not an authorization or native ACK.
+   * No sender/finalizer is exposed in this first storage slice. */
+  beginAppDenial(scopeValueInput: EnvironmentAppScope, id: string, revision: number, reason: string): void {
+    const scope = scopeValue(scopeValueInput); textValue(id); textValue(reason);
+    this.transaction(() => {
+      const environment = this.db.prepare('SELECT installation_scope_id, scope_revision FROM app_environments WHERE provider_id=? AND environment_id=?')
+        .get(scope.providerId, scope.environmentId) as { installation_scope_id: string; scope_revision: number } | undefined;
+      if (!environment || environment.installation_scope_id !== scope.installationScopeId) throw new Error('installation-scope-changed');
+      const app = this.require(scope, environment.scope_revision, id, revision);
+      this.assertNotDenied(scope, id);
+      if (app.validity === 'revoked') throw new Error('app-revoked');
+      if ((this.db.prepare('SELECT count(*) AS count FROM private_app_denials').get() as { count: number }).count >= 4096) {
+        throw new Error('app-denial-storage-limit');
+      }
+      const createdAt = this.now(); timestamp(createdAt);
+      try {
+        this.db.prepare('INSERT INTO private_app_denials VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(scope.providerId, scope.environmentId, id, app.installationId, app.applicationId.normalize('NFKC').toLowerCase(),
+            'denied-pending', randomUUID(), JSON.stringify(app), JSON.stringify({ denialEpoch: 1, reason, createdAt }));
+      } catch (error) { this.denialFault = true; throw error; }
+    });
+  }
+  private assertDenialStore(): void {
+    if (this.denialFault) throw new Error('app-denial-storage-unavailable');
+    const versions = this.db.prepare('SELECT version FROM private_app_denial_store').all() as { version: number }[];
+    if (versions.length !== 1 || versions[0].version !== 1) throw new Error('app-denial-storage-unavailable');
+  }
+  private assertNotDenied(scope: EnvironmentAppScope, id: string): void {
+    this.assertDenialStore(); textValue(id);
+    const row = this.db.prepare('SELECT phase FROM private_app_denials WHERE provider_id=? AND environment_id=? AND app_binding_id=?')
+      .get(scope.providerId, scope.environmentId, id);
+    // Presence always denies, including malformed/unrecognized phases. No clearing API.
+    if (row) throw new Error('app-admission-denied-pending');
+  }
+  private assertEnvironmentNotDenied(scope: EnvironmentAppScope): void {
+    this.assertDenialStore();
+    if (this.db.prepare('SELECT 1 FROM private_app_denials WHERE provider_id=? AND environment_id=? LIMIT 1')
+        .get(scope.providerId, scope.environmentId)) throw new Error('app-denial-blocks-scope-change');
   }
 
   close(): void { this.db.close(); }
@@ -232,8 +300,15 @@ export class SqliteEnvironmentAppStore {
     });
   }
   private transaction<T>(operation: () => T): T {
-    this.db.exec('BEGIN IMMEDIATE');
-    try { const result = operation(); this.db.exec('COMMIT'); return result; }
-    catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    let begun = false;
+    try {
+      this.db.exec('BEGIN IMMEDIATE'); begun = true;
+      const result = operation(); this.db.exec('COMMIT'); begun = false; return result;
+    } catch (error) {
+      // A failed lock/write/COMMIT cannot leave this connection minting grants.
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ERR_SQLITE_ERROR') this.denialFault = true;
+      if (begun) try { this.db.exec('ROLLBACK'); } catch { this.denialFault = true; }
+      throw error;
+    }
   }
 }
