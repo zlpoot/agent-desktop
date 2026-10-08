@@ -1,5 +1,6 @@
 """Fake native process/Job/window contracts; never opens a Windows process or desktop."""
 import copy
+from contextlib import contextmanager
 import ctypes
 import importlib.util
 import json
@@ -9,7 +10,7 @@ import sys
 import threading
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -217,6 +218,91 @@ class NativeWindowTests(unittest.TestCase):
                 native.instances(PROFILE, context)
 
 
+class NativeDispatchFenceTests(unittest.TestCase):
+    def test_standalone_physical_helper_without_native_fence_cannot_dispatch_even_a_staged_permit(self):
+        scope = {**SCOPE, 'providerId': 'physical', 'environmentId': 'current-interactive-desktop'}
+        context = {**FakeNative().context(), 'scope': scope}
+        native = WindowsNativeLauncher(lambda: scope)
+        native.context = lambda: copy.deepcopy(context)
+        native.inspect = lambda spec: {'scope': scope, 'launchSpec': spec, 'identity': IDENTITY}
+        native.instances = lambda profile, context: []
+        native._start_fenced = Mock(side_effect=AssertionError('unfenced native dispatch'))
+        manager = AppLaunchManager(lambda: scope, native)
+        def call(operation, **values):
+            return manager.handle({'scope': scope, 'operation': operation, **values})
+        reservation = call('reserve')['reservationId']
+        stage = call('stage', reservationId=reservation, profile=copy.deepcopy(PROFILE))
+        with self.assertRaisesRegex(LaunchFailure, 'dispatch-fence-unavailable'):
+            call('start', reservationId=reservation, **stage)
+        native._start_fenced.assert_not_called()
+        call('release', reservationId=reservation)
+        self.assertIsNone(manager.reservation)
+
+    def test_revocation_winning_before_native_fence_entry_causes_zero_process_effects(self):
+        lock = threading.RLock()
+        @contextmanager
+        def fence():
+            with lock:
+                raise LaunchFailure('unavailable', 'synthetic-policy-revoked')
+                yield lambda: None
+        native = WindowsNativeLauncher(lambda: SCOPE, dispatch_fence=fence)
+        native._start_fenced = Mock(side_effect=AssertionError('process must not be created'))
+        with self.assertRaisesRegex(LaunchFailure, 'policy-revoked'):
+            native.start(PROFILE, FakeNative().context())
+        native._start_fenced.assert_not_called()
+
+    def test_native_fence_stays_held_through_create_and_resume_before_revoke_ack(self):
+        lock = threading.RLock()
+        attempted, revoked = threading.Event(), threading.Event()
+        calls, revokers = [], []
+        def check():
+            self.assertTrue(lock._is_owned())
+            if revoked.is_set():
+                raise LaunchFailure('unavailable', 'synthetic-policy-revoked')
+        @contextmanager
+        def fence():
+            with lock:
+                check()
+                yield check
+        def revoke():
+            attempted.set()
+            with lock:
+                calls.append('revoke-ack')
+                revoked.set()
+        handle = lambda: types.SimpleNamespace(Close=lambda: None)
+        def create(*args):
+            check(); calls.append('create')
+            thread = threading.Thread(target=revoke); revokers.append(thread); thread.start()
+            self.assertTrue(attempted.wait(1)); self.assertFalse(revoked.is_set())
+            return handle(), handle(), 10, 20
+        def resume(thread):
+            check(); self.assertFalse(revoked.is_set()); calls.append('resume')
+        modules = {
+            'win32api': types.SimpleNamespace(TerminateProcess=lambda *args: calls.append('terminate')),
+            'win32file': types.SimpleNamespace(CreateFile=lambda *args: handle()),
+            'win32job': types.SimpleNamespace(CreateJobObject=lambda *args: handle(),
+                QueryInformationJobObject=lambda *args: {'BasicLimitInformation': {'LimitFlags': 0}},
+                SetInformationJobObject=lambda *args: None, AssignProcessToJobObject=lambda *args: calls.append('assign'),
+                JobObjectExtendedLimitInformation=1, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE=8192),
+            'win32process': types.SimpleNamespace(STARTUPINFO=lambda: types.SimpleNamespace(),
+                CreateProcess=create, ResumeThread=resume, CREATE_SUSPENDED=4),
+        }
+        native = WindowsNativeLauncher(lambda: SCOPE, dispatch_fence=fence)
+        context = FakeNative().context()
+        native.context = lambda: context
+        native.inspect = lambda spec: {'identity': IDENTITY}
+        try:
+            with patch.dict(sys.modules, modules):
+                native.start(PROFILE, context)
+            self.assertTrue(revoked.wait(1))
+            self.assertEqual(calls, ['create', 'assign', 'resume', 'revoke-ack'])
+            with self.assertRaisesRegex(LaunchFailure, 'policy-revoked'):
+                native.start(PROFILE, context)
+        finally:
+            for thread in revokers:
+                thread.join(timeout=1)
+
+
 class GuestHttpTests(unittest.TestCase):
     def test_management_http_is_opt_in_authenticated_scoped_and_preserves_action_control_state(self):
         path = Path(__file__).resolve().parents[1] / 'guest/action-worker.py'
@@ -231,7 +317,10 @@ class GuestHttpTests(unittest.TestCase):
         worker.application_discovery_port = lambda: types.SimpleNamespace(scope=lambda: SCOPE)
         worker.desktop_readiness = lambda: {'ready_for_input': True, 'ready_for_observation': True}
         original_port = worker.application_launch_port
-        worker.application_launch_port = lambda: manager
+        def locked_port():
+            self.assertTrue(worker.lock._is_owned())
+            return manager
+        worker.application_launch_port = locked_port
         worker.desktop_call = lambda *args: self.fail('management must not call action RPC')
         server = worker.ThreadingHTTPServer(('127.0.0.1', 0), worker.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
@@ -263,8 +352,12 @@ class GuestHttpTests(unittest.TestCase):
             with patch.dict(os.environ, {'AGENT_DESKTOP_ENABLE_APP_LAUNCH': '0'}):
                 with self.assertRaisesRegex(LaunchFailure, 'disabled'):
                     original_port()
+            def fenced_fake(scope, instance, fence):
+                native = FakeNative()
+                native.dispatch_fence = fence
+                return native
             with patch.dict(os.environ, {'AGENT_DESKTOP_ENABLE_APP_LAUNCH': '1'}), \
-                    patch.object(worker, 'WindowsNativeLauncher', lambda scope, instance, guard: FakeNative()):
+                    patch.object(worker, 'WindowsNativeLauncher', fenced_fake):
                 guarded = original_port()
                 worker.owner = 'retained-task'
                 with self.assertRaisesRegex(LaunchFailure, 'busy-or-stopped'):
@@ -274,6 +367,14 @@ class GuestHttpTests(unittest.TestCase):
                 with self.assertRaisesRegex(LaunchFailure, 'busy-or-stopped'):
                     guarded.handle({'scope': SCOPE, 'operation': 'reserve'})
                 worker.input_control.mode = 'paused'
+                reservation = guarded.handle({'scope': SCOPE, 'operation': 'reserve'})['reservationId']
+                with guarded.native.dispatch_fence() as check:
+                    self.assertTrue(worker.lock._is_owned())
+                    check()
+                    worker.input_control.revision += 1
+                    with self.assertRaisesRegex(LaunchFailure, 'control-revision-changed'):
+                        check()
+                guarded.handle({'scope': SCOPE, 'operation': 'release', 'reservationId': reservation})
         finally:
             env.stop()
             server.shutdown(); server.server_close(); thread.join(timeout=3)

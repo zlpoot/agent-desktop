@@ -2,9 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
 import type { AppLaunchSpec, EnvironmentAppBinding, EnvironmentAppScope } from '../contracts/environment-apps.js';
-import type { AppInstallationCheck, AppLaunchExecution, ManagedAppLaunchBackend } from '../contracts/app-launch.js';
+import type { AppInstallationCheck, AppLaunchExecution, AppRuntimeContext, ManagedAppLaunchBackend } from '../contracts/app-launch.js';
 import { AppLaunchError, launchDefinition } from './launcher.js';
-import { sameAppScope, scopeValue } from './validation.js';
+import { sameAppScope, scopeValue, textValue } from './validation.js';
 
 export interface AppLaunchTransport {
   request(operation: string, fields: Record<string, unknown>, signal: AbortSignal): Promise<any>;
@@ -125,6 +125,8 @@ export class RpcAppLaunchBackend implements ManagedAppLaunchBackend {
       inspect: spec => call('inspect', { launchSpec: spec }),
       instances: async profile => call('instances', { stageId: (await staged(profile)).stageId }),
       start: async profile => { await this.assertWindowManagementAllowed(); const value = await staged(profile);
+        // Staging is asynchronous: a revoke while it runs must win before start is sent.
+        await this.assertWindowManagementAllowed();
         return call('start', { stageId: value.stageId, permitId: value.permitId }); },
       observe: async (profile, ownedToken) => call('observe', { stageId: (await staged(profile)).stageId, ...(ownedToken ? { ownedToken } : {}) }),
       cleanupOwned: token => call('cleanup', { ownedToken: token }, true),
@@ -135,19 +137,43 @@ export class RpcAppLaunchBackend implements ManagedAppLaunchBackend {
   }
   close(): Promise<void> { return this.transport.close(); }
 }
+/** Supplied only by trusted composition from the selected Workspace's owned runtime records.
+ * current must revalidate ownership/readiness; launch-backend self-reported context is not its source. */
+export interface OwnedWorkspaceAppLaunchBinding {
+  readonly scope: EnvironmentAppScope;
+  current(): Promise<AppRuntimeContext>;
+}
 /** Existing Local Workspace launch mechanisms only. Configuration is supplied by trusted
  * composition, not discovered names. No Default Desktop or native Win32 fallback. */
 export class LocalWorkspaceAppLaunchBackend implements ManagedAppLaunchBackend {
   readonly scope: EnvironmentAppScope;
   constructor(private readonly backend: ManagedAppLaunchBackend,
-    private readonly profiles: readonly { mechanism: 'netease'; launchSpec: AppLaunchSpec }[]) {
+    private readonly profiles: readonly { mechanism: 'netease'; launchSpec: AppLaunchSpec }[],
+    private readonly ownedWorkspace?: OwnedWorkspaceAppLaunchBinding) {
     this.scope = scopeValue(backend.scope);
     if (this.scope.providerId !== 'local-workspace' || profiles.some(item => item.mechanism !== 'netease')) throw new Error('invalid-workspace-launch-mapping');
+    if (ownedWorkspace && !sameAppScope(scopeValue(ownedWorkspace.scope), this.scope)) throw new Error('workspace-owner-scope-mismatch');
     profiles.forEach(item => {
       launchDefinition(item.launchSpec);
       if (item.launchSpec.kind !== 'exe' || !/[\\/]cloudmusic\.exe$/i.test(item.launchSpec.executable) ||
           item.launchSpec.args.length || item.launchSpec.workingDirectory) throw new Error('invalid-workspace-launch-mapping');
     });
+  }
+  private ownedContext(value: AppRuntimeContext): AppRuntimeContext {
+    if (!value || !sameAppScope(scopeValue(value.scope), this.scope) ||
+        !Number.isSafeInteger(value.windowsSessionId) || value.windowsSessionId < 0 ||
+        typeof value.desktop !== 'string' || !/^WinSta0\\AgentD0_[a-z0-9_-]+$/i.test(value.desktop)) {
+      throw new AppLaunchError('unavailable', 'workspace-owned-hidden-desktop-unproven');
+    }
+    textValue(value.sessionId); textValue(value.instanceId);
+    return structuredClone(value);
+  }
+  private matchesOwned(value: AppRuntimeContext, expected: AppRuntimeContext): void {
+    this.ownedContext(value);
+    if (!sameAppScope(value.scope, expected.scope) || value.sessionId !== expected.sessionId ||
+        value.instanceId !== expected.instanceId || value.windowsSessionId !== expected.windowsSessionId || value.desktop !== expected.desktop) {
+      throw new AppLaunchError('unavailable', 'workspace-owned-runtime-mismatch');
+    }
   }
   private supported(spec: AppLaunchSpec) {
     if (!this.profiles.some(item => launchDefinition(item.launchSpec) === launchDefinition(spec))) throw new AppLaunchError('unavailable', 'workspace-app-launch-unsupported');
@@ -158,13 +184,28 @@ export class LocalWorkspaceAppLaunchBackend implements ManagedAppLaunchBackend {
     return checked;
   }
   async open(signal: AbortSignal): Promise<AppLaunchExecution> {
+    if (!this.ownedWorkspace) throw new AppLaunchError('unavailable', 'workspace-owned-runtime-binding-unavailable');
+    const expected = this.ownedContext(await this.ownedWorkspace.current());
     const value = await this.backend.open(signal);
-    return { ...value, context: value.context, assertCurrent: () => value.assertCurrent(),
-      inspect: spec => { this.supported(spec); return value.inspect(spec); },
-      instances: profile => { this.supported(profile.launchSpec); return value.instances(profile); },
-      start: profile => { this.supported(profile.launchSpec); return value.start(profile); },
-      observe: (profile, token) => { this.supported(profile.launchSpec); return value.observe(profile, token); },
-      cleanupOwned: token => value.cleanupOwned(token), close: keepTarget => value.close(keepTarget) };
+    const current = async () => {
+      if (signal.aborted) throw new AppLaunchError('unavailable', 'workspace-app-launch-cancelled');
+      await value.assertCurrent();
+      this.matchesOwned(await this.ownedWorkspace!.current(), expected);
+      this.matchesOwned(value.context, expected);
+    };
+    try { await current(); }
+    catch (error) { await value.close(false); throw error; }
+    return { get context() { return value.context; }, assertCurrent: current,
+      inspect: async spec => { this.supported(spec); await current(); return value.inspect(spec); },
+      instances: async profile => { this.supported(profile.launchSpec); await current(); const values = await value.instances(profile);
+        await current(); for (const instance of values) this.matchesOwned(instance, expected); return values; },
+      start: async profile => { this.supported(profile.launchSpec); await current(); return value.start(profile); },
+      observe: async (profile, token) => { this.supported(profile.launchSpec); await current(); const values = await value.observe(profile, token);
+        await current(); for (const instance of values) this.matchesOwned(instance, expected); return values; },
+      cleanupOwned: token => value.cleanupOwned(token), close: async keepTarget => {
+        if (keepTarget) { try { await current(); } catch (error) { await value.close(false); throw error; } }
+        await value.close(keepTarget);
+      } };
   }
   async close(): Promise<void> { await this.backend.close?.(); }
 }

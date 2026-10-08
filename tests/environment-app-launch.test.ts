@@ -24,6 +24,7 @@ class FakeLaunchBackend implements ManagedAppLaunchBackend {
   scans = 0; inspections = 0; opens = 0; starts = 0; cleanups: string[] = []; closes = 0;
   installed = { ...identity }; running = false; unknown = false; offline = false; cleanupFail = false;
   mutate?: (value: AppInstanceEvidence) => AppInstanceEvidence;
+  contextPatch?: Partial<AppRuntimeContext>;
   beforeStart?: () => void; beforeObserve?: () => Promise<void>;
   constructor(readonly scope = host) {}
   async inspect(launchSpec: AppLaunchSpec) { this.inspections++;
@@ -34,6 +35,7 @@ class FakeLaunchBackend implements ManagedAppLaunchBackend {
     const sequence = ++this.opens;
     const context: AppRuntimeContext = { scope: this.scope, sessionId: `session-${sequence}`, instanceId: `instance-${sequence}`,
       windowsSessionId: 1, desktop: this.scope.providerId === 'local-workspace' ? 'WinSta0\\Hidden' : 'WinSta0\\Default' };
+    Object.assign(context, this.contextPatch);
     const instance = (profile: EnvironmentAppBinding) => {
       if (!this.running || this.unknown) return [];
       const launch = profile.launchSpec;
@@ -294,4 +296,91 @@ test('Guest transport negotiates scope/version, never stats Host paths, and only
     advertised = false; await assert.rejects(backend.open(new AbortController().signal), /unsupported-or-identity-mismatch/);
     advertised = true; drift = true; await assert.rejects(backend.open(new AbortController().signal), /identity-changed/);
   } finally { await f.service.close(); f.store.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('Physical revoke during asynchronous staging wins before start RPC; drain remains allowed', async () => {
+  const f = fixture(); let allowed = true;
+  let entered!: () => void, release!: () => void;
+  const entering = new Promise<void>(resolve => { entered = resolve; });
+  const staging = new Promise<void>(resolve => { release = resolve; });
+  const calls: string[] = [];
+  const backend = new RpcAppLaunchBackend(host, {
+    request: async operation => {
+      calls.push(operation);
+      if (operation === 'reserve') return { reservationId: 'r', context: { scope: host, sessionId: 's', instanceId: 'i',
+        windowsSessionId: 1, desktop: 'WinSta0\\Default' } };
+      if (operation === 'stage') { entered(); await staging; return { stageId: 'st', permitId: 'permit' }; }
+      if (operation === 'start') return 'owned';
+      if (operation === 'release') return { targetKept: false, drained: true };
+    }, close: async () => {},
+  }, async () => { if (!allowed) throw new AppLaunchError('unavailable', 'synthetic-policy-revoked'); });
+  try {
+    const { app } = await f.first();
+    const execution = await backend.open(new AbortController().signal);
+    const starting = execution.start(app);
+    const rejected = assert.rejects(starting, /synthetic-policy-revoked/);
+    await entering; allowed = false; release(); await rejected;
+    assert.equal(calls.filter(value => value === 'start').length, 0);
+    await execution.close(false); assert.equal(calls.at(-1), 'release');
+  } finally { release(); await f.service.close(); f.store.close(); }
+});
+
+function ownedWorkspaceFixture(contextPatch: Partial<AppRuntimeContext> = {}, bindOwner = true) {
+  const backend = new FakeLaunchBackend(local), store = new SqliteEnvironmentAppStore(':memory:');
+  backend.installed.version = '3.1.40.205461'; backend.contextPatch = { desktop: 'WinSta0\\AgentD0_synthetic', ...contextPatch };
+  let owned: AppRuntimeContext = { scope: local, sessionId: 'session-1', instanceId: 'instance-1', windowsSessionId: 1,
+    desktop: 'WinSta0\\AgentD0_synthetic' };
+  const launchSpec: AppLaunchSpec = { kind: 'exe', executable: 'C:\\Synthetic\\cloudmusic.exe', args: [] };
+  const registry = store.bind(local);
+  const discovered = registry.discover({ scope: local, installationId: 'synthetic-netease', applicationId: 'netease',
+    displayName: 'Synthetic NetEase', aliases: [], launchSpec, identity: { ...backend.installed },
+    source: { kind: 'discovery', reference: 'synthetic-only', observedAt: new Date().toISOString() } });
+  const profile = registry.confirm({ appBindingId: discovered.appBindingId, expectedRevision: discovered.revision,
+    profileDigest: discovered.profileDigest, operatorId: 'operator' });
+  const adapter = new LocalWorkspaceAppLaunchBackend(backend, [{ mechanism: 'netease', launchSpec }],
+    bindOwner ? { scope: local, current: async () => structuredClone(owned) } : undefined);
+  const launcher = new ControlledAppLauncher(adapter);
+  const verify = async () => {
+    const grant = launcher.authorize(registry, profile.appBindingId, profile.revision, new AbortController().signal, () => {});
+    await launcher.verify(grant.profile, grant.permission); return launcher.outcome(grant.permission);
+  };
+  return { backend, store, get owned() { return owned; }, replaceOwner(patch: Partial<AppRuntimeContext>) { owned = { ...owned, ...patch }; }, adapter, verify };
+}
+
+for (const [label, patch] of [
+  ['both context and instance on Default', { desktop: 'WinSta0\\Default' }],
+  ['both on another Hidden Desktop', { desktop: 'WinSta0\\AgentD0_other' }],
+  ['both on another Windows Session', { windowsSessionId: 2 }],
+  ['both on another instance', { instanceId: 'replacement-instance' }],
+] as const) test(`Local Workspace rejects ${label} against the separately owned runtime`, async () => {
+  const f = ownedWorkspaceFixture(patch); f.backend.running = true;
+  try {
+    const result = await f.verify();
+    assert.equal(result.target, undefined); assert.notEqual(result.verification.result, 'verified');
+    assert.equal(f.backend.starts, 0); assert.equal(f.backend.closes, 1); assert.deepEqual(f.backend.cleanups, []);
+  } finally { await f.adapter.close(); f.store.close(); }
+});
+
+test('Local Workspace without a trusted owner, or with a Default owner, refuses before opening', async () => {
+  for (const missing of [true, false]) {
+    const f = ownedWorkspaceFixture({}, !missing); if (!missing) f.replaceOwner({ desktop: 'WinSta0\\Default' });
+    try {
+      const result = await f.verify(); assert.equal(result.target, undefined);
+      assert.equal(f.backend.opens, 0); assert.equal(f.backend.starts, 0);
+    } finally { await f.adapter.close(); f.store.close(); }
+  }
+});
+
+test('Local Workspace matching owned Hidden Desktop verifies; owner replacement during observation cannot transfer target', async () => {
+  for (const replaced of [false, true]) {
+    const f = ownedWorkspaceFixture();
+    if (replaced) f.backend.beforeObserve = async () => { f.replaceOwner({ instanceId: 'replacement-owner' }); };
+    try {
+      const result = await f.verify(); assert.equal(f.backend.starts, 1); assert.equal(f.backend.closes, 1);
+      if (replaced) {
+        assert.equal(result.target, undefined); assert.notEqual(result.verification.result, 'verified');
+        assert.deepEqual(f.backend.cleanups, ['owned-1']);
+      } else { assert.equal(result.verification.result, 'verified'); assert.equal(result.target!.desktop, f.owned.desktop); }
+    } finally { await f.adapter.close(); f.store.close(); }
+  }
 });

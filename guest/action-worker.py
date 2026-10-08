@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import secrets
+from contextlib import contextmanager
 import time
 import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -76,7 +77,19 @@ def application_launch_port():
         require_desktop_ready(for_input=True)
         return (input_control.revision, recovery_epoch)
     if app_launch_manager is None:
-        native = WindowsNativeLauncher(scope, recovery_epoch, guard)
+        @contextmanager
+        def dispatch_fence():
+            # Same native lock as /control, recovery and the management reservation.
+            # A revoke cannot be acknowledged between the check and CreateProcess/ResumeThread.
+            with lock:
+                port = app_launch_manager
+                if port is None or port.reservation is None:
+                    raise LaunchFailure('unavailable', 'app-launch-reservation-invalid')
+                reservation_id = port.reservation['id']
+                check = lambda: port.current(reservation_id)
+                check()
+                yield check
+        native = WindowsNativeLauncher(scope, recovery_epoch, dispatch_fence)
         app_launch_manager = AppLaunchManager(scope, native, guard)
     return app_launch_manager
 
@@ -310,8 +323,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == '/apps/launch':
                 # Bearer-authenticated trusted Host management only. No paths in start requests.
-                port = application_launch_port()
                 with lock:
+                    port = application_launch_port()
                     try:
                         result = port.handle(request)
                         self.reply(200, {'protocolVersion': 1, 'scope': port.scope(), 'result': result})

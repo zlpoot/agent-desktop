@@ -196,12 +196,14 @@ class WindowsNativeLauncher:
     """Conservative Win32 EXE adapter. No shell, elevation, focus or Default Desktop fallback.
     Only one exact executable/argv/window is accepted. Unproven launcher delegation is unknown.
     """
-    def __init__(self, scope, instance_id=None, dispatch_guard=lambda: None):
+    def __init__(self, scope, instance_id=None, dispatch_fence=None):
         self.scope, self.instance = scope, instance_id or uuid.uuid4().hex
         self.session = uuid.uuid4().hex
         self.scanner = WindowsAppScanner()
         self.targets = {}
-        self.dispatch_guard = dispatch_guard
+        # Trusted native-side fence: entering it must serialize against permission revoke,
+        # and yield a current-reservation check. A check callback alone is not a fence.
+        self.dispatch_fence = dispatch_fence
 
     @staticmethod
     def desktop_name(thread_id=None):
@@ -325,6 +327,16 @@ class WindowsNativeLauncher:
         return [result]
 
     def start(self, profile, context):
+        if self.dispatch_fence is None:
+            raise LaunchFailure('unavailable', 'app-native-dispatch-fence-unavailable')
+        # Keep revoke serialized through both actual effects, including ResumeThread.
+        with self.dispatch_fence() as check:
+            if not callable(check):
+                raise LaunchFailure('unavailable', 'app-native-dispatch-fence-invalid')
+            check()
+            return self._start_fenced(profile, context, check)
+
+    def _start_fenced(self, profile, context, check):
         import win32api
         import win32file
         import win32job
@@ -342,11 +354,11 @@ class WindowsNativeLauncher:
             win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, limits)
             startup = win32process.STARTUPINFO()
             startup.lpDesktop = context['desktop']
-            self.dispatch_guard()
+            check()
             process, thread, pid, _ = win32process.CreateProcess(spec['executable'], subprocess.list2cmdline([spec['executable'], *spec['args']]),
                 None, None, False, win32process.CREATE_SUSPENDED, None, spec.get('workingDirectory'), startup)
             win32job.AssignProcessToJobObject(job, process)
-            self.dispatch_guard()
+            check()
             win32process.ResumeThread(thread)
             return {'job': job, 'process': process, 'pid': pid, 'verified': False}
         except Exception:
@@ -420,6 +432,9 @@ def main():
                     raise LaunchFailure('unavailable', 'physical-launch-scope-required')
                 def actual_scope():
                     return {'providerId': 'physical', 'environmentId': 'current-interactive-desktop', 'installationScopeId': installation_scope_id()}
+                # This standalone Physical helper has no trusted native-side policy/revoke
+                # bridge. Inspection remains available; start fails closed, never trusting
+                # a Host precheck or a boolean/permit embedded in stdin as a dispatch fence.
                 manager = AppLaunchManager(actual_scope, WindowsNativeLauncher(actual_scope))
             result = manager.handle(value)
             reply = {'id': identity, 'result': result}
