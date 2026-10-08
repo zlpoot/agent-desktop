@@ -178,9 +178,12 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       name: 'applicationRegistry',
       apply(ctx) {
         const store = new SqliteEnvironmentAppStore(resolve(rootDir, 'environment-apps.sqlite'));
-        try { ctx.provide('environmentApps', composeEnvironmentApps(store, options.environmentApps)); }
+        try {
+          const services = composeEnvironmentApps(store, options.environmentApps);
+          ctx.provide('environmentApps', services);
+          return async () => { try { await services.close(); } finally { store.close(); } };
+        }
         catch (error) { store.close(); throw error; }
-        return () => store.close();
       },
     }, 'Root', ['environmentApps']);
     await mountInspected(root, {

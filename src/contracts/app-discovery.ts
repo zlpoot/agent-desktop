@@ -36,6 +36,8 @@ export interface DiscoveredApp {
   readonly candidateId: string;
   readonly revision: number;
   readonly digest: string;
+  /** Private inspection boundary; excluded from all model projections. */
+  readonly contentFingerprint: string;
   readonly candidate: AppCandidate;
   readonly sources: readonly string[];
   readonly version?: string;

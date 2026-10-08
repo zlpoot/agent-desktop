@@ -1,5 +1,7 @@
 # 架构
 
+P7-C 的可信首次确认、独立启动许可、配置复用与环境适配限制见 [P7-C 实现与验证边界](desktop-provider-p7-c.md)。launch-verified 不授予业务动作权限；Task onboarding 与最小确认 UI 留在 P7-D。
+
 P6-A 的具体目标绑定和三层动作准入见 [P6-A 契约与验证边界](desktop-provider-p6-a.md)。可信运行时签发应用/版本/角色绑定，每次 dispatch 重新检查 capability、readiness、观察和输入权。[P6-B 有限场景 Task 接入](desktop-provider-p6-b.md) 将已验收 D0/P4 场景接到生产 Local Workspace 执行器与统一 Task 队列；显式场景选择先 preflight 再取得输入权，独立结果观察及清理确认后才完成。
 
 P5-B 的统一桌面选择和执行器装配见 [P5-B 实现与验证边界](desktop-provider-p5-b.md)。Task/Workflow 明确选择 Provider 与环境；Physical 输入默认关闭，Local Workspace 保持有限场景边界。

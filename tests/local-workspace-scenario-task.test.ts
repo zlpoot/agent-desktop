@@ -308,7 +308,10 @@ test('controller close during a late owned Session open cancels before input acq
     assert.ok(f.backend.calls.includes('stop')); assert.ok(f.backend.calls.includes('close'));
   } finally { release(); await f.dispose(); }
 });
-test('uncertain dispatch and failed cleanup cannot materialize a completed Task', async () => {
+test('uncertain dispatch and failed cleanup cannot materialize a completed Task', async t => {
+  // This contract tests dispatch/cleanup faults, not filesystem wall-clock latency.
+  // The separate clock-advance regression below keeps the production freshness gate covered.
+  t.mock.method(performance, 'now', () => 0);
   for (const failure of ['dispatch', 'cleanup']) {
     const f = await composition(); f.backend.failAct = failure === 'dispatch'; f.backend.failStop = failure === 'cleanup';
     try {
@@ -319,6 +322,23 @@ test('uncertain dispatch and failed cleanup cannot materialize a completed Task'
       assert.equal(f.backend.acts, 1);
     } finally { await f.dispose(); }
   }
+});
+
+test('expired synthetic observation is refused before dispatch without extending the production deadline', async t => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = fixture();
+  try {
+    const s = await admitted(f), authority = await f.input.acquire(s.session, agent);
+    const captured = await s.backend.observe(authority);
+    now = 2001; // Fake frame lifetime is exactly 2000ms, while the input lease is still valid.
+    await assert.rejects(s.gate.execute({ target: s.target, action: f.id, authority, observation: captured.binding }), /fresh-observation/);
+    assert.equal(f.backend.acts, 0);
+    const fresh = await s.backend.observe(authority);
+    await s.gate.execute({ target: s.target, action: f.id, authority, observation: fresh.binding });
+    assert.equal(f.backend.acts, 1);
+    await s.backend.close();
+  } finally { await f.dispose(); }
 });
 test('scenario identity is immutable in durable Task writes; generic Task cannot be retrofitted', async () => {
   const target = desktopTarget('provider', 'environment');

@@ -9,6 +9,8 @@ import socket
 import subprocess
 import sys
 import threading
+import secrets
+from contextlib import contextmanager
 import time
 import ctypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +24,7 @@ from subprocess_rpc import exchange
 from file_evidence import inspect_desktop_file
 from desktop_readiness import probe as probe_desktop_readiness
 from app_discovery import GuestAppDiscovery
+from app_launch import AppLaunchManager, WindowsNativeLauncher, LaunchFailure
 
 
 ROOT = Path(__file__).resolve().parent
@@ -45,6 +48,7 @@ process = None
 input_control = InputControl()
 recovery_epoch = uuid.uuid4().hex
 executions = {}
+app_launch_manager = None
 
 
 def application_discovery_port():
@@ -58,6 +62,45 @@ def application_discovery_state():
         return {'app_discovery': {'protocolVersion': port.protocol_version, 'scope': port.scope()}}
     except Exception:
         return {}  # Old action/control callers remain usable when discovery is unavailable.
+
+
+def application_launch_port():
+    global app_launch_manager
+    if os.environ.get('AGENT_DESKTOP_ENABLE_APP_LAUNCH') != '1' or len(os.environ.get('AGENT_DESKTOP_APP_LAUNCH_KEY', '')) < 32:
+        raise LaunchFailure('unavailable', 'guest-app-launch-disabled')
+    def scope():
+        return application_discovery_port().scope()
+    def guard():
+        # Separate window-management reservation, without granting Agent input.
+        if input_control.mode != 'paused' or input_control.revoked.is_set() or owner is not None:
+            raise LaunchFailure('unavailable', 'guest-app-launch-control-busy-or-stopped')
+        require_desktop_ready(for_input=True)
+        return (input_control.revision, recovery_epoch)
+    if app_launch_manager is None:
+        @contextmanager
+        def dispatch_fence():
+            # Same native lock as /control, recovery and the management reservation.
+            # A revoke cannot be acknowledged between the check and CreateProcess/ResumeThread.
+            with lock:
+                port = app_launch_manager
+                if port is None or port.reservation is None:
+                    raise LaunchFailure('unavailable', 'app-launch-reservation-invalid')
+                reservation_id = port.reservation['id']
+                check = lambda: port.current(reservation_id)
+                check()
+                yield check
+        native = WindowsNativeLauncher(scope, recovery_epoch, dispatch_fence)
+        app_launch_manager = AppLaunchManager(scope, native, guard)
+    return app_launch_manager
+
+
+def application_launch_state():
+    try:
+        if os.environ.get('AGENT_DESKTOP_ENABLE_APP_LAUNCH') != '1' or len(os.environ.get('AGENT_DESKTOP_APP_LAUNCH_KEY', '')) < 32:
+            return {}
+        return {'app_launch': {'protocolVersion': 1, 'scope': application_discovery_port().scope()}}
+    except Exception:
+        return {}
 
 
 def desktop_readiness():
@@ -242,6 +285,7 @@ class Handler(BaseHTTPRequestHandler):
                              "control_epoch_rpc": True, "action_id_rpc": True,
                              "recovery_epoch": recovery_epoch, "input_mode": input_control.mode,
                              **application_discovery_state(),
+                             **application_launch_state(),
                              **desktop_readiness()})
         elif self.path == "/frame":
             try:
@@ -260,9 +304,14 @@ class Handler(BaseHTTPRequestHandler):
         global owner, process, recovery_epoch
         if not self.authenticated():
             return
-        if self.path not in {"/rpc", "/control", "/human-input", "/apps/query"}:
+        if self.path not in {"/rpc", "/control", "/human-input", "/apps/query", "/apps/launch"}:
             self.reply(404, {"error": "Not found"})
             return
+        if self.path == '/apps/launch':
+            key = os.environ.get('AGENT_DESKTOP_APP_LAUNCH_KEY', '')
+            if len(key) < 32 or not secrets.compare_digest(self.headers.get('X-Agent-Desktop-App-Launch-Key', ''), key):
+                self.reply(403, {'error': 'Application management credential required'})
+                return
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if size < 1 or size > 131072:
@@ -271,6 +320,16 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/apps/query':
                 # No action lock, owner, lease, window, or desktop readiness/input transitions.
                 self.reply(200, application_discovery_port().handle(request))
+                return
+            if self.path == '/apps/launch':
+                # Bearer-authenticated trusted Host management only. No paths in start requests.
+                with lock:
+                    port = application_launch_port()
+                    try:
+                        result = port.handle(request)
+                        self.reply(200, {'protocolVersion': 1, 'scope': port.scope(), 'result': result})
+                    except LaunchFailure as error:
+                        self.reply(200, {'protocolVersion': 1, 'scope': port.scope(), 'error': str(error), 'kind': error.kind})
                 return
             if self.path in {"/control", "/human-input"}:
                 if request.get("vmId") != VM_ID:
