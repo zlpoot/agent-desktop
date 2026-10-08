@@ -26,6 +26,15 @@ def limits_value(value):
     return value
 
 
+def windows_cli_json(value):
+    """Keep subprocess JSON ASCII-safe across Windows stdout code pages.
+
+    JSON decoders restore the escaped Unicode text; raw stdout encoding can vary
+    with the Windows console/locale code page even when Node reads bytes as UTF-8.
+    """
+    return json.dumps(value, ensure_ascii=True)
+
+
 def local_path(value):
     if (not isinstance(value, str) or len(value) > 4096 or value != value.strip() or
             not re.match(r'^[A-Za-z]:[\\/]', value) or re.search(r'[<>"|?*\x00-\x1f]', value) or ':' in value[2:]):
@@ -350,7 +359,7 @@ if __name__ == '__main__':
                                              local_path(request.get('path')) if operation == 'inspect' else None)
         if installation_scope_id() != identity:
             raise ValueError('host-app-identity-changed')
-        print(json.dumps({'installationScopeId': identity, **result}, ensure_ascii=False))
+        print(windows_cli_json({'installationScopeId': identity, **result}))
     except Exception as error:
-        print(json.dumps({'error': str(error) if isinstance(error, ValueError) else type(error).__name__}))
+        print(windows_cli_json({'error': str(error) if isinstance(error, ValueError) else type(error).__name__}))
         sys.exit(1)

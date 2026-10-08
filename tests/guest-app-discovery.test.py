@@ -13,7 +13,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'guest'))
-from app_discovery import GuestAppDiscovery, WindowsAppScanner, local_path, parse_shortcut, split_arguments
+from app_discovery import GuestAppDiscovery, WindowsAppScanner, local_path, parse_shortcut, split_arguments, windows_cli_json
 
 LIMITS = {'maxEntries': 20, 'maxDepth': 2, 'timeoutMs': 1000}
 
@@ -114,6 +114,14 @@ class ScannerTests(unittest.TestCase):
 
 
 class GuestServiceTests(unittest.TestCase):
+    def test_windows_child_stdout_escapes_unicode_for_code_page_independent_json(self):
+        payload = {'entries': [{'displayName': '网易云音乐', 'aliases': ['中文别名'],
+                                'publisher': '腾讯科技'}],
+                   'coverage': [{'source': '当前用户开始菜单', 'status': 'complete'}]}
+        encoded = windows_cli_json(payload)
+        self.assertTrue(encoded.isascii())
+        self.assertEqual(json.loads(encoded), payload)
+
     def test_request_whitelist_environment_version_and_identity_drift(self):
         calls = []
         class FakeScanner:

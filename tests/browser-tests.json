@@ -1,4 +1,5 @@
 [
+  "dashboard-preflight-ui.test.ts",
   "app-management-ui.test.ts",
   "task-app-onboarding-ui.test.ts",
   "desktop-selection-ui.test.ts",

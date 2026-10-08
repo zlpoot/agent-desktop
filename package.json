@@ -13,6 +13,8 @@
     "grounding:stats": "tsx src/grounding-stats.ts",
     "workflows:migrate-targets": "tsx scripts/migrate-workflow-targets.ts",
     "dashboard": "tsx src/app/start.ts",
+    "dashboard:preflight": "tsx src/app/start-preflight.ts",
+    "dashboard:discovery": "tsx src/app/start-preflight.ts --readonly-discovery",
     "dashboard:eval": "tsx src/app/start.ts --eval-oracle",
     "demo": "tsx src/demo.ts",
     "demo:browser": "tsx src/browser-demo.ts",

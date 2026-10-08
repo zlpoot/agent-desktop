@@ -64,3 +64,7 @@ npm run dashboard
 以下入口会调用真实模型、第三方网站、VM 或实际桌面，**本轮未执行**，只在显式授权并配置后执行：`demo:task-a*`、`demo:task-b*`、`demo:desktop*`、`demo:jev:check`、`demo:netease`、`demo:nte:settings`、`demo:hearthstone:settings`、`desktop:inspect`，以及 `scripts/smoke-*` 中的现场脚本、`scripts/agent-desktop-vm.ps1`、Guest 安装/自动启动及 `testbench/p4`、`testbench/p5` harness。评测的 `--jev` 参数同样显式开启联网，未计入离线结果。Windows 暂停状态仍需另行 Review 才能开展新的实机实验。
 
 详见 [架构](docs/architecture.md)、[开发与测试](docs/development.md)、[限制](docs/limitations.md)、[安全边界](SECURITY.md)、[来源审查](docs/provenance.md)、[文件分类](docs/extraction-manifest.csv)、[验证记录](docs/validation.md) 和 [归档边界](docs/extraction.md)。
+
+## P8-A 环境预检（A1）
+
+Windows 本地首次体验入口：`npm run dashboard:preflight -- --config config/desktop-environments.example.json`，访问 `http://127.0.0.1:4173/#/apps`。环境不默认选择；只展示配置身份及缺失适配器诊断，扫描、启动、任务、模型、输入和 VM 控制关闭。A1、A2 已收到操作者通过反馈，独立审查待完成。详见 [A1 五步体验与停止说明](docs/desktop-provider-p8-a.md)。A2 提供由操作者点击触发的只读应用发现，使用单独的 `dashboard:discovery` 入口，仍关闭启动和输入；启动命令、体验步骤及反馈修订见 [A2 只读扫描五步手册](docs/desktop-provider-p8-a2.md)。
