@@ -351,7 +351,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
       const permitted = request.method === 'POST' && url.pathname === '/api/desktop/apps' ||
         request.method === 'GET' && ['/api/desktop/environments', '/', '/style.css', '/workbench.css',
           '/app-management.js', '/dashboard-preflight.js'].includes(url.pathname);
-      if (!permitted) return json(response, 403, { error: 'preflight-a1-operation-disabled' });
+      if (!permitted) return json(response, 403, { error: `preflight-${preflight.mode}-operation-disabled` });
     }
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (url.pathname === '/api/desktop/apps') {

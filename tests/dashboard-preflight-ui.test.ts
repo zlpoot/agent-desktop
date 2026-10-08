@@ -70,6 +70,81 @@ test('A1 Browser no-selection, missing collector, environment switching, late re
   } finally { release?.(); await browser.close(); await f.close(); }
 });
 
+test('A2 Browser scans only on click; Chinese coverage, absent/ambiguous candidates and stale responses remain private and scoped', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const f = await preflightFixture({ mode: 'a2' }); const { chromium } = await import('playwright'); const browser = await chromium.launch();
+  let release: (() => void) | undefined;
+  try {
+    const page = await browser.newPage(), errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    const key = (i: number) => JSON.stringify([f.scopes[i].providerId, f.scopes[i].environmentId]);
+    await page.goto(`${f.base}/#/apps`);
+    await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 4);
+    const scan = page.getByRole('button', { name: '扫描 / 重扫', exact: true });
+    assert.equal(await scan.isDisabled(), true); assert.deepEqual(f.calls, []);
+    assert.match(await page.locator('#preflight-config').innerText(), /A2 只读应用发现/);
+    await page.locator('#apps-environment').selectOption(key(0));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    assert.equal(await scan.isDisabled(), false); assert.equal(await page.locator('#apps-path').isVisible(), true);
+    assert.deepEqual(f.calls, []);
+    f.hooks.collect = async scope => ({ scope, entries: ['1.0', '2.0'].map(version => ({
+      displayName: '<img src=x onerror=alert(1)> 合成音乐', aliases: ['Synthetic Music'], version,
+      launchSpec: { kind: 'exe', executable: `C:\\Synthetic${version}\\Music.exe`, args: [] },
+      source: 'app-paths-hkcu', contentFingerprint: `synthetic-${version}`,
+    })), coverage: [
+      { source: 'app-paths-hkcu', status: 'complete', inspected: 2, rejected: 0 },
+      { source: 'start-menu-user', status: 'truncated', inspected: 5, rejected: 1, reason: 'scan-entry-limit' },
+    ] });
+    await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('读取不完整'));
+    assert.equal(f.calls.length, 1); assert.equal(await page.locator('#apps-candidate').inputValue(), '');
+    assert.match(await page.locator('#apps-scan-report').innerText(), /读取不完整.*当前用户应用路径登记.*检查 2 条.*当前用户开始菜单.*达到读取限制.*同名多版本/s);
+    assert.equal(await page.locator('#app-management img').count(), 0);
+    await page.locator('#apps-search').fill('Synthetic Music'); assert.equal(await page.locator('#apps-candidate option').count(), 3);
+    const id = await page.locator('#apps-candidate option').nth(1).getAttribute('value');
+    await page.locator('#apps-candidate').selectOption(id!);
+    assert.match(await page.locator('#apps-identity').innerText(), /安装实例.*C:\\Synthetic1\.0.*尚未确认、注册或启动/s);
+    assert.equal(await page.getByRole('button', { name: '查看确认内容', exact: true }).isDisabled(), true);
+    await page.locator('#apps-search').fill('Absent Synthetic App');
+    assert.equal(await page.locator('#apps-candidate option').count(), 1); assert.equal(await page.locator('#apps-identity').innerText(), '');
+    assert.match(await page.locator('#apps-scan-report').innerText(), /不能证明没有安装/); assert.equal(f.calls.length, 1);
+    f.hooks.collect = async scope => ({ scope, entries: [], coverage: [{ source: 'app-paths-hkcu', status: 'complete', inspected: 0, rejected: 0 }] });
+    await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('已完整读取限定来源'));
+    assert.match(await page.locator('#apps-scan-report').innerText(), /仅在已扫描的限定来源中没有匹配结果.*可指定路径/s);
+    assert.equal(f.calls.length, 2);
+    for (const action of ['switch', 'refresh']) {
+      let entered!: () => void; const waiting = new Promise<void>(done => { entered = done; });
+      f.hooks.collect = async scope => {
+        entered(); await new Promise<void>(done => { release = done; });
+        return { scope, entries: [], coverage: [{ source: 'app-paths-hkcu', status: 'complete', inspected: 0, rejected: 0 }] };
+      };
+      await scan.click(); await waiting;
+      const late = page.waitForResponse(response => response.url().endsWith('/api/desktop/apps') && response.request().postDataJSON().action === 'scan');
+      if (action === 'switch') await page.locator('#apps-environment').selectOption(key(1));
+      else await page.getByRole('button', { name: '刷新配置', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+      assert.equal(await page.locator('#apps-scan-report').isVisible(), false);
+      release!(); release = undefined; await late;
+      assert.equal(await page.locator('#apps-scan-report').isVisible(), false);
+      assert.match(await page.locator('#apps-capability').innerText(), /本地隔离工作区.*只读.*不继承本机启动/s);
+    }
+    const beforeGuest = f.calls.length;
+    await page.locator('#apps-environment').selectOption(key(2));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    assert.equal(await scan.isDisabled(), true); assert.match(await page.locator('#apps-capability').innerText(), /不会扫描本机作为虚拟机结果/);
+    assert.equal(f.calls.length, beforeGuest);
+    await page.locator('#apps-environment').selectOption(key(0));
+    await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    f.hooks.collect = async () => { throw new Error('host-app-installation-identity-mismatch'); };
+    await scan.click(); await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('读取不可用'));
+    assert.match(await page.locator('#apps-scan-report').innerText(), /身份无法核对.*已拒绝結果|身份无法核对.*已拒绝结果/s);
+    assert.equal(await page.locator('#apps-candidate option').count(), 1);
+    await page.screenshot({ path: resolve('.validation/p8-a2-unavailable.png'), fullPage: true });
+    await page.reload(); await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 4);
+    assert.equal(await page.locator('#apps-environment').inputValue(), ''); assert.equal(await scan.isDisabled(), true);
+    assert.equal(f.opens(), 0); assert.deepEqual(errors, []);
+  } finally { release?.(); await browser.close(); await f.close(); }
+});
+
 test('A1 explains all capability states in Chinese and preserves distinct version scopes and inert technical identifiers', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const f = await preflightFixture(); const { chromium } = await import('playwright'); const browser = await chromium.launch();

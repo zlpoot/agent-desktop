@@ -1,6 +1,6 @@
 # P8-A / #28：A1 环境预检交付
 
-基线：`63e8f33faf0d8d6affd09c335d5706c7045d421a`。本轮仅 A1；[Parent #27](https://github.com/zlpoot/agent-desktop/issues/27) 明确要求“First delivery must stop after A1 for user hands-on feedback”。A2 收集器接入与真实扫描等操作者体验反馈后继续。本候选待独立审查与 Human UAT，不关闭 #28 或 #16。
+基线：`63e8f33faf0d8d6affd09c335d5706c7045d421a`。[Parent #27](https://github.com/zlpoot/agent-desktop/issues/27) 要求先交付 A1 并等待人工反馈，已按此停点执行。2026-10-08 操作者对本手册明确反馈“我已经验证完成，没有问题”，记录 **A1 人工体验通过**，对应候选 `6468ea491213a0193380aed5f5d225c4a4589122`。这是环境选择和诊断体验的反馈，不是原生能力、启动或业务验证。独立审查仍待完成；#28、#16 和整体项目仍未完成。后续 A2 的另一次人工体验见 [A2 只读扫描手册](desktop-provider-p8-a2.md)。
 
 ## 现在如何体验（Windows PowerShell）
 
@@ -38,7 +38,7 @@ A1 禁止扫描/路径检查、确认/启动/重验/撤销、发送或恢复 Tas
 - Local Workspace 的现有 Provider discovery 仍依赖已配置的有限应用。未配置时会明确显示不可用；**如果你的首次目标是 Local Workspace 且没有现成可信配置，本轮无法完成该环境选择，记为 UX blocker，不能宣布 A1 Human UAT 通过。** A1 不要求新用户手写应用 JSON、寻找路径或原生句柄来绕过这一限制；后续按实际反馈处理。
 - 未挂载 Guest/VM discovery，明确显示未接入；不查询 Host 安装清单替代 Guest。不装配未配置的 Synthetic fixture。
 - Registry 是新建的临时空清单，不表示没有安装软件，不继承 P7 历史确认；A2 才连接可信只读安装收集器，并由操作者点击扫描。
-- 本轮没有真实安装扫描、native session readiness、业务 bridge 或人工体验证据。A5 safety FAIL / Windows PAUSED / overall INCOMPLETE 保持不变。
+- A1 没有真实安装扫描、native session readiness 或业务 bridge；人工体验通过只覆盖本手册的环境选择和诊断。A5 safety FAIL / Windows PAUSED / overall INCOMPLETE 保持不变。
 
 ## 实现及验证范围
 
@@ -48,7 +48,7 @@ Dashboard 的私有 composition 参数限制 A1 HTTP 路由，校验 localhost H
 
 新增合成验证：HTTP/直接 Controller 禁止效果、跨环境会话及 Guest 安装域隔离、错误 Host/Origin、零 Session、零磁盘状态；独立 CLI 从合成配置实际监听 localhost；真实 localhost Browser 的未选环境、缺收集器说明、切换、晚到响应、刷新、重载与移动端布局。所有数据和基础设施端口为合成；没有应用扫描、启动、真实模型、VM 或实机输入。检查矩阵日志保留于私有 `.validation/p8-a-{check,offline,python,browser}.log`，生成日志/截图/资产不提交。
 
-状态：**IMPLEMENTED A1 / pending required matrix and Independent Review / NOT HUMAN-VERIFIED**。合成通过不得作为 Human UAT 通过；A2 未实施。最终检查结果以交付 exact SHA 的日志及交付消息为准。
+状态：**A1 已实现；人工体验通过；独立审查待完成**。A1 最终检查：类型、离线 685/685、Python 15 文件通过；Browser 58/59，仅既有下载取消失败（基线复现），受影响 A1/P7 Browser 重验 4/4 通过。私有日志保留完整结果；合成检查不是人工验收依据。A2 的实现和体验状态单独记录，不能由 A1 通过推断。
 
 ## A1 体验反馈修订
 

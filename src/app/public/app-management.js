@@ -1,5 +1,6 @@
 window.createAppManagement = (root, options = {}) => {
   const preflight = options.preflight === true;
+  const readonlyDiscovery = preflight && options.readonlyDiscovery === true;
   const node = (tag, text, id) => {
     const item = document.createElement(tag); if (text) item.textContent = text; if (id) item.id = id; return item;
   };
@@ -15,6 +16,27 @@ window.createAppManagement = (root, options = {}) => {
   const capability = node('p', '', 'apps-capability');
   const capabilityDetails = node('section', '', 'apps-capability-details'); capabilityDetails.hidden = true;
   const lookup = (table, key) => Object.hasOwn(table, key) ? table[key] : undefined;
+  const search = node('input', '', 'apps-search'); search.placeholder = '输入应用名称筛选已扫描结果，不会再次扫描'; search.setAttribute('aria-label', '筛选已扫描应用');
+  search.maxLength = 256; search.hidden = !readonlyDiscovery;
+  const reportView = node('section', '', 'apps-scan-report'); reportView.hidden = true;
+  const sourceNames = { 'start-menu-user': '当前用户开始菜单', 'start-menu-public': '所有用户开始菜单',
+    'app-paths-hkcu': '当前用户应用路径登记', 'app-paths-hklm-32': '系统应用路径登记（32 位）',
+    'app-paths-hklm-64': '系统应用路径登记（64 位）', 'manual-path': '操作者指定的本地路径',
+    'environment-discovery': '所选环境的收集器' };
+  const sourceText = sources => sources.map(source => lookup(sourceNames, source) || '其他只读来源（见技术详情）').join('、');
+  const scanStates = { complete: '已完整读取限定来源', incomplete: '读取不完整', unavailable: '读取不可用' };
+  const coverageStates = { complete: '已完成', truncated: '达到读取限制或部分条目被拒绝', timeout: '读取超时', unavailable: '无法完整读取' };
+  function scanReason(reason) {
+    if (!reason) return '';
+    if (reason.includes('identity')) return '安装域身份无法核对或发生变化，已拒绝结果；请刷新配置，检查可信配置后重启服务。';
+    if (reason.includes('FileNotFoundError')) return '文件或来源不存在，请检查所选环境中的路径。';
+    if (reason.includes('PermissionError')) return '没有读取权限；请检查该来源的权限。';
+    if (reason.includes('timeout')) return '达到读取时间限制，可查看已有来源覆盖后手动重扫。';
+    if (reason.includes('limit') || reason.includes('incomplete')) return '部分来源达到读取限制或不可读取；结果不能证明应用没有安装。';
+    if (reason.includes('unsupported') || reason.includes('invalid-')) return '该文件、路径或快捷方式不在安全读取范围内；只支持本地固定磁盘上的安全 EXE 和快捷方式。';
+    if (reason.includes('windows-app-scanner')) return 'Windows 收集器不可用，请检查所指定 Python 的依赖后重启服务。';
+    return '该来源或条目无法安全读取；请检查来源、权限和依赖。原始原因见技术详情。';
+  }
   const capabilityNames = {
     'observation.pixels': ['窗口画面读取', '读取环境或目标窗口的截图，用于查看画面。此能力本身不执行点击或输入。'],
     'observation.accessibility': ['控件信息读取', '读取应用提供的按钮、输入框、名称和位置等辅助功能信息；具体控件是否能可靠读取仍需核验。'],
@@ -63,7 +85,7 @@ window.createAppManagement = (root, options = {}) => {
   function renderCapabilities(info) {
     capabilityDetails.hidden = false;
     capabilityDetails.append(node('h2', '环境提供方的能力声明'),
-      node('p', '这里描述提供方已实现的能力及适用范围，不是当前机器、应用已经就绪的证明。本轮仅做环境预检，以下声明不会开放扫描、启动或输入。'));
+      node('p', `这里描述提供方已实现的能力及适用范围，不是当前机器、应用已经就绪的证明。${readonlyDiscovery ? '本轮扫描仅使用独立的只读收集器，以下声明不会开放启动或输入。' : '本轮仅做环境预检，以下声明不会开放扫描、启动或输入。'}`));
     const legend = node('dl'); legend.className = 'apps-capability-legend';
     for (const [label, explanation] of Object.values(capabilityStates)) legend.append(node('dt', label), node('dd', explanation));
     capabilityDetails.append(legend);
@@ -98,11 +120,11 @@ window.createAppManagement = (root, options = {}) => {
     '当前合成验收 NOT LIVE-VERIFIED；A5 safety FAIL / Windows PAUSED / overall INCOMPLETE。',
   ]) help.append(node('p', text));
   root.append(node('h1', '应用管理'), environment, status, capability, controls, path, capabilityDetails,
-    node('h2', '发现候选'), candidates, identity, confirmation, node('h2', '已注册配置与验证历史'), registered, help);
+    node('h2', '发现候选'), search, reportView, candidates, identity, confirmation, node('h2', '已注册配置与验证历史'), registered, help);
   const launchText = spec => spec.kind === 'package'
     ? `启动类型：MSIX/AppX（没有适配时不可启动）\n包身份：${spec.packageFamilyName}\n应用标识：${spec.applicationUserModelId}`
     : `启动类型：${spec.kind === 'shortcut' ? '本地快捷方式' : 'Win32 EXE'}\n路径：${spec.executable}\n${spec.kind === 'shortcut' ? `快捷方式：${spec.shortcutPath}\n` : ''}参数：${spec.args.join(' | ') || '无'}\n工作目录：${spec.workingDirectory || '默认'}`;
-  let version = 0, state, busy = false, loaded = false;
+  let version = 0, state, busy = false, loaded = false, lastAction;
   const buttons = [];
   function button(label, action, parent = controls) {
     const item = node('button', label); item.type = 'button'; item.onclick = action; parent.append(item); return item;
@@ -117,10 +139,12 @@ window.createAppManagement = (root, options = {}) => {
   const cancel = button('取消本次接入', () => reset());
   buttons.push(scan, manual, refresh, prepare);
   if (preflight) {
-    path.hidden = true;
+    path.hidden = !readonlyDiscovery;
     help.replaceChildren(node('summary', '本轮体验步骤与限制'),
       node('p', '先保持未选环境，再明确选择本机或已配置的工作区，检查身份与缺失适配器原因；切换环境、刷新配置或重载页面，检查旧状态是否清空。'),
-      node('p', '扫描和路径检查等待 A1 体验反馈后的 A2；本轮不能确认、启动、撤销注册、发送任务、接管输入或控制虚拟机。'));
+      node('p', readonlyDiscovery ? '选择环境后点击扫描，用名称筛选已扫描结果；多版本请分别核对安装实例、版本与路径。扫描不完整或不可用不表示未安装。指定路径只读取本地安全 EXE / 快捷方式，不会执行它；自行安装后可以点击重扫。真实路径和清单只保留在本机页面，请勿公开上传。'
+        : '扫描和路径检查等待 A1 体验反馈后的 A2；本轮不能确认、启动、撤销注册、发送任务、接管输入或控制虚拟机。'),
+      node('p', '本轮不能确认、启动、撤销注册、发送任务、接管输入或控制虚拟机。刷新或切换环境会丢弃旧结果；不会自动重扫。'));
   }
   const target = () => environment.value ? { providerId: JSON.parse(environment.value)[0], environmentId: JSON.parse(environment.value)[1] } : undefined;
   async function post(body, keepalive = false) {
@@ -132,7 +156,7 @@ window.createAppManagement = (root, options = {}) => {
       revision: old.revision, requestId: crypto.randomUUID() }, true).catch(() => {});
   }
   function reset(clearSelection = true) {
-    version++; const old = state; state = undefined; busy = false; path.value = '';
+    version++; const old = state; state = undefined; busy = false; path.value = ''; search.value = ''; lastAction = undefined;
     if (clearSelection) environment.value = '';
     end(old); render(); status.textContent = '先选择执行环境；不会自动扫描或启动。';
   }
@@ -142,7 +166,8 @@ window.createAppManagement = (root, options = {}) => {
     try {
       const result = await post({ action: 'open', desktopTarget: selected });
       if (current !== version) { end(result); return; }
-      state = result; status.textContent = preflight ? '配置已读取。A1 仅预检；扫描和启动尚未开放。' : '配置已读取。扫描和启动必须由你显式操作。';
+      state = result; status.textContent = readonlyDiscovery ? '配置已读取。点击扫描或指定路径才读取应用信息；启动保持关闭。'
+        : preflight ? '配置已读取。A1 仅预检；扫描和启动尚未开放。' : '配置已读取。扫描和启动必须由你显式操作。';
     } catch (error) { if (current === version) status.textContent = `环境管理不可用：${error.message}。请检查可信装配与连接后重新选择环境。`; }
     finally { if (current === version) { busy = false; render(); } }
   }
@@ -154,22 +179,29 @@ window.createAppManagement = (root, options = {}) => {
       const result = await post({ action, desktopTarget: snapshot.desktopTarget, sessionId: snapshot.sessionId,
         revision: snapshot.revision, requestId: crypto.randomUUID(), ...extra });
       if (current !== version) return;
-      state = result;
-      status.textContent = result.report ? `扫描：${result.report.status} · ${result.report.reason || (result.candidates.length ? '请明确选择候选' : '仅在已扫描来源中未找到，可指定路径或安装后重扫')}` : '配置已更新';
+      state = result; lastAction = action;
+      status.textContent = readonlyDiscovery && result.report
+        ? `${action === 'path' ? '路径检查' : '扫描'}：${lookup(scanStates, result.report.status) || '未知，不能证明完整'} · ${result.candidates.length} 个候选。${scanReason(result.report.reason) || '请核对来源和覆盖限制。'}`
+        : result.report ? `扫描：${result.report.status} · ${result.report.reason || (result.candidates.length ? '请明确选择候选' : '仅在已扫描来源中未找到，可指定路径或安装后重扫')}` : '配置已更新';
     } catch (error) {
       if (current === version) status.textContent = `操作被拒绝：${error.message}。先刷新配置；候选或环境发生变化时重新选择并扫描，不自动重试启动。`;
     } finally { if (current === version) { busy = false; render(); } }
   }
   function render() {
     for (const item of buttons) item.disabled = !state || busy;
+    if (preflight) refresh.disabled = !state; // Can discard an in-flight read without waiting for it.
     path.disabled = !state || busy; cancel.disabled = !state && !busy;
     scan.disabled ||= !state?.readiness.discovery; manual.disabled ||= !state?.readiness.discovery;
-    scan.disabled ||= preflight; manual.disabled ||= preflight;
+    scan.disabled ||= preflight && !readonlyDiscovery; manual.disabled ||= preflight && !readonlyDiscovery;
+    search.disabled = !state?.report || busy;
     prepare.disabled ||= !candidates.value || !state?.readiness.controlledLaunch;
     const previous = candidates.value; candidates.replaceChildren(node('option', '请选择具体安装实例'));
     candidates.firstChild.value = '';
-    for (const item of state?.candidates || []) {
-      const option = node('option', `${item.candidate.displayName} · ${item.version || '版本未知'} · ${item.publisher || '发布者未知'} · ${item.sources.join(', ')}`);
+    const query = search.value.normalize('NFKC').toLowerCase().trim();
+    const matching = (state?.candidates || []).filter(item => !readonlyDiscovery || !query ||
+      [item.candidate.displayName, ...item.candidate.aliases].some(name => name.normalize('NFKC').toLowerCase().includes(query)));
+    for (const item of matching) {
+      const option = node('option', `${item.candidate.displayName} · ${item.version || '版本未知'} · ${item.publisher || '发布者未知'} · ${readonlyDiscovery ? sourceText(item.sources) : item.sources.join(', ')}`);
       option.value = item.candidateId; candidates.append(option);
     }
     candidates.value = previous; candidates.disabled = !state || busy;
@@ -177,7 +209,7 @@ window.createAppManagement = (root, options = {}) => {
     const existing = selected && state.registered.find(app => app.installationId === selected.candidate.installationId &&
       app.validity === 'current' && app.trust !== 'discovered' && app.identity?.fingerprint === selected.contentFingerprint &&
       (!selected.version || app.identity.version === selected.version) && JSON.stringify(app.launchSpec) === JSON.stringify(selected.candidate.launchSpec));
-    identity.textContent = selected ? `名称：${selected.candidate.displayName}\n别名：${selected.candidate.aliases.join('、') || '无'}\n版本：${selected.version || '未知'} · 发布者：${selected.publisher || '未知'}\n来源：${selected.sources.join('、')}\n安装实例：${selected.candidate.installationId}\n${launchText(selected.candidate.launchSpec)}\n状态：discovered（仅发现，尚未确认此候选）\n限制：${selected.limitation || '业务能力仍须独立证明'}` : '';
+    identity.textContent = selected ? `名称：${selected.candidate.displayName}\n别名：${selected.candidate.aliases.join('、') || '无'}\n版本：${selected.version || '未知'} · 发布者：${selected.publisher || '未知'}\n来源：${readonlyDiscovery ? sourceText(selected.sources) : selected.sources.join('、')}\n安装实例：${selected.candidate.installationId}\n${launchText(selected.candidate.launchSpec)}\n状态：${readonlyDiscovery ? '仅发现，尚未确认、注册或启动' : 'discovered（仅发现，尚未确认此候选）'}\n限制：${readonlyDiscovery ? '扫描不能证明业务能力、运行状态或启动许可；路径与身份详情仅供本机核对。' : selected.limitation || '业务能力仍须独立证明'}` : '';
     if (existing) identity.textContent += '\n已保存同一配置：无需重复确认，请使用下方配置的重新验证启动。';
     prepare.disabled = preflight || !selected || busy || !state?.readiness.controlledLaunch || !!existing;
     capability.textContent = state ? `${state.scope.providerId} / ${state.scope.environmentId} · 安装域 ${state.scope.installationScopeId}\n发现适配：${state.readiness.discovery}；受控启动端口：${state.readiness.controlledLaunch}；Task 兼容准入：${state.readiness.taskCompatibility} ${state.readiness.blockedReason || ''}\nBusiness-capable：not-proven。启动验证不会升级 P6 业务证据；Task 仍需可信 bridge，以及原有能力、风险、预算、输入权和独立结果验证。\nP6 有限场景（仍需独立准入）：${state.readiness.scenarios.map(item => `${item.label}：${item.availability} ${item.reason || ''} · ${item.application || '限定应用'} ${item.applicationVersion || '限定版本'}`).join('；') || '无已装配场景'}\n安装来源：${state.report?.installationOrigin || '尚未扫描'}\n扫描来源覆盖：${state.report?.coverage.map(item => `${item.source}：${item.status} ${item.reason || ''}`).join('；') || '尚无来源覆盖记录'}` : '';
@@ -187,11 +219,31 @@ window.createAppManagement = (root, options = {}) => {
       const providerLabel = lookup(scopeValues, state.scope.providerId) || '已选择的环境提供方';
       const environmentLabel = lookup(environmentNames, state.scope.environmentId) || '已选择的环境（标识见下方技术详情）';
       const launchReason = info.launchReason.replaceAll('Task', '任务执行').replaceAll('VM', '虚拟机');
-      capability.textContent = `主机：${info.hostLabel}\n环境提供方：${providerLabel}\n执行环境：${environmentLabel}\n连接状态：配置可见，尚未连接原生会话；实际运行状态未知，能力就绪情况尚未验证。\n应用管理：可读取预检配置；本轮配置清单临时且为空，不代表电脑没有安装应用。\n应用发现：暂不可用。${info.discoveryReason}\n安装来源：暂不可用，尚未接入可信安装清单，也没有扫描。\n受控启动：暂不可用。${launchReason}\n业务操作：尚未验证；声明支持某项基础能力，不代表已经能够完成你的具体任务。`;
+      const discoveryLabel = readonlyDiscovery && state.readiness.discovery ? '可由操作者点击读取。' : '暂不可用。';
+      const originLabel = readonlyDiscovery && state.readiness.discovery
+        ? info.installationOrigin === 'shared-host-os' ? '本机共享操作系统的安装来源，只读；不继承本机启动或输入许可。' : '所选本机环境的限定安装来源，只读。'
+        : '暂不可用，尚未接入可信安装清单，也没有扫描。';
+      capability.textContent = `主机：${info.hostLabel}\n环境提供方：${providerLabel}\n执行环境：${environmentLabel}\n连接状态：配置可见，尚未连接原生会话；实际运行状态未知，能力就绪情况尚未验证。\n应用管理：可读取预检配置；本轮配置清单临时且为空，不代表电脑没有安装应用。\n应用发现：${discoveryLabel}${info.discoveryReason}\n安装来源：${originLabel}\n受控启动：暂不可用。${launchReason}\n业务操作：尚未验证；声明支持某项基础能力，不代表已经能够完成你的具体任务。`;
       renderCapabilities(info);
     }
+    reportView.replaceChildren(); reportView.hidden = !readonlyDiscovery || !state?.report;
+    if (!reportView.hidden) {
+      const report = state.report;
+      reportView.append(node('h3', `${lastAction === 'path' ? '路径检查' : '扫描'}结果与来源覆盖`),
+        node('p', `覆盖结论：${lookup(scanStates, report.status) || '未知'}。${report.status === 'complete'
+          ? '仅代表列出的来源已按限定范围读取，不代表全盘或所有安装方式。' : '部分来源无法读取或达到限制，不能据此判断应用未安装。'}`),
+        node('p', `安装来源：${report.installationOrigin === 'shared-host-os' ? '本机共享操作系统（只读，不继承启动许可）' : '所选环境（只读）'}。清单和路径仅供本机操作者查看。`));
+      for (const item of report.coverage) reportView.append(node('p', `${sourceText([item.source])}：${lookup(coverageStates, item.status) || '未知'}；检查 ${item.inspected} 条，拒绝 ${item.rejected} 条。${scanReason(item.reason)}`));
+      if (!report.coverage.length) reportView.append(node('p', '这是单一路径检查，没有目录扫描覆盖记录，不能证明整体安装清单完整。'));
+      reportView.append(node('p', matching.length > 1
+        ? `当前显示 ${matching.length} 个候选；可能存在同名多版本或不同安装，请明确选择并核对实例与路径，不会自动选择。`
+        : matching.length ? '找到一个候选，也需要你明确选择；不会自动确认或启动。'
+          : report.status === 'complete' && lastAction !== 'path' ? '仅在已扫描的限定来源中没有匹配结果；可指定路径检查，或自行安装后重扫。'
+            : '当前没有匹配候选；读取不完整、不可用或路径检查失败都不能证明没有安装。可检查来源和权限、指定路径或手动重扫。'));
+      const technical = node('details'); technical.append(node('summary', '扫描技术详情（本机私有）'), node('pre', JSON.stringify(report, null, 2))); reportView.append(technical);
+    }
     confirmation.replaceChildren();
-    if (state?.confirmation) {
+    if (!preflight && state?.confirmation) {
       confirmation.append(node('h3', '请核对并明确授权本环境启动验证'), node('pre', `应用：${state.confirmation.displayName} · ${state.confirmation.version} · ${state.confirmation.publisher}\n环境：${state.confirmation.scope.environmentId}\n来源：${state.confirmation.sources.join('、')}\n${launchText(state.confirmation.launchSpec)}\n配置版本：${state.confirmation.profileRevision}\n此操作会保存确认并执行受控启动验证；不会授权业务动作。`));
       const confirm = button('确认并验证启动', () => act('confirm', { confirmationId: state.confirmation.confirmationId, digest: state.confirmation.digest, allowLaunch: true }), confirmation);
       confirm.disabled = busy;
@@ -210,11 +262,11 @@ window.createAppManagement = (root, options = {}) => {
       const verify = button('重新验证启动（允许受控启动）', () => act('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true }), card);
       verify.disabled = busy || !confirmed || !state.readiness.controlledLaunch;
       const revoke = button('撤销注册', () => act('revoke', { appBindingId: app.appBindingId, expectedRevision: app.revision }), card);
-      revoke.disabled = busy || app.validity === 'revoked';
+      revoke.disabled = preflight || busy || app.validity === 'revoked';
       registered.append(card);
     }
   }
-  candidates.onchange = render; environment.onchange = () => { void select(); };
+  candidates.onchange = render; search.oninput = render; environment.onchange = () => { void select(); };
   window.addEventListener('pagehide', () => reset());
   render();
   return { async load() {
@@ -225,7 +277,7 @@ window.createAppManagement = (root, options = {}) => {
       if (!response.ok) throw new Error(result.error || '环境不可用');
       for (const item of result.environments) {
         const kindLabel = ({ physical: '本机交互桌面', 'virtual-machine': '虚拟机', 'local-workspace': '本地隔离工作区' })[item.kind] || '执行环境';
-        const option = node('option', preflight ? `${kindLabel} · ${lookup(environmentNames, item.environmentId) || item.environmentId}（仅预检，连接尚未验证）`
+        const option = node('option', preflight ? `${kindLabel} · ${lookup(environmentNames, item.environmentId) || item.environmentId}（${readonlyDiscovery ? '只读发现，连接尚未验证' : '仅预检，连接尚未验证'}）`
           : `${kindLabel} · ${item.environmentId}${item.blockedReason ? ` · ${item.blockedReason}` : ''}`);
         option.value = JSON.stringify([item.providerId, item.environmentId]); environment.append(option);
       }
