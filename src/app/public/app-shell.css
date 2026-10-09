@@ -9,7 +9,7 @@
 .shell-toggle { margin:8px 16px; }
 .workbench .topbar { flex-wrap:wrap; gap:12px; height:auto; min-height:76px; padding:14px 0; }
 .workbench .topbar-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:10px; min-width:0; }
-.shell-environment,.shell-run-state { font-size:12px; color:var(--ui-muted); overflow-wrap:anywhere; }
+.shell-environment,.shell-run-state,.shell-version { font-size:12px; color:var(--ui-muted); overflow-wrap:anywhere; }
 .shell-run-state { color:var(--ui-accent); }
 .nav-collapsed.workbench .shell { grid-template-columns:80px minmax(0,1fr); }
 .nav-collapsed .brand strong { font-size:14px; }.nav-collapsed .brand small,.nav-collapsed .nav-label,.nav-collapsed .side-foot { display:none; }

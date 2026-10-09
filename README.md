@@ -6,6 +6,18 @@
 
 提取阶段建立了新的 Git 历史，随后按用户授权推送到 GitHub。没有修改远端可见性或选择项目许可证；来源与授权待确认，暂不按已授权开源项目发布。
 
+## v0.1 控制台源码版（发布准备中）
+
+第一版定位为**可在本地运行的 Agent Desktop 控制台源码版本**。当前没有正式 Windows 安装包或打包系统，需要按下文安装依赖并运行 `npm run dashboard`。它提供已接通的有限能力与操作页面；通用无人值守桌面执行尚未证明。
+
+UI-01 的 A–D 已合并；2026-10-09，Owner 在 `main@c4885c7bd6a0e91ee961a570193a22d39a8bbf2c` 完成 E2 五区人工页面验收，均为 PASS（[验收记录](https://github.com/zlpoot/agent-desktop/issues/49#issuecomment-6080617594)）。当前状态为 `OWNER_UI_UAT_PASS / RELEASE_PREPARATION_NEEDED / TAG_NOT_CREATED / RELEASE_NOT_CREATED`。本次发布准备变更仍待独立 Review，Tag/Release `v0.1` 需 Owner 单独明确授权。
+
+启动后五区入口为工作台（`#/live`）、任务（`#/history`）、工作流（`#/workflows`）、环境与应用（`#/environments`）、设置（`#/settings`）。可以查看模式与环境准入、已有 Task 的运行/步骤/验证/清理结果、Workflow 候选与固定版本及只读预览、环境应用状态，以及实际已接通的预算/提示词设置。真实执行仍须显式配置与授权，仅限已有受限场景。
+
+人工页面验收不代表四模式后台完成、Windows/Agent 整体安全 PASS 或 Workflow 回放成功。Hidden Chrome 15 步 Workflow 仍是 candidate、未回放、不可通用执行；学习/优化入口灰化及内层 16 步聚合为一个外层步骤的复核颗粒度作为后续 UI 改进记录。完整 Browser 回归的两项下载 canceled 由 [#45](https://github.com/zlpoot/agent-desktop/issues/45) 跟踪，不宣称全绿。历史 `A5 safety FAIL / Windows PAUSED / overall INCOMPLETE` 保留。
+
+详见 [设计与阶段状态](docs/ui-v01.md)、[Release Notes 草稿](docs/release-notes-v0.1.md) 和 [发布准备核对](https://github.com/zlpoot/agent-desktop/issues/50#issuecomment-6080664096)。
+
 ## 安装与校验
 
 已验证环境：Windows、Node **24.21.0**、Python **3.11.5**。其他版本未验证。使用原 package-lock，依赖未升级；`check` 仍为 TypeScript `noEmit` 校验，没有打包系统。
