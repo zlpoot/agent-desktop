@@ -42,13 +42,14 @@ export class InspectKeyForm implements ModelAdapter {
 }
 
 export class CreateOneKey extends InspectKeyForm {
+  constructor(private readonly configuredKeyName=keyName) {super();}
   override async decide(state: Readonly<ComputerState>): Promise<ComputerAction> {
     const discovery = JSON.parse(state.observation?.pageText ?? '{}') as ChromeDiscovery;
     if(discovery.apiKeyGenerated) return {kind:'done',summary:'网页已显示新 Key；等待独立本机文件与设置验收'};
     const fields=discovery.fields??[];
     if(fields.some(field=>field.fieldName==='max_output_tokens')) {
       const name=fields.find(field=>field.fieldName==='name');
-      if(name?.value!==keyName)return {kind:'type',target:{kind:'selector',selector:KEY_NAME_SELECTOR},text:keyName};
+      if(name?.value!==this.configuredKeyName)return {kind:'type',target:{kind:'selector',selector:KEY_NAME_SELECTOR},text:this.configuredKeyName};
       if(fields.find(field=>field.fieldName==='max_output_tokens')?.value!=='40000')
         return {kind:'type',target:{kind:'selector',selector:KEY_TOKENS_SELECTOR},text:'40000'};
       const model=fields.find(field=>field.fieldName==='allowed_models'&&!field.checked);
@@ -135,6 +136,9 @@ async function main() {
       candidate.inputs.push({name:'siteUrl',example:url},{name:'outputFile',example:'AgentDesktop_8102_API_Key.txt'});
       candidate.taskPattern=candidate.taskPattern.replaceAll(url,'{{siteUrl}}').replaceAll('AgentDesktop_8102_API_Key.txt','{{outputFile}}');
       candidate.durableContract=[{kind:'desktop_file',path:'{{outputFile}}'}];
+      for(const step of candidate.steps)if(step.action.kind==='click'&&step.action.target.kind==='selector'&&
+          step.action.target.selector===KEY_SUBMIT_SELECTOR)
+        step.action.postcondition={kind:'desktop_file',path:'{{outputFile}}'};
       candidate.successConditions.urlIncludes='{{siteUrl}}';
       await session.assertArtifactHasNoKey(JSON.stringify(candidate));
       const workflows=new WorkflowStore(resolve(directory,'workflows.sqlite'));

@@ -22,6 +22,7 @@ import { PhysicalTaskExecutor } from '../desktop-provider/physical-task-executor
 import { LocalWorkspaceTaskExecutor } from '../desktop-provider/local-workspace-task-executor.js';
 import { LocalWorkspaceChromeProvider } from '../desktop-provider/local-workspace-chrome-provider.js';
 import { HiddenChromeTaskExecutor } from '../desktop-provider/hidden-chrome-task-executor.js';
+import type {HiddenChromeCreationAuthorization} from '../desktop-provider/hidden-chrome-creation.js';
 import { registeredGuestApps } from '../runtime/desktop/app-catalog.js';
 import { ResourceInputControl } from "../desktop-provider/resource-input-control.js";
 import { LocalWorkspaceDesktopProvider, type LocalWorkspaceAppConfig,
@@ -73,8 +74,8 @@ export interface RootAssemblyOptions {
   physicalBackendFactory?: PhysicalBackendFactory;
   physicalInputPolicy?: PhysicalInputPolicy;
   localWorkspace?: LocalWorkspaceAppConfig;
-  /** Explicit installed Chrome; admits only the read-only LIVE-01 Dashboard scenario. */
-  hiddenChrome?: {path:string};
+  /** Explicit installed Chrome; creation additionally requires a new local one-Key authorization. */
+  hiddenChrome?: {path:string;creationAuthorization?:HiddenChromeCreationAuthorization};
   localWorkspaceBackendFactory?: LocalWorkspaceBackendFactory;
   /** 装配完成后追加的插件（测试注入用）；任一失败即回收整个 Root。 */
   extraPlugins?: Plugin[];
@@ -230,7 +231,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               }],
               [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
-              hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome)]:
+              hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
                 [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&

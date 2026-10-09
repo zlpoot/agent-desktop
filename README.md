@@ -82,5 +82,5 @@ Windows 本地首次体验入口：`npm run dashboard:preflight -- --config conf
 Hidden Workspace Chrome 的只读体验入口需显式加载安装配置：PowerShell 设置
 `$env:AGENT_DESKTOP_ENVIRONMENT_CONFIG = (Resolve-Path config/desktop-environments.hidden-chrome.example.json).Path` 后运行 `npm run dashboard`。
 在执行位置选择 **Hidden Workspace Chrome**，再选择 **只读打开 8102 接入权限页面（不创建 Key）**。
-仅开放该固定场景，通用 Task / Workflow 与第二次 Key 创建未开放；配置中的 Chrome 路径应与本机安装一致。
+默认仅开放只读场景；另行取得一次新 Key 授权并在私有操作者配置中设置 `creationAuthorization` 后，可显式选择“一次创建 Key”固定场景。授权绑定一个 Task、新文件不覆盖旧 TXT、未知结果禁止重试；候选可查看，创建回放与通用 Task / Workflow 不开放。配置中的 Chrome 路径应与本机安装一致。
 真实单 Key 结果、秘密边界与验证状态见 [LIVE-01 记录](docs/live-01-hidden-chrome.md)。

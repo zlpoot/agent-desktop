@@ -41,7 +41,7 @@ export function candidateFromLiveTrace(trace: TraceStore, taskId: string, source
     step.successCondition={kind:'text_includes',value:`{{${name}}}`};
   }
   return {id:randomUUID(),version:1,status:'candidate',workflowSchemaVersion:2,environment:'browser',
-    taskPattern:final.goal.replaceAll('agent-desktop-hidden-chrome-20261009','{{keyName}}').replaceAll('40000','{{maxOutputTokens}}'),
+    taskPattern:inputs.reduce((goal,input)=>goal.replaceAll(input.example!,`{{${input.name}}}`),final.goal),
     inputs,preconditions:[],steps,successConditions:structuredClone(final.completionCriteria),
     knownFailures:['规则驱动的真实 UI 轨迹；未调用模型，未触发核心模型驱动蒸馏或自动发布。'],
     sourceTaskId:taskId,sourceTrace,createdAt:new Date().toISOString(),successCount:0,failureCount:0};

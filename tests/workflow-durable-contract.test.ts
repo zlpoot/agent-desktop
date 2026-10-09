@@ -32,6 +32,20 @@ function v2Workflow(overrides: Partial<Workflow> = {}): Workflow {
     successCount: 1, failureCount: 0, ...overrides };
 }
 
+test('v2 文件参数同时替换步骤与持久化契约，冻结定义保持原样，悬空声明仍拒绝',()=>{
+  const workflow=v2Workflow({inputs:[{name:'outputFile',example:'synthetic.txt'}],successConditions:{},
+    steps:[{stepId:'save',goal:'保存文件',action:{kind:'click',target:{kind:'role',role:'button',name:'保存'},
+      postcondition:{kind:'desktop_file',path:'{{outputFile}}'}},preferredMethods:[],successCondition:{kind:'state_changed'}}],
+    durableContract:[{kind:'desktop_file',path:'{{outputFile}}'}]});
+  const request={id:workflow.id,version:workflow.version,destination:'windows' as const,
+    definitionHash:workflowDigest(workflow),values:{outputFile:'synthetic-new.txt'}};
+  const prepared=prepareWorkflowExecution(workflow,request);
+  assert.deepEqual(prepared.workflow.durableContract,[{kind:'desktop_file',path:'synthetic-new.txt'}]);
+  assert.deepEqual(workflow.durableContract,[{kind:'desktop_file',path:'{{outputFile}}'}]);
+  const dangling={...workflow,durableContract:[{kind:'desktop_file' as const,path:'undeclared.txt'}]};
+  assert.throws(()=>prepareWorkflowExecution(dangling,{...request,definitionHash:workflowDigest(dangling)}),/持久化契约校验失败/);
+});
+
 test("extractDurableContract：只从冻结完成条件的 rebind 项提取，绝不从 goal 猜", () => {
   const contracts = extractDurableContract(rebindCriteria);
   assert.equal(contracts.length, 1);

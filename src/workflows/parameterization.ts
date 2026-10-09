@@ -291,6 +291,7 @@ export function applyWorkflowInputs(workflow: Workflow,
     successCondition: walk(step.successCondition) as typeof step.successCondition }));
   copy.successConditions = walk(copy.successConditions) as typeof copy.successConditions;
   copy.preconditions = walk(copy.preconditions) as typeof copy.preconditions;
+  if(copy.durableContract)copy.durableContract=walk(copy.durableContract) as typeof copy.durableContract;
   if (copy.stageCondition) copy.stageCondition = substitute(copy.stageCondition);
   return copy;
 }

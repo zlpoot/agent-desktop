@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import type { PhysicalInputPolicy } from '../runtime/desktop/desktop-runtime.js';
 import type { LocalWorkspaceAppConfig } from '../desktop-provider/local-workspace-provider.js';
 import {basename,isAbsolute} from 'node:path';
+import {validateChromeCreationAuthorization,type HiddenChromeCreationAuthorization} from '../desktop-provider/hidden-chrome-creation.js';
 
 /** Composition-owned operator configuration. Loading never opens a desktop or grants input. */
 export function loadDesktopEnvironmentConfig(path?: string): {
   physicalInputPolicy?: PhysicalInputPolicy; localWorkspace?: LocalWorkspaceAppConfig;
-  hiddenChrome?: {path:string};
+  hiddenChrome?: {path:string;creationAuthorization?:HiddenChromeCreationAuthorization};
 } {
   if (!path) return {};
   const config = JSON.parse(readFileSync(path, 'utf8'));
@@ -30,8 +31,9 @@ export function loadDesktopEnvironmentConfig(path?: string): {
   }
   const chrome=config.hiddenChrome;
   if(chrome!==undefined&&(!chrome||typeof chrome!=='object'||Array.isArray(chrome)||workspace!==undefined||
-      Object.keys(chrome).some(key=>key!=='path')||typeof chrome.path!=='string'||!isAbsolute(chrome.path)||basename(chrome.path).toLowerCase()!=='chrome.exe'))
+      Object.keys(chrome).some(key=>!['path','creationAuthorization'].includes(key))||typeof chrome.path!=='string'||!isAbsolute(chrome.path)||basename(chrome.path).toLowerCase()!=='chrome.exe'))
     throw new Error('invalid-hidden-chrome-config');
+  if(chrome?.creationAuthorization!==undefined)validateChromeCreationAuthorization(chrome.creationAuthorization);
   return { ...(policy ? { physicalInputPolicy: policy } : {}), ...(workspace ? { localWorkspace: workspace } : {}),
     ...(chrome?{hiddenChrome:chrome}:{}) };
 }

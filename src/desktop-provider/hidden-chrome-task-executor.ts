@@ -10,33 +10,49 @@ import {LocalWorkspaceChromeProvider,ChromeSession} from './local-workspace-chro
 import {DesktopExecutionAdmission} from './execution-admission.js';
 import {sameSession} from './admission.js';
 import {normalizeEvidence} from '../verifier/hybrid-verifier.js';
+import {basename,dirname,resolve} from 'node:path';
+import {HiddenChromeCreationPermit,HiddenChromeCreationRun,type HiddenChromeCreationAuthorization} from './hidden-chrome-creation.js';
+import {KEY_NAME_SELECTOR,KEY_TOKENS_SELECTOR,KEY_MODEL_PREFIX,KEY_SUBMIT_SELECTOR} from './local-workspace-chrome-provider.js';
 
 export const HIDDEN_CHROME_READONLY_SCENARIO='live-01-chrome-readonly-8102';
+export const HIDDEN_CHROME_CREATE_SCENARIO='live-01-chrome-create-one-8102';
 const SITE='http://192.168.2.3:8102/';
 const GOAL='Hidden Workspace Chrome：只读打开 8102 接入权限页面（不创建 Key）';
 const navigation:ComputerAction={kind:'navigate',url:SITE};
 interface Claim {taskId?:string;authority?:InputAuthority;prepared?:PreparedDesktopScenario;starting?:boolean;release?:Promise<boolean>;}
 
-/** One fixed, read-only UI scenario. No model, secret sink, creation configuration,
- * generic WorkerClient, replay or alternative desktop is exposed to Dashboard. */
+/** Explicit finite scenarios; generic WorkerClient/replay/other desktops remain unavailable. */
 export class HiddenChromeTaskExecutor implements DesktopTaskExecutor {
   private readonly claims=new WeakMap<DesktopSession,Claim>();
-  constructor(private readonly provider:LocalWorkspaceChromeProvider) {}
+  private readonly creation?:HiddenChromeCreationPermit;
+  constructor(private readonly provider:LocalWorkspaceChromeProvider,private readonly root=resolve('.'),
+    authorization?:HiddenChromeCreationAuthorization,desktop?:()=>string) {
+    if(authorization)this.creation=new HiddenChromeCreationPermit(root,authorization,desktop);
+  }
   assertAvailable():never {throw new Error('hidden-chrome-generic-task-unavailable');}
   connectRuntime():never {return this.assertAvailable();}
   scenario(target:TaskDesktopTarget,id:string) {
-    if(target.providerId!==this.provider.id||target.environmentId!=='local-workspace:chrome'||id!==HIDDEN_CHROME_READONLY_SCENARIO)
+    if(target.providerId!==this.provider.id||target.environmentId!=='local-workspace:chrome'||
+      ![HIDDEN_CHROME_READONLY_SCENARIO,HIDDEN_CHROME_CREATE_SCENARIO].includes(id))
       throw new Error('hidden-chrome-scenario-unavailable');
+    if(id===HIDDEN_CHROME_CREATE_SCENARIO){
+      if(!this.creation?.available())throw new Error('hidden-chrome-creation-authorization-unavailable');
+      return {id,goal:`Hidden Workspace Chrome：创建一个 ${this.creation.config.keyName} API Key，全部模型、最大输出 40000、其它默认；完整 Key 仅保存到当前用户桌面 ${this.creation.config.outputFile}`};
+    }
     return {id,goal:GOAL};
   }
   scenarios(target:TaskDesktopTarget) {
     this.scenario(target,HIDDEN_CHROME_READONLY_SCENARIO);
     return [{id:HIDDEN_CHROME_READONLY_SCENARIO,label:GOAL,availability:'supported' as const,
-      application:'chrome',targetRole:'owned-page',evidence:'docs/live-01-hidden-chrome.md'}];
+      application:'chrome',targetRole:'owned-page',evidence:'docs/live-01-hidden-chrome.md'},
+      ...(this.creation?[{id:HIDDEN_CHROME_CREATE_SCENARIO,
+        label:`#47 一次创建 Key → 桌面 ${this.creation.config.outputFile}（全部模型 / 40000 / 其它默认）`,
+        availability:this.creation.available()?'supported' as const:'unavailable' as const,
+        ...(this.creation.available()?{}:{reason:'本次授权已绑定任务，禁止重复创建'}),
+        application:'chrome',targetRole:'owned-page',evidence:'docs/live-01-hidden-chrome.md'}]:[])];
   }
   taskControl(session:DesktopSession):InputControl {
     if(!(session instanceof ChromeSession)||this.claims.has(session))throw new Error('hidden-chrome-session-mismatch');
-    session.restrictToReadOnly();
     const claim:Claim={};this.claims.set(session,claim);
     return {workerEndpoint:()=>'',assertTaskAllowed:taskId=>{
       if(!claim.authority||claim.taskId!==taskId||claim.release)throw new Error('hidden-chrome-input-not-owned');
@@ -56,10 +72,18 @@ export class HiddenChromeTaskExecutor implements DesktopTaskExecutor {
       return claim.release??=(async()=>{await claim.prepared!.close();claim.authority=undefined;return false;})();
     }};
   }
-  async prepareScenario(session:DesktopSession,_artifactDir:string,id:string):Promise<PreparedDesktopScenario> {
+  async prepareScenario(session:DesktopSession,artifactDir:string,id:string):Promise<PreparedDesktopScenario> {
     this.scenario(session,id);
     const claim=this.claims.get(session);
     if(!(session instanceof ChromeSession)||!claim||claim.prepared||claim.authority||claim.release)throw new Error('hidden-chrome-task-not-prepared');
+    const creating=id===HIDDEN_CHROME_CREATE_SCENARIO;
+    if(creating) {
+      const taskId=basename(dirname(artifactDir));
+      if(!/^[a-zA-Z0-9-]{1,80}$/.test(taskId))throw new Error('hidden-chrome-task-id-required');
+      const permit=await this.creation!.reserve(taskId);
+      session.setSecretOutputPath(permit.outputPath);
+      session.authorizeCreation({...this.creation!.config,claim:permit.claim});
+    }else session.restrictToReadOnly();
     const target:TargetBinding={providerId:session.providerId,environmentId:session.environmentId,
       sessionId:session.sessionId,instanceId:session.instanceId,inputResourceId:session.inputResourceId,
       targetId:'owned-chrome:'+session.sessionId,application:'chrome',applicationVersion:'unreported',targetRole:'owned-page'};
@@ -71,6 +95,15 @@ export class HiddenChromeTaskExecutor implements DesktopTaskExecutor {
     const operation=(action:ComputerAction)=>{
       if(action.kind==='navigate'&&action.url===SITE)return 'navigate';
       if(action.kind==='click'&&action.target.kind==='role'&&['tab','button','link'].includes(action.target.role)&&action.target.name==='接入权限')return 'open-access-tab';
+      if(creating&&action.kind==='click'&&action.target.kind==='selector') {
+        if(action.target.selector==='#new-api-key')return 'open-key-form';
+        if(action.target.selector===KEY_SUBMIT_SELECTOR)return 'create-one-key';
+      }
+      if(creating&&action.kind==='type'&&action.target.kind==='selector'&&
+        (action.target.selector===KEY_NAME_SELECTOR&&action.text===this.creation!.config.keyName||
+         action.target.selector===KEY_TOKENS_SELECTOR&&action.text==='40000'))return 'configure-key-form';
+      if(creating&&action.kind==='set_checked'&&action.checked&&action.target.kind==='selector'&&
+          action.target.selector.startsWith(KEY_MODEL_PREFIX)&&/^(0|[1-9][0-9]*)$/.test(action.target.selector.slice(KEY_MODEL_PREFIX.length)))return 'configure-key-form';
       throw new Error('hidden-chrome-readonly-action-required');
     };
     const authority=()=>{
@@ -102,6 +135,17 @@ export class HiddenChromeTaskExecutor implements DesktopTaskExecutor {
       if(!observed)throw new Error('fresh-observation-required');
       await gate.execute({target:binding,action,observation:observed,authority:authority()});
     };
+    if(creating) {
+      const taskId=basename(dirname(artifactDir));
+      const runtime={name:session.name,observe,ground:session.ground.bind(session),resolveAction:session.resolveAction.bind(session),
+        inspectFile:session.inspectFile.bind(session),execute:async(action:ComputerAction)=>{
+          await dispatch(action);return {ok:true,effect:'dispatched' as const,message:'Owned Hidden Chrome UI action dispatched',provider:'browser.playwright.act'};
+        }};
+      const run=new HiddenChromeCreationRun(this.root,taskId,resolve(dirname(artifactDir),'live-01'),this.creation!.config,session,runtime);
+      claim.prepared={preflight:()=>gate.preflight(binding,navigation),observe,execute:()=>run.execute(),verify:()=>run.verify(),
+        close:async()=>{closed=true;observed=undefined;gate.invalidate();await session.close();}};
+      return claim.prepared;
+    }
     claim.prepared={preflight:()=>gate.preflight(binding,navigation),observe,
       execute:async()=>{
         if(dispatched)throw new Error('hidden-chrome-scenario-replay-forbidden');dispatched=true;

@@ -50,7 +50,7 @@ export const CHROME_DISCOVERY_COLLECTOR = `(() => {
    id: ids.includes(e.id) ? e.id : '[unrecognized]',
    fieldName: names.includes(e.name) ? e.name : '[unrecognized]',
    value: (['rpm','max_output_tokens','days'].includes(e.name) && /^\\d+$/.test(e.value)) ||
-     (e.name === 'name' && /^agent-desktop-hidden-chrome-[0-9]{8}$/.test(e.value)) ? e.value : undefined,
+     (e.name === 'name' && /^agent-desktop-hidden-chrome-[0-9]{8}(?:-[1-9][0-9]{0,5})?$/.test(e.value)) ? e.value : undefined,
    checked: e.name === 'allowed_models' ? e.checked : undefined,
    modelIndex: e.name === 'allowed_models' ? modelFields.indexOf(e) : undefined,
    label: safe([...e.labels || []].map(l => l.textContent).join(' ').trim()),
@@ -226,7 +226,7 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
   creationDispatched = false;
   authorizeCreation(config: ChromeCreationConfig) {
     if (this.readOnly || this.creation || config.allModels !== true || config.maxOutputTokens !== 40000 ||
-        !/^agent-desktop-hidden-chrome-[0-9]{8}$/.test(config.keyName)) throw new Error('Chrome creation configuration not authorized');
+        !/^agent-desktop-hidden-chrome-[0-9]{8}(?:-[1-9][0-9]{0,5})?$/.test(config.keyName)) throw new Error('Chrome creation configuration not authorized');
     this.creation = Object.freeze({...config});
   }
   /** The caller resolves Windows Known Folder Desktop and checks conflicts first. */
@@ -416,7 +416,7 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
       const models=inputs.filter(e=>e.name==='allowed_models');
       const value=name=>form.querySelector('[name="'+name+'"]')?.value;
       const name=value('name');
-      return {keyName:/^agent-desktop-hidden-chrome-[0-9]{8}$/.test(name||'')?name:'',
+      return {keyName:/^agent-desktop-hidden-chrome-[0-9]{8}(?:-[1-9][0-9]{0,5})?$/.test(name||'')?name:'',
         maxOutputTokens:value('max_output_tokens'),rpm:value('rpm'),days:value('days'),models:models.length,allModels:models.every(e=>e.checked),valid:form.checkValidity()};
     })()`);
   }

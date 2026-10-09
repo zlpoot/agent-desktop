@@ -124,3 +124,24 @@ Dashboard 补丁的检查结果：check PASS；offline 750/750；Python 18 个�
 修正后的检查：check PASS；offline 750/750；Python 18 个文件 PASS；Local Workspace 53/53；Viewer 1/1；Hidden Chrome 单独及完整套件中的 8/8 PASS。
 完整 Browser 为 73/75，两项既有下载仍 canceled（`download.createReadStream`、`download.saveAs`），原因未确认；不声明全绿。首次未设置项目测试浏览器缓存路径的运行已停止，使用现有 `.playwright-browsers` 配置复核，不安装或升级依赖。
 再次将原 Key 与 LIVE-01 产物、本机验证记录 5160 个文件及 PR 17 个文件 / 描述比较，UTF-8 / UTF-16LE 明文匹配均为 0；桌面 TXT 哈希与原验收一致。上述产物和日志保持本机忽略文件，不提交。
+
+## Owner 自行执行 #47：另行授权的一次创建入口
+
+Owner 在只读验收后明确另行授权“再创建一个 Key，并保存到不覆盖旧文件的新 TXT”。此授权用于 Owner 在 Dashboard 显式点击的新任务；执行方不自动点击，不清除原 `create-once.json`，不覆盖第一次 TXT 或改写其 Task 结果。
+标准 Chrome 配置仍只开放只读场景。可信私有操作者配置可附加 `hiddenChrome.creationAuthorization`，字段限定为新的 UUID `authorizationId`、用途明确且带编号的 `keyName`、新 TXT basename `outputFile`、`allModels=true`、`maxOutputTokens=40000`、`otherDefaults=true`；HTTP Task 请求不能传入或替换这些授权字段。
+本次准备的名称为 `agent-desktop-hidden-chrome-20261009-2`，新文件为 `AgentDesktop_8102_API_Key_20261009_2.txt`，以执行时 Windows Known Folder Desktop 为根。若文件已有内容，preflight 停下；私有 sink 继续 `wx`，不覆盖旧文件。
+
+Dashboard 选择 **Hidden Workspace Chrome** → **#47 一次创建 Key → 桌面新 TXT（全部模型 / 40000 / 其它默认）** → 执行。没有默认选择或自动提交。
+创建前以独占文件将本次授权绑定到一个 Task，提交前另写独占 dispatch intent；双击、第二个排队 Task、Host 重启或未知结果都不能取得第二次创建许可。预留后技术失败不会自动释放或重试，界面与记录如实报告 BLOCKED / UNKNOWN。
+新入口复用现有 Task 队列、预算、Session / DesktopExecutionAdmission、Native 完整 grant 和清理。内部复用原 `CreateOneKey` 规则与 `createAgentLoop`，风险中断仅消耗这次明确的新授权；不启用真实模型或辅助模型、不扩展其它网站、桌面或任意动作。
+内部逐步 trace 保存在本 Task 的私有 artifact 下，使用同一 Task ID，保持外层持久 Session 绑定与生命周期；取消检查读取原 Task pause。每个实际输入仍走当前 target、观察和 Native 检查，原时限保持。
+
+成功条件是内部 Agent Loop done / 独立文件门 acceptance pass、网页新 Key 确认、私有 TXT 与当前 GUI 全值相等、全部模型 / 40000 / RPM 和有效期默认值匹配、保存无 Key 的 schema v2 Workflow candidate、外层 Job / Desktop 清理确认。界面只展示布尔结果、名称、文件名、步骤数量和 candidate ID，不展示 Key。
+候选保存到现有 WorkflowStore 供查看；显式执行 / 试运行拒绝 `owned-chrome-cdp` 候选进入通用 Browser，避免借候选绕过一次授权或转移到其它浏览器。候选不晋升、不回放创建副作用。
+新入口的合成回归覆盖实际 Dashboard 提交、Agent Loop、风险边界、唯一提交、新文件与旧文件保护、独立文件验收、秘密不进入 Task / UI / 候选、授权耗尽后拒绝以及候选回放拒绝。合成数据不消耗真实新授权。
+本次第二个 Key 的真实执行、生成新 TXT 与人工验收留给 Owner；开放入口不代表这些结果已经发生。
+
+合成复核曾出现 `invalid-input-authority`，诊断证实管理心跳间隔超出原 3 秒租约；产品按原规则阻断。流程测试改用现有 Arbiter 可注入的可控单调时钟，保留单独的真实计时心跳回归，并新增明确推进到 3001 ms 后在 UI effect 前拒绝的测试；生产时钟、租约、Native ACK 和观察期限均未更改。
+候选新增创建步骤的文件后置声明，与最终独立接受的文件结果对齐；参数注入同时替换既有 `durableContract` 的字段，避免 outputFile 仅在步骤中展开。schema 不变，悬空契约仍拒绝，冻结原定义保持原样；新增合成回归通过。
+最终验证：check PASS；offline 754/754；Python 18 个文件 PASS；Local Workspace 53/53；Viewer 1/1；Hidden Chrome 10/10（单独与完整 Browser 均通过）；完整 Browser 75/77，两项既有下载 canceled 仍保留，不能声明全绿。
+原 TXT 哈希仍与首次验收一致；LIVE-01 / 本机验证产物及 PR 全部 21 个文件比较原 Key 明文均为 0。私有授权配置、台账、Key、产物与日志不进入提交。PR 保持独立 Review，不合并；第二次真实执行仍待 Owner 点击与验收。

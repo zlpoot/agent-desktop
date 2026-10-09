@@ -4,7 +4,9 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {ChromeSession,LocalWorkspaceChromeProvider,KEY_SUBMIT_SELECTOR,CHROME_DISCOVERY_COLLECTOR,type ChromeNativeBackend} from '../src/desktop-provider/local-workspace-chrome-provider.js';
-import {HiddenChromeTaskExecutor,HIDDEN_CHROME_READONLY_SCENARIO} from '../src/desktop-provider/hidden-chrome-task-executor.js';
+import {HiddenChromeTaskExecutor,HIDDEN_CHROME_READONLY_SCENARIO,HIDDEN_CHROME_CREATE_SCENARIO} from '../src/desktop-provider/hidden-chrome-task-executor.js';
+import {WorkflowStore} from '../src/workflows/store.js';
+import {workflowDigest} from '../src/workflows/recovery.js';
 import {TaskDesktopSessions} from '../src/app/task-desktop-sessions.js';
 import {createRootAssembly} from '../src/composition/root.js';
 import {createDashboardServer} from '../src/app/server.js';
@@ -42,20 +44,31 @@ class SyntheticNative implements ChromeNativeBackend {
   }
   async close(){this.stopped=true;}
 }
-async function unclaimedHarness() {
+class DiagnosticInput extends ResourceInputControl {
+  lastRenew=performance.now();failure?:{state:string;sinceRenewMs:number};
+  override assertAuthority(...args:Parameters<ResourceInputControl['assertAuthority']>) {
+    try {super.assertAuthority(...args);}catch(error){
+      this.failure??={state:this.view(args[0]).state,sinceRenewMs:Math.round(performance.now()-this.lastRenew)};throw error;
+    }
+  }
+  override renewAuthority(...args:Parameters<ResourceInputControl['renewAuthority']>) {
+    super.renewAuthority(...args);this.lastRenew=performance.now();
+  }
+}
+async function unclaimedHarness(now?:()=>number) {
   const directory=await mkdtemp(join(tmpdir(),'chrome-contract-'));
   const {chromium}=await import('playwright');
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext();const page=await context.newPage();await page.setContent(fixture);
-  const input=new ResourceInputControl();const native=new SyntheticNative();
+  const input=new DiagnosticInput(now);const native=new SyntheticNative();
   const provider=new LocalWorkspaceChromeProvider(input,resolve('.'),resolve('synthetic/chrome.exe'),directory);
   const binding={providerId:'windows-local-workspace',environmentId:'local-workspace:chrome',sessionId:'synthetic',instanceId:'synthetic-native',inputResourceId:'synthetic-resource'};
   const session=new ChromeSession(binding,native,1,input,()=>provider.capabilities(),async()=>browser);
   input.registerBackend(b=>session.valid(b),()=>session.drain(),a=>session.activate(a));
   return {directory,browser,page,input,native,session,provider,async close(){try{await session.close();}finally{await provider.close();await browser.close();await rm(directory,{recursive:true,force:true});}}};
 }
-async function harness() {
-  const h=await unclaimedHarness();
+async function harness(now?:()=>number) {
+  const h=await unclaimedHarness(now);
   const authority=await h.input.acquire(h.session,{kind:'agent',clientId:'synthetic-test'});
   h.session.setSecretOutputPath(join(h.directory,'AgentDesktop_8102_API_Key.txt'));
   await h.session.connectRuntime(authority);
@@ -78,6 +91,15 @@ test('pending native heartbeat does not suppress the live Host client heartbeat;
     h.input.assertAuthority(h.session,h.authority);
     assert.equal((await h.session.status()).state,'open');
     await h.session.observe();
+  }finally{await h.close();}
+});
+
+test('an explicitly expired 3-second Host grant still blocks Hidden Chrome before any UI effect',async()=>{
+  let now=0;const h=await harness(()=>now);
+  try {
+    await h.session.observe();now=3001;
+    await assert.rejects(h.session.execute({kind:'navigate',url:'http://192.168.2.3:8102/'}),/invalid-input-authority/);
+    assert.equal(h.page.url(),'about:blank');assert.equal(h.session.creationDispatched,false);
   }finally{await h.close();}
 });
 
@@ -108,7 +130,9 @@ test('Native Task errors expose only recognized protocol codes, never arbitrary 
 });
 
 test('synthetic live-path regression: risk gate stays pending, one submit, private file equality, no secret in trace/candidate',async()=>{
-  const h=await harness();let claims=0;const trace=new SqliteTrace(join(h.directory,'task.sqlite'));
+  // Flow assertions use the arbiter's supported deterministic monotonic clock;
+  // real heartbeat timing and explicit expiry are verified separately.
+  const h=await harness(()=>0);let claims=0;const trace=new SqliteTrace(join(h.directory,'task.sqlite'));
   try{
     h.session.authorizeCreation({keyName:'agent-desktop-hidden-chrome-20261009',maxOutputTokens:40000,allModels:true,claim:async()=>{claims++;assert.equal(claims,1);}});
     // about:blank carries a synthetic fixture; use the real rule decisions after
@@ -141,7 +165,7 @@ test('synthetic live-path regression: risk gate stays pending, one submit, priva
 });
 
 test('Dashboard lists Hidden Chrome, requires explicit read-only scenario, uses fixed Task chain without model or Key creation',async()=>{
-  const h=await unclaimedHarness();
+  const h=await unclaimedHarness(()=>0);
   // Page routing fulfills the synthetic document; no request reaches 8102.
   await h.page.route('http://192.168.2.3:8102/**',route=>route.request().method()==='GET'
     ? route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}):route.fallback());
@@ -224,4 +248,60 @@ test('read-only acceptance requires the exact access fragment, not the root or a
     }
     assert.equal(h.session.creationDispatched,false);
   }finally{await prepared?.close();await h.close();}
+});
+
+test('Dashboard newly authorized one-Key scenario uses the real Task/Agent Loop/file gate, saves a secret-free candidate and refuses reuse',async()=>{
+  const h=await unclaimedHarness(()=>0);
+  await h.page.route('http://192.168.2.3:8102/**',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}));
+  const config={authorizationId:'33333333-3333-4333-8333-333333333333',keyName:'agent-desktop-hidden-chrome-20261009-2',
+    outputFile:'AgentDesktop_8102_API_Key_20261009_2.txt',allModels:true as const,maxOutputTokens:40000 as const,otherDefaults:true as const};
+  let opens=0;
+  const provider={id:h.provider.id,kind:h.provider.kind,capabilities:()=>h.provider.capabilities(),
+    discover:async()=>[{providerId:h.provider.id,environmentId:h.session.environmentId,kind:h.provider.kind}],
+    open:async()=>{opens++;return h.session;}};
+  const executor=new HiddenChromeTaskExecutor(h.provider,h.directory,config,()=>h.directory);
+  const sessions=new TaskDesktopSessions([provider],new Map([[provider.id,executor]]));
+  const assembly=await createRootAssembly({rootDir:h.directory,desktopSessions:sessions,
+    model:{createModel(){assert.fail('finite creation must not construct a model');}}});
+  const server=createDashboardServer(h.directory,assembly.controller);
+  await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));
+  const address=server.address();assert.ok(address&&typeof address!=='string');
+  const {chromium}=await import('playwright'),dashboardBrowser=await chromium.launch({headless:true});
+  const dashboard=await dashboardBrowser.newPage();
+  try {
+    const originalOutput=join(h.directory,'AgentDesktop_8102_API_Key.txt');await writeFile(originalOutput,'SYNTHETIC_OLD_KEY');
+    const options=await assembly.controller.desktopOptions();assert.equal(options[0]!.scenarios?.length,2);assert.equal(opens,0);
+    await dashboard.goto(`http://127.0.0.1:${address.port}`);
+    const value=JSON.stringify([provider.id,h.session.environmentId]);
+    await dashboard.waitForFunction(value=>[...(document.querySelector('#task-destination') as HTMLSelectElement).options].some(o=>o.value===value),value);
+    await dashboard.locator('#task-destination').selectOption(value);
+    await dashboard.locator('#task-scenario').selectOption(HIDDEN_CHROME_CREATE_SCENARIO);
+    await dashboard.locator('#task-submit').click();
+    await dashboard.waitForFunction(()=>/阶段：完成|BLOCKED/.test(document.querySelector('#scenario-status')?.textContent??''),undefined,{timeout:55000});
+    const runs=await (await fetch(`http://127.0.0.1:${address.port}/api/runs`)).json() as {runs:Array<{taskId:string}>};
+    const taskId=runs.runs[0]!.taskId,trace=new SqliteTrace(join(h.directory,'web-tasks.sqlite'));
+    const final=trace.load(taskId);trace.close();
+    const diagnostic=new SqliteTrace(join(h.directory,'.artifacts/web-tasks',taskId,'live-01/task.sqlite'));
+    const stopped=diagnostic.load(taskId);diagnostic.close();
+    assert.equal(final?.status,'done',JSON.stringify({outerError:final?.error,innerStatus:stopped?.status,
+      innerError:stopped?.error,innerSummary:stopped?.summary,lastAction:stopped?.lastAction,input:h.input.failure,nativeFailure:h.session.nativeFailure}));
+    assert.equal(opens,1);assert.equal(h.session.creationDispatched,true);assert.equal(h.session.keyFileSaved,true);
+    assert.equal(await readFile(join(h.directory,config.outputFile),'utf8'),seed+'\n');
+    assert.equal(await readFile(originalOutput,'utf8'),'SYNTHETIC_OLD_KEY');
+    const inner=new SqliteTrace(join(h.directory,'.artifacts/web-tasks',taskId,'live-01/task.sqlite'));
+    const accepted=inner.load(taskId);assert.equal(accepted?.acceptanceReport?.verdict,'pass');
+    assert.ok(accepted?.verifiedFiles?.length);assert.ok(!JSON.stringify(inner.events(taskId)).includes(seed));
+    assert.equal(inner.events(taskId).filter(e=>e.node==='execute'&&e.state.lastAction?.kind==='click'&&
+      e.state.lastAction.target.kind==='selector'&&e.state.lastAction.target.selector===KEY_SUBMIT_SELECTOR).length,1);inner.close();
+    const store=new WorkflowStore(join(h.directory,'workflows.sqlite'));
+    const candidates=store.list();store.close();assert.equal(candidates.length,1);assert.equal(candidates[0]!.status,'candidate');
+    assert.ok(!JSON.stringify(candidates).includes(seed));assert.ok(candidates[0]!.taskPattern.includes('{{keyName}}'));
+    assert.throws(()=>assembly.controller.submitWorkflow({id:candidates[0]!.id,version:candidates[0]!.version,
+      definitionHash:workflowDigest(candidates[0]!),destination:'browser',trial:true,
+      values:Object.fromEntries(candidates[0]!.inputs.map(input=>[input.name,input.example!]))}),/创建候选仅供查看/);
+    assert.ok(!JSON.stringify(final).includes(seed));assert.ok(!(await dashboard.locator('#scenario-facts').innerText()).includes(seed));
+    assert.throws(()=>assembly.controller.submitScenario({desktopTarget:options[0]!,scenarioId:HIDDEN_CHROME_CREATE_SCENARIO}),/authorization-unavailable/);
+    assert.equal((await assembly.controller.desktopOptions())[0]!.scenarios![1]!.availability,'unavailable');
+    assert.equal(h.native.stopped,true);
+  }finally{await dashboardBrowser.close();await new Promise<void>(done=>server.close(()=>done()));await assembly.dispose();await h.close();}
 });
