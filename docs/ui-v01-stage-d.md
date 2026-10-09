@@ -24,7 +24,19 @@
 
 生产后端变更只有新增前端静态 JS 文件的路由映射；Task / Workflow / Provider 接口、执行器、schema、Host/Guest 协议、Agent Loop、风险门、预算边界与输入租约没有改动。没有升级依赖或重构底层隔离。
 
+## 独立 Review 的 P1 / P2 限定修复
+
+[Review 5468397480](https://github.com/zlpoot/agent-desktop/pull/55#pullrequestreview-5468397480) 对首次候选 `e9af9d2e574423493eb38cbbe12f4a2f3cd6aaf8` 提出两项事实呈现问题。本次只修复这两项，在原分支更新 PR #55，等待新 HEAD 的独立限定复审。
+
+- P1：同一环境的所有匹配 Session 分别展示 ID、连接状态、创建及最近联系时间、错误，并显示数量。接口没有可靠活跃标识，故活跃归属为 UNKNOWN；不按首条、时间或 online 状态选「当前」。只有完全没有显式 Provider / Environment 字段的旧记录才按 legacy `vmId` 匹配 Hyper-V；显式冲突或部分身份不回退。
+- P2：未选择环境、读取中或首次配置读取失败时，应用四项事实显示「待选择 / 未读取配置（UNKNOWN）」。只有成功读取所选环境的配置为空时才显示 0 已确认 / 0 启动验证；已有确认及历史验证规则未改。
+- 新增一条合成 Browser 用例，使用旧管理器同样的创建时间升序：同一 `vmId` 早离线、晚在线，两条状态/时间/错误均可核对，活跃归属仍 UNKNOWN；显式与部分身份不能被 `vmId` 覆盖，Physical / Local 不继承 Guest 错误。仅 GET，零模型、Runtime、输入租约、扫描或启动，并复用七断点布局/焦点检查。
+- 既有应用管理用例补初始 UNKNOWN、首次读取 503 后 UNKNOWN、成功读取空配置后 0 的断言；保留全部发现、确认、验证及控制边界断言。
+- 新 HEAD `npm run check` PASS（`.ui-d-review-check.log`）；`node --import tsx --test tests/ui-v01-environments-settings.test.ts tests/app-management-ui.test.ts tests/dashboard-preflight-ui.test.ts` 定向合成 Browser **8/8 PASS**（`.ui-d-review-targeted.log`）。未重跑完整 CI 或首次候选的任务提交组合，未改后端、控制协议、schema 或权限。下方 23/23、7/7、13/13 是首次候选结果，不冒充新 HEAD 的重跑。
+
 ## 定向合成验证
+
+以下为首次候选 `e9af9d2` 的验证记录；限定修复新 HEAD 的结果单列于上一节。
 
 仅使用临时目录、合成数据及既有 FakeModel/FakeRuntime / 应用管理 fixture；真实 headless Chromium 访问临时 localhost 的生产 HTTP 路由。没有访问 8102、#48 私有 Key/Task/数据库/浏览器状态，没有新实机任务、真实模型调用或 Workflow 回放。
 

@@ -238,10 +238,11 @@ window.createAppManagement = (root, options = {}) => {
     phases.replaceChildren();
     const profiles = state?.registered || [];
     const confirmedProfiles = profiles.filter(app => app.validity === 'current' && app.confirmations.some(item => item.profileRevision === app.profileRevision && item.profileDigest === app.profileDigest));
-    for (const [title, fact] of [['发现', state?.candidates.length ? `${state.candidates.length} 个候选，尚需明确选择` : '尚无候选记录，不代表未安装'],
-      ['确认', `${confirmedProfiles.length} 个当前配置已确认；不授予业务输入`],
-      ['启动验证', `${confirmedProfiles.filter(app => app.trust === 'verified' && app.availability === 'available').length} 个当前配置有启动验证；仅为历史事实`],
-      ['业务操作', state?.readiness.businessCapable === true ? '后台声明可用；仍须当次目标、范围和授权检查' : 'not-proven · 尚未证明通用业务能力']]) {
+    const unread = environment.value ? '未读取配置（UNKNOWN）；请核对读取结果。' : '待选择环境 / 未读取配置（UNKNOWN）。';
+    for (const [title, fact] of [['发现', !state ? unread : state.candidates.length ? `${state.candidates.length} 个候选，尚需明确选择` : '尚无候选记录，不代表未安装'],
+      ['确认', !state ? unread : `${confirmedProfiles.length} 个当前配置已确认；不授予业务输入`],
+      ['启动验证', !state ? unread : `${confirmedProfiles.filter(app => app.trust === 'verified' && app.availability === 'available').length} 个当前配置有启动验证；仅为历史事实`],
+      ['业务操作', !state ? unread : state.readiness.businessCapable === true ? '后台声明可用；仍须当次目标、范围和授权检查' : 'not-proven · 尚未证明通用业务能力']]) {
       const card = node('div'); card.append(node('h3', title), node('p', fact)); phases.append(card);
     }
     for (const [item, reason] of [[scan, '需读取当前环境配置且后台声明 discovery；扫描不会启动。'], [manual, '需后台允许所选环境的路径发现；不从路径取得启动许可。'], [prepare, '需明确候选、当前配置与 controlledLaunch；查看后仍需单独确认启动。']]) item.title = item.disabled ? reason : '';

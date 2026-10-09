@@ -88,6 +88,39 @@ test('D directory keeps environment admission, Session and app phases separate; 
   } finally { release?.(); await browser.close(); await f.close(); }
 });
 
+test('D P1 preserves old offline and new online Sessions for one VM without choosing active ownership or overriding explicit identities', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const f = await managementFixture(); const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage(); const errors: string[] = []; let posts = 0;
+    page.on('pageerror', error => errors.push(error.message)); page.on('request', request => { if (request.method() === 'POST') posts++; });
+    // Same ascending creation order as the legacy API; later online is not proof of active ownership.
+    await page.route('**/api/desktop/sessions', route => route.fulfill({ json: { sessions: [
+      { sessionId: 'old-offline', vmId: 'a', status: 'offline', createdAt: '2026-01-01T00:00:00Z', lastSeenAt: '2026-01-01T01:00:00Z', lastError: 'synthetic-old-worker-timeout' },
+      { sessionId: 'new-online', vmId: 'a', status: 'online', createdAt: '2026-01-02T00:00:00Z', lastSeenAt: '2026-01-02T01:00:00Z' },
+      { sessionId: 'explicit-other-vm', providerId: 'hyper-v', environmentId: 'vm:b', vmId: 'a', status: 'offline' },
+      { sessionId: 'partial-provider', providerId: 'physical', vmId: 'a', status: 'offline' },
+      { sessionId: 'partial-environment', environmentId: 'vm:b', vmId: 'a', status: 'offline' },
+    ] } }));
+    await page.goto(`${f.base}/#/environments`); await page.locator('.environment-card').nth(3).waitFor();
+    const vm = page.locator('.environment-card').filter({ hasText: 'hyper-v / vm:a' });
+    assert.equal(await vm.locator('.environment-sessions li').count(), 2);
+    assert.match(await vm.innerText(), /2 条匹配 Session 记录.*活跃归属 UNKNOWN.*old-offline.*连接 offline.*2026-01-01T00:00:00Z.*2026-01-01T01:00:00Z.*synthetic-old-worker-timeout.*new-online.*连接 online.*2026-01-02T00:00:00Z.*2026-01-02T01:00:00Z/s);
+    assert.doesNotMatch(await vm.innerText(), /explicit-other-vm|partial-provider|partial-environment/);
+    const other = page.locator('.environment-card').filter({ hasText: 'hyper-v / vm:b' });
+    assert.equal(await other.locator('.environment-sessions li').count(), 1);
+    assert.match(await other.innerText(), /explicit-other-vm/); assert.doesNotMatch(await other.innerText(), /old-offline|new-online|partial-/);
+    for (const identity of ['physical / host', 'local-workspace / hidden']) {
+      const card = page.locator('.environment-card').filter({ hasText: identity });
+      assert.match(await card.innerText(), /Session：未记录匹配绑定.*UNKNOWN/s);
+      assert.doesNotMatch(await card.innerText(), /old-offline|new-online|synthetic-old-worker-timeout|explicit-other-vm|partial-/);
+    }
+    await layouts(page, 'environments');
+    assert.equal(posts, 0); assert.deepEqual(errors, []); assert.deepEqual(f.counts(), { models: 0, runtime: 0, leases: 0 });
+    assert.ok(f.backends.every(item => item.scans === 0 && item.starts === 0));
+  } finally { await browser.close(); await f.close(); }
+});
+
 test('D settings show actual scope, fail closed on read/save errors, keep drafts and focus, and never save unsupported settings', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const f = await managementFixture(); const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });

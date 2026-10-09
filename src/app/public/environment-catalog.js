@@ -23,11 +23,20 @@ window.createEnvironmentCatalog = (root, openApps) => {
       const card = el('article', '', 'environment-card panel');
       card.append(el('h2', item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : kinds[item.kind] || '未知环境类型'), el('p', `${item.providerId} / ${item.environmentId}`, 'environment-identity'),
         el('p', item.executable ? '通用任务接口：允许提交；运行前仍须后台检查。' : `通用任务接口：未开放。${item.blockedReason || '未记录具体原因'}`));
-      // The legacy Guest API carries vmId; match the exact registered Hyper-V identity only.
-      const bound = sessions.find(session => session.providerId === item.providerId && session.environmentId === item.environmentId ||
-        item.providerId === 'hyper-v' && item.kind === 'virtual-machine' && session.vmId && item.environmentId === `vm:${session.vmId}`);
-      card.append(el('p', bound ? `已记录 Session：${bound.sessionId} · 连接 ${bound.status || '未知'}${bound.lastError ? ' · ' + bound.lastError : ''}；不代表窗口与输入许可就绪。` : `Session：未记录匹配绑定，连接状态 UNKNOWN。${sessionError}`),
-        el('p', 'Target readiness / 输入权：目录未提供当次目标证明，不能从环境类型、通用准入或其它 Guest 状态推断。'));
+      // Records do not expose active ownership. Preserve every match; never pick a current Session.
+      const bound = sessions.filter(session => {
+        if (Object.hasOwn(session, 'providerId') || Object.hasOwn(session, 'environmentId')) {
+          return session.providerId === item.providerId && session.environmentId === item.environmentId;
+        }
+        return item.providerId === 'hyper-v' && item.kind === 'virtual-machine' && session.vmId && item.environmentId === `vm:${session.vmId}`;
+      });
+      card.append(el('p', bound.length ? `${bound.length} 条匹配 Session 记录；活跃归属 UNKNOWN，不能从记录顺序或连接状态判定当前 Session。` : `Session：未记录匹配绑定，连接状态 UNKNOWN。${sessionError}`));
+      if (bound.length) {
+        const history = el('ul', '', 'environment-sessions'); history.setAttribute('aria-label', '匹配 Session 记录');
+        for (const session of bound) history.append(el('li', `已记录 Session：${session.sessionId} · 连接 ${session.status || '未知'} · 创建：${session.createdAt || '未记录'} · 最近联系：${session.lastSeenAt || '未记录'}${session.lastError ? ' · 错误：' + session.lastError : ''}`));
+        card.append(history);
+      }
+      card.append(el('p', 'Target readiness / 输入权：目录未提供当次目标证明，不能从环境类型、通用准入、Session 连接状态或其它 Guest 状态推断。'));
       const scenes = el('ul', '', 'environment-scenarios');
       for (const scene of item.scenarios || []) scenes.append(el('li', `${scene.label} · ${states[scene.availability] || '状态未知'} (${scene.availability})${scene.reason ? ' · ' + scene.reason : ''}`));
       card.append(el('h3', '有限场景声明'), scenes);
