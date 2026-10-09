@@ -8,7 +8,7 @@ window.createRuntimePlugins = function (container) {
   const plugins = el('div', '', 'runtime-cards');
   const extensions = el('div', '', 'runtime-cards');
   container.append(refresh, status, el('h2', 'Cordis 插件'),
-    el('p', '状态来自实际 Fiber。active 表示插件装载完成；Worker 是否在线请查看桌面页。'), plugins,
+    el('p', '状态来自实际 Fiber。active 表示插件装载完成；Session 与目标就绪情况请查看环境与应用页。'), plugins,
     el('h2', '业务扩展 · ExtensionRegistry'), el('p', '这些扩展由基础设施插件持有，尚未拆成独立 Cordis 插件。'), extensions);
   const descriptions = { infrastructure: '基础设施：桌面、模型、存储与扩展注册表', taskController: '任务控制：提交、队列与恢复入口', taskRecovery: '启动恢复：检查并恢复已有任务状态' };
   const labels = { pending: '等待依赖', loading: '装载中', active: '已装载', failed: '装载失败', disposed: '已卸载', unloading: '卸载中', unknown: '未知' };

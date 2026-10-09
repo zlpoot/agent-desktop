@@ -821,7 +821,7 @@ function showDesktopSession(session) {
       ? "离线 · Worker 连接超时" : `离线 · ${session.lastError || "Worker 未响应"}` : "连接中";
   if (session?.status !== "online" && byId("desktop-frame").hidden) {
     byId("desktop-placeholder").textContent = workerTimeout
-      ? "请确认虚拟机已登录，并在虚拟机内检查 AgentDesktop Worker 计划任务。"
+      ? "当前 Guest Worker 连接超时；请核对该 Session 的登录与 Worker，不据此判断其它环境。"
       : "等待 Desktop Worker 连接";
   }
   byId("desktop-session-id").textContent = `Session：${session?.sessionId || "—"}`;
@@ -834,7 +834,7 @@ async function refreshDesktop() {
     if (!response.ok) throw new Error("无法读取 Desktop Session");
     const sessions = (await response.json()).sessions;
     const session = sessions.find((item) => item.sessionId === desktopSessionId) || sessions[0];
-    if (!session) { byId("desktop-status").textContent = "未配置 VM"; return; }
+    if (!session) { byId("desktop-status").textContent = "未记录 Guest Session；其它环境请查看目录"; return; }
     showDesktopSession(session);
     if (desktopSocket && desktopSessionId === session.sessionId &&
       [WebSocket.OPEN, WebSocket.CONNECTING].includes(desktopSocket.readyState)) return;
@@ -883,7 +883,8 @@ async function refreshVm() {
     const response = await fetch("/api/desktop/vm");
     const result = await response.json();
     if (!result.configured) {
-      byId("desktop-vm-state").textContent = "虚拟机：未配置";
+      byId("desktop-vm-state").textContent = "Guest VM 管理：未配置；不代表其它环境不可用";
+      byId("desktop-vm-start").hidden = byId("desktop-vm-console").hidden = true;
       return;
     }
     if (!response.ok) throw new Error(result.error || "无法读取虚拟机状态");

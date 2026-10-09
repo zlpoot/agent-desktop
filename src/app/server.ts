@@ -656,6 +656,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         "/workbench.css": ["workbench.css", "text/css; charset=utf-8"],
         "/workflow-library.js": ["workflow-library.js", "text/javascript; charset=utf-8"],
         "/app-management.js": ["app-management.js", "text/javascript; charset=utf-8"],
+        "/environment-catalog.js": ["environment-catalog.js", "text/javascript; charset=utf-8"],
         "/dashboard-preflight.js": ["dashboard-preflight.js", "text/javascript; charset=utf-8"],
         "/runtime-plugins.js": ["runtime-plugins.js", "text/javascript; charset=utf-8"],
       };

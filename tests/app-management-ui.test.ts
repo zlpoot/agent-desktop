@@ -13,10 +13,22 @@ test('Browser application page requires explicit environment and candidate, hand
     await page.goto(`${f.base}/#/apps`);
     await page.waitForFunction(() => (document.querySelector('#apps-environment') as HTMLSelectElement)?.options.length === 5);
     assert.equal(await page.locator('#apps-environment').inputValue(), ''); assert.equal(requests.length, 0);
+    const phases = page.locator('#apps-phases');
+    assert.match(await phases.innerText(), /待选择环境.*UNKNOWN/s);
+    assert.doesNotMatch(await phases.innerText(), /0 个当前配置/);
     const root = page.locator('#app-management'), scan = root.getByRole('button', { name: '扫描 / 重扫', exact: true });
     assert.equal(await scan.isDisabled(), true); assert.ok(f.backends.every(item => item.scans === 0 && item.starts === 0));
+    await page.route('**/api/desktop/apps', route => route.request().postDataJSON().action === 'open'
+      ? route.fulfill({ status: 503, json: { error: 'synthetic configuration unavailable' } }) : route.continue());
+    await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:a']));
+    await page.locator('#apps-status').getByText(/环境管理不可用/).waitFor();
+    assert.match(await phases.innerText(), /未读取配置（UNKNOWN）/);
+    assert.doesNotMatch(await phases.innerText(), /0 个当前配置/);
+    assert.equal(await scan.isDisabled(), true); assert.ok(f.backends.every(item => item.scans === 0 && item.starts === 0));
+    await page.unroute('**/api/desktop/apps'); await page.locator('#apps-environment').selectOption('');
     await page.locator('#apps-environment').selectOption(JSON.stringify(['hyper-v', 'vm:a']));
     await page.waitForFunction(() => document.querySelector('#apps-status')?.textContent?.includes('配置已读取'));
+    assert.match(await phases.innerText(), /0 个当前配置已确认.*0 个当前配置有启动验证/s);
     assert.equal(f.backends[0].scans, 0);
     await scan.click(); await page.waitForFunction(() => (document.querySelector('#apps-candidate') as HTMLSelectElement)?.options.length === 2);
     assert.equal(await page.locator('#apps-candidate').inputValue(), ''); assert.equal(f.backends[0].starts, 0);
@@ -25,8 +37,10 @@ test('Browser application page requires explicit environment and candidate, hand
     await prepare.click();
     const confirm = root.getByRole('button', { name: '确认并验证启动', exact: true }); await confirm.waitFor();
     assert.equal(f.backends[0].starts, 0); assert.match(await root.innerText(), /discovered.*confirmed: false.*launch-verified: false/s);
+    assert.match(await page.locator('#apps-phases').innerText(), /1 个候选.*0 个当前配置已确认.*0 个当前配置有启动验证.*not-proven/s);
     await confirm.click(); await page.waitForFunction(() => document.querySelector('#apps-registered')?.textContent?.includes('launch-verified: true'));
     assert.equal(f.backends[0].starts, 1); assert.match(await root.innerText(), /business-capable: not-proven/);
+    assert.match(await page.locator('#apps-phases').innerText(), /1 个当前配置已确认.*1 个当前配置有启动验证.*仅为历史事实.*not-proven/s);
     assert.equal(await prepare.isDisabled(), true);
     assert.match(await page.locator('#apps-identity').innerText(), /无需重复确认/);
     assert.equal(requests.filter(item => item.action === 'confirm').length, 1);
