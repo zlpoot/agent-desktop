@@ -65,6 +65,23 @@
 .task-runtime-summary { font-size:12px; line-height:1.8; white-space:pre-line; overflow-wrap:anywhere; color:var(--ui-muted); }
 .unsupported-task-controls { display:flex; flex-wrap:wrap; gap:8px; }.unsupported-task-controls button { background:#1b2e3e; color:var(--ui-muted); border:1px solid var(--ui-line); border-radius:8px; padding:8px; }
 .workspace-recent-list { display:grid; gap:8px; }.workbench .home-run { width:100%; }
+/* D: directory, app facts and settings share the existing shell tokens. */
+.environment-catalog { margin-bottom:24px; }.environment-catalog h1 { font-size:24px; }.environment-catalog > p { color:var(--ui-muted); line-height:1.8; }
+.catalog-toolbar { display:flex; flex-wrap:wrap; gap:10px; margin:16px 0; }.catalog-toolbar input { flex:1 1 200px; }.catalog-toolbar select { flex:1 1 180px; }
+.environment-catalog input,.environment-catalog select { min-width:0; max-width:100%; color:var(--ui-text); background:var(--ui-surface); border:1px solid var(--ui-line); border-radius:8px; padding:10px; }
+.environment-catalog button,.workspace-settings button { padding:9px 12px; border:1px solid var(--ui-line); border-radius:8px; background:#24453f; color:var(--ui-text); cursor:pointer; }
+.workbench button:disabled { cursor:default; }.environment-catalog button:disabled,.workspace-settings button:disabled { background:var(--ui-surface); color:var(--ui-muted); }
+.environment-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); gap:14px; margin-top:16px; }
+.environment-card { padding:18px; min-width:0; }.environment-card h2 { font-size:18px; }.environment-card h3 { font-size:13px; margin-top:18px; }.environment-card p,.environment-card li { font-size:12px; line-height:1.8; overflow-wrap:anywhere; color:var(--ui-muted); }
+.environment-identity { white-space:pre-wrap; }.environment-scenarios { padding-left:18px; }.capability-legend { font-size:12px; line-height:1.8; color:var(--ui-muted); }
+.workspace-settings { padding:20px; }.settings-nav { display:flex; flex-wrap:wrap; gap:10px; }.settings-nav [aria-current=page] { border-color:var(--ui-accent); }
+.settings-config-note { margin-top:20px; }.settings-config-note > .operation-feedback { display:block; margin-top:12px; }
+.planned-settings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }.planned-settings > h2 { grid-column:1/-1; }.planned-setting { padding:14px; border:1px solid var(--ui-line); border-radius:8px; min-width:0; }.planned-setting h3 { font-size:14px; }
+.apps-phases { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }.apps-phases > div { border:1px solid var(--ui-line); border-radius:8px; padding:12px; min-width:0; }.apps-phases h3 { font-size:13px; margin:0; }.apps-phases p { font-size:12px; line-height:1.8; color:var(--ui-muted); }
+.workbench .workspace-apps p,.workbench .workspace-settings p,.apps-profile pre { overflow-wrap:anywhere; }
+.workbench [aria-invalid=true] { border-color:#ffb5af; }
+@media(max-width:1100px) { .apps-phases { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .planned-settings,.apps-phases { grid-template-columns:1fr; }.catalog-toolbar > * { width:100%; }.environment-card button { width:100%; } }
 /* C: shared result facts and fixed-version Workflow, without new execution state. */
 .run-identity,.run-environment { display:block; white-space:pre-line; overflow-wrap:anywhere; color:var(--ui-muted); font-size:11px; margin-top:8px; }
 .task-outcome-summary { padding:18px; margin:16px 0; overflow-wrap:anywhere; }

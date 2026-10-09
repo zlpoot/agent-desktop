@@ -15,6 +15,7 @@ window.createAppManagement = (root, options = {}) => {
   const confirmation = node('section', '', 'apps-confirmation');
   const registered = node('div', '', 'apps-registered');
   const capability = node('p', '', 'apps-capability');
+  const phases = node('section', '', 'apps-phases'); phases.className = 'apps-phases'; phases.setAttribute('aria-label', '应用接入事实');
   const capabilityDetails = node('section', '', 'apps-capability-details'); capabilityDetails.hidden = true;
   const lookup = (table, key) => Object.hasOwn(table, key) ? table[key] : undefined;
   const search = node('input', '', 'apps-search'); search.placeholder = '输入应用名称筛选已扫描结果，不会再次扫描'; search.setAttribute('aria-label', '筛选已扫描应用');
@@ -136,7 +137,7 @@ window.createAppManagement = (root, options = {}) => {
     '旧 JSON 由可信操作员使用 P7-A importLegacyApps，明确指定环境和来源；导入仅为 discovered，仍需检查、确认与验证。不要把 JSON 上传到普通 Task 接口。',
     '当前合成验收 NOT LIVE-VERIFIED；A5 safety FAIL / Windows PAUSED / overall INCOMPLETE。',
   ]) help.append(node('p', text));
-  root.append(node('h1', '应用管理'), environment, status, capability, controls, path, capabilityDetails,
+  root.append(node('h1', '应用管理'), node('p', '应用发现、明确确认、历史启动验证与业务操作分别记录；路径和身份详情仅供本机核对。'), environment, status, phases, capability, controls, path, capabilityDetails,
     node('h2', '发现候选'), search, reportView, candidates, identity, confirmation, node('h2', '已注册配置与验证历史'), registered, help);
   const launchText = spec => spec.kind === 'package'
     ? `启动类型：MSIX/AppX（没有适配时不可启动）\n包身份：${spec.packageFamilyName}\n应用标识：${spec.applicationUserModelId}`
@@ -234,6 +235,16 @@ window.createAppManagement = (root, options = {}) => {
     identity.textContent = selected ? `名称：${selected.candidate.displayName}\n别名：${selected.candidate.aliases.join('、') || '无'}\n版本：${selected.version || '未知'} · 发布者：${selected.publisher || '未知'}\n来源：${readonlyDiscovery ? sourceText(selected.sources) : selected.sources.join('、')}\n安装实例：${selected.candidate.installationId}\n${launchText(selected.candidate.launchSpec)}\n状态：${readonlyDiscovery ? '仅发现，尚未确认、注册或启动' : 'discovered（仅发现，尚未确认此候选）'}\n限制：${readonlyDiscovery ? '扫描不能证明业务能力、运行状态或启动许可；路径与身份详情仅供本机核对。' : selected.limitation || '业务能力仍须独立证明'}` : '';
     if (existing) identity.textContent += '\n已保存同一配置：无需重复确认，请使用下方配置的重新验证启动。';
     prepare.disabled = preflight || !selected || busy || !state?.readiness.controlledLaunch || !!existing;
+    phases.replaceChildren();
+    const profiles = state?.registered || [];
+    const confirmedProfiles = profiles.filter(app => app.validity === 'current' && app.confirmations.some(item => item.profileRevision === app.profileRevision && item.profileDigest === app.profileDigest));
+    for (const [title, fact] of [['发现', state?.candidates.length ? `${state.candidates.length} 个候选，尚需明确选择` : '尚无候选记录，不代表未安装'],
+      ['确认', `${confirmedProfiles.length} 个当前配置已确认；不授予业务输入`],
+      ['启动验证', `${confirmedProfiles.filter(app => app.trust === 'verified' && app.availability === 'available').length} 个当前配置有启动验证；仅为历史事实`],
+      ['业务操作', state?.readiness.businessCapable === true ? '后台声明可用；仍须当次目标、范围和授权检查' : 'not-proven · 尚未证明通用业务能力']]) {
+      const card = node('div'); card.append(node('h3', title), node('p', fact)); phases.append(card);
+    }
+    for (const [item, reason] of [[scan, '需读取当前环境配置且后台声明 discovery；扫描不会启动。'], [manual, '需后台允许所选环境的路径发现；不从路径取得启动许可。'], [prepare, '需明确候选、当前配置与 controlledLaunch；查看后仍需单独确认启动。']]) item.title = item.disabled ? reason : '';
     capability.textContent = state ? `${state.scope.providerId} / ${state.scope.environmentId} · 安装域 ${state.scope.installationScopeId}\n发现适配：${state.readiness.discovery}；受控启动端口：${state.readiness.controlledLaunch}；Task 兼容准入：${state.readiness.taskCompatibility} ${state.readiness.blockedReason || ''}\nBusiness-capable：not-proven。启动验证不会升级 P6 业务证据；Task 仍需可信 bridge，以及原有能力、风险、预算、输入权和独立结果验证。\nP6 有限场景（仍需独立准入）：${state.readiness.scenarios.map(item => `${item.label}：${item.availability} ${item.reason || ''} · ${item.application || '限定应用'} ${item.applicationVersion || '限定版本'}`).join('；') || '无已装配场景'}\n安装来源：${state.report?.installationOrigin || '尚未扫描'}\n扫描来源覆盖：${state.report?.coverage.map(item => `${item.source}：${item.status} ${item.reason || ''}`).join('；') || '尚无来源覆盖记录'}` : '';
     capabilityDetails.replaceChildren(); capabilityDetails.hidden = true;
     if (state?.preflight) {
@@ -285,6 +296,7 @@ window.createAppManagement = (root, options = {}) => {
       const details = node('details'); details.append(node('summary', '安装身份、配置与历史（可信操作员）'), node('pre', JSON.stringify(app, null, 2))); card.append(details);
       const verify = button('重新验证启动（允许受控启动）', () => act('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true }), card);
       verify.disabled = busy || !confirmed || !state.readiness.controlledLaunch;
+      verify.title = verify.disabled ? '需当前确认及后台受控启动适配；历史验证不授予新启动权限。' : '将显式请求受控启动验证，不授予业务操作。';
       const revoke = button('撤销注册', () => act('revoke', { appBindingId: app.appBindingId, expectedRevision: app.revision }), card);
       revoke.disabled = preflight || busy || app.validity === 'revoked';
       registered.append(card);
@@ -293,8 +305,11 @@ window.createAppManagement = (root, options = {}) => {
   candidates.onchange = render; search.oninput = render; environment.onchange = () => { void select(); };
   window.addEventListener('pagehide', () => reset());
   render();
-  return { async load() {
-    if (loaded) return; loaded = true;
+  let loading;
+  async function load() {
+    if (loaded) return;
+    if (loading) return loading;
+    loading = (async () => {
     environment.replaceChildren(node('option', '请选择执行环境')); environment.firstChild.value = '';
     try {
       const response = await fetch('/api/desktop/environments'); const result = await response.json();
@@ -305,6 +320,18 @@ window.createAppManagement = (root, options = {}) => {
           : `${kindLabel} · ${item.environmentId}${item.blockedReason ? ` · ${item.blockedReason}` : ''}`);
         option.value = JSON.stringify([item.providerId, item.environmentId]); environment.append(option);
       }
+      loaded = true;
     } catch (error) { loaded = false; status.textContent = `读取环境失败：${error.message}`; }
+    finally { loading = undefined; }
+    })();
+    return loading;
+  }
+  return { load, async selectEnvironment(scope) {
+    const current = version; await load();
+    if (current !== version) return;
+    const value = JSON.stringify([scope.providerId, scope.environmentId]);
+    if (!loaded || ![...environment.options].some(option => option.value === value)) { status.textContent = '此环境不在应用目录中，请刷新并重新选择。'; return; }
+    environment.value = value; const selection = select(); const selectedVersion = version; await selection;
+    if (version === selectedVersion) environment.focus();
   }, leave() { reset(); } };
 };

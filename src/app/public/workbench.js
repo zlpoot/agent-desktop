@@ -88,7 +88,7 @@ window.Workbench = (() => {
   homeLayout.append(homeMain, idleContext); home.append(homeHeader, homeLayout); taskPane.prepend(home);
   const desktopPage = create('section', 'workspace-desktop'); desktopPage.append(desktop); main.append(desktopPage);
   const connectionPanel = create('section', 'desktop-overview panel'); connectionPanel.setAttribute('aria-label', '连接检查');
-  const connectionTitle = create('h1', '', '环境连接与能力');
+  const connectionTitle = create('h2', '', '当前 Guest Session · 连接与控制');
   const connectionSummary = create('p', '', '正在读取连接状态'); connectionSummary.setAttribute('role', 'status');
   const recoveryHint = create('p', 'desktop-recovery-hint');
   const checkConnection = create('button', '', '刷新连接状态'); checkConnection.type = 'button';
@@ -142,7 +142,7 @@ window.Workbench = (() => {
   configNote.append(create('h2', '', '任务运行配置'), create('p', '', '全局预算是新任务的默认值；工作台可为单次任务覆盖。执行位置在提交时选择。'));
   settings.append(configNote);
   const budgetPanel = create('section', 'settings-config-note');
-  budgetPanel.append(create('h2', '', '全局模型预算'), create('p', '', '分别限制 DeepSeek 与 JEV。调用次数在请求前硬限制；Token 按服务返回用量累计，到限后拦截下一次调用。已提交任务使用提交时的预算快照。'));
+  budgetPanel.append(create('h2', '', '全局模型预算'), create('p', '', '来源：本机预算 API；读取确认后可保存。分别限制 DeepSeek 与 JEV，已提交任务使用提交时的预算快照；不配置模型连接或开放额外能力。'));
   const budgetFields = {};
   for (const [kind, label] of [['deepseek', 'DeepSeek'], ['jev', 'JEV']]) {
     const group = create('div', 'budget-row'); group.append(create('strong', '', label));
@@ -155,36 +155,64 @@ window.Workbench = (() => {
     budgetPanel.append(group);
   }
   const saveBudget = create('button', '', '保存全局预算'); saveBudget.type = 'button';
-  const budgetMessage = create('span', ''); budgetMessage.setAttribute('role', 'status');
-  budgetPanel.append(saveBudget, budgetMessage); settings.append(budgetPanel);
-  fetch('/api/settings/task-budget').then(response => response.json()).then(data => {
-    if (!data.budget) throw new Error(data.error || '无法读取预算');
-    for (const [path, input] of Object.entries(budgetFields)) {
-      const [kind, key] = path.split('.'); input.value = String(data.budget[kind][key]);
-    }
-  }).catch(error => { budgetMessage.textContent = `预算读取失败：${error.message || error}`; });
+  const budgetMessage = create('span', 'operation-feedback'); budgetMessage.id = 'global-budget-message'; budgetMessage.setAttribute('role', 'status');
+  const readBudget = create('button', '', '重新读取全局预算'); readBudget.type = 'button';
+  budgetPanel.append(saveBudget, readBudget, budgetMessage); settings.append(budgetPanel);
+  let budgetLoaded = false, budgetLoading = false, budgetSaving = false;
+  for (const input of Object.values(budgetFields)) input.setAttribute('aria-describedby', budgetMessage.id);
+  async function loadBudget() {
+    if (budgetLoading || budgetSaving) return;
+    budgetLoaded = false; budgetLoading = true; saveBudget.disabled = readBudget.disabled = true;
+    for (const input of Object.values(budgetFields)) input.disabled = true;
+    budgetMessage.dataset.state = 'loading'; budgetMessage.textContent = '正在读取本机预算…';
+    try {
+      const response = await fetch('/api/settings/task-budget'); const data = await response.json();
+      if (!response.ok || !data.budget) throw new Error(data.error || '无法读取预算');
+      for (const path of Object.keys(budgetFields)) {
+        const [kind, key] = path.split('.'); const value = data.budget[kind]?.[key];
+        if (!Number.isSafeInteger(value) || value < 1 || value > 1000000) throw new Error('预算响应无效');
+      }
+      for (const [path, input] of Object.entries(budgetFields)) { const [kind, key] = path.split('.'); input.value = String(data.budget[kind][key]); input.removeAttribute('aria-invalid'); }
+      budgetLoaded = true; budgetMessage.dataset.state = 'success'; budgetMessage.textContent = '已读取本机生效的默认预算；编辑内容须保存后才生效。';
+    } catch (error) { budgetMessage.dataset.state = 'error'; budgetMessage.textContent = `预算读取失败：${error.message || error}。保存禁用，可重新读取；现有输入保留。`; }
+    finally { budgetLoading = false; readBudget.disabled = false; saveBudget.disabled = !budgetLoaded; for (const input of Object.values(budgetFields)) input.disabled = false; }
+  }
+  readBudget.onclick = loadBudget; void loadBudget();
+  for (const input of Object.values(budgetFields)) input.oninput = () => { input.removeAttribute('aria-invalid'); budgetMessage.dataset.state = 'pending'; budgetMessage.textContent = '尚未保存；本次编辑不改变已提交任务。'; };
   saveBudget.onclick = async () => {
+    if (!budgetLoaded || budgetSaving || budgetLoading) return;
     const budget = { deepseek: {}, jev: {} };
     for (const [path, input] of Object.entries(budgetFields)) {
       const [kind, key] = path.split('.'); const value = input.value.trim();
       if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1000000) {
-        budgetMessage.textContent = '预算必须是 1 到 1000000 的整数'; return;
+        budgetMessage.dataset.state = 'error'; budgetMessage.textContent = '预算必须是 1 到 1000000 的整数'; input.setAttribute('aria-invalid', 'true'); input.focus(); return;
       }
       budget[kind][key] = Number(value);
     }
-    saveBudget.disabled = true;
+    budgetSaving = true; saveBudget.disabled = readBudget.disabled = true;
+    for (const input of Object.values(budgetFields)) input.disabled = true;
     try {
       const response = await fetch('/api/settings/task-budget', { method: 'PUT',
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(budget) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || '保存失败');
+      if (Object.keys(budgetFields).some(path => { const [kind, key] = path.split('.'); return result.budget?.[kind]?.[key] !== budget[kind][key]; })) throw new Error('保存响应与本次预算不匹配，请核对配置');
       budgetMessage.textContent = '已保存，后续新任务将使用这些默认值';
+      budgetMessage.dataset.state = 'success';
       document.dispatchEvent(new Event('workbench:budget-updated'));
-    } catch (error) { budgetMessage.textContent = `保存失败：${error.message || error}`; }
-    finally { saveBudget.disabled = false; }
+    } catch (error) { budgetMessage.dataset.state = 'error'; budgetMessage.textContent = `保存未确认：${error.message || error}。输入保留，请先核对本机配置，不自动重试。`; }
+    finally { budgetSaving = false; saveBudget.disabled = !budgetLoaded; readBudget.disabled = false; for (const input of Object.values(budgetFields)) input.disabled = false; }
   };
+  const plannedSettings = create('section', 'planned-settings settings-config-note'); plannedSettings.append(create('h2', '', '待接入设置 · 未保存'));
+  for (const [name, reason] of [['模型与 Provider', '模型连接与凭证编辑 API 未接通；任务中的模型名称不是本页配置证明。'], ['默认模式与环境', '工作台仍须明确选择；没有默认偏好保存接口。'], ['权限与文件隐私', '权限和文件策略由现有后台配置；本页不能修改或扩大许可。'], ['外观', '当前使用现有深色样式；主题写入接口未实现。']]) {
+    const card = create('section', 'planned-setting'); const disabled = create('button', '', `保存${name}`); disabled.type = 'button'; disabled.disabled = true; disabled.title = reason;
+    card.append(create('h3', '', name), create('p', '', `待后端接入 · ${reason}`), disabled); plannedSettings.append(card);
+  }
+  settings.append(plannedSettings);
   settings.append($('prompt-editor')); main.append(settings);
   const appsPage = create('section', 'workspace-apps panel'); main.append(appsPage);
   const appManagement = window.createAppManagement(appsPage);
+  const catalogPanel = create('section', ''); desktopPage.prepend(catalogPanel);
+  const environmentCatalog = window.createEnvironmentCatalog(catalogPanel, scope => { navigate('apps'); void appManagement.selectEnvironment(scope); });
   const environmentsPage = create('section', 'workspace-environments');
   const environmentTabs = create('nav', 'environment-tabs'); environmentTabs.setAttribute('aria-label', '环境与应用视图');
   const environmentTab = create('button', '', '环境'), appsTab = create('button', '', '已接入应用');
@@ -195,14 +223,14 @@ window.Workbench = (() => {
   const runtimePanel = create('section', 'workspace-library runtime-panel'); main.append(runtimePanel);
   const runtimePlugins = window.createRuntimePlugins(runtimePanel);
   const settingsNav = create('nav', 'settings-nav'); settingsNav.setAttribute('aria-label', '设置分类');
-  const promptTab = create('button', '', '提示词配置'); promptTab.type = 'button'; promptTab.onclick = () => navigate('settings');
+  const promptTab = create('button', '', '预算与提示词'); promptTab.type = 'button'; promptTab.onclick = () => navigate('settings');
   const pluginTab = create('button', '', '插件与扩展'); pluginTab.type = 'button'; pluginTab.onclick = () => navigate('plugins');
   settingsNav.append(promptTab, pluginTab); settings.querySelector('h1').after(settingsNav);
   settings.append(runtimePanel);
   const frameLabel = create('div', 'frame-freshness', '等待实时画面');
   frameLabel.setAttribute('role', 'status');
   desktop.querySelector('.desktop-screen').before(frameLabel);
-  desktop.querySelector('.section-head h2').textContent = '当前桌面';
+  desktop.querySelector('.section-head h2').textContent = '当前 Guest Session 画面';
   const diagnostic = create('details', 'desktop-diagnostics');
   diagnostic.append(create('summary', '', '连接与控制诊断'));
   diagnostic.append($('desktop-connection-state'), desktop.querySelector('details'), desktop.querySelector('.desktop-meta'));
@@ -239,6 +267,7 @@ window.Workbench = (() => {
     if (next === 'live') composer.prepend($('task-message'));
     else taskPane.prepend($('task-message'));
     appsPage.hidden = next !== 'apps';
+    if (next === 'desktop') void environmentCatalog.load(); else environmentCatalog.leave();
     if (next === 'apps') void appManagement.load();
     else appManagement.leave();
     library.hidden = next !== 'workflows';
@@ -247,7 +276,8 @@ window.Workbench = (() => {
     $('prompt-editor').hidden = next !== 'settings';
     configNote.hidden = next !== 'settings';
     budgetPanel.hidden = next !== 'settings';
-    settingsIntro.textContent = next === 'plugins' ? '查看 Host 当前装载的插件、依赖与扩展能力。' : '设置新任务的全局模型预算和提示词；已有任务保留提交时的预算。';
+    plannedSettings.hidden = next !== 'settings';
+    settingsIntro.textContent = next === 'plugins' ? '来源：当前 Host 装配；此页只读取插件、依赖与扩展状态。' : '本机可保存：默认预算与提示词。待接入项不生效、不伪保存；已有任务保留其预算快照。';
     promptTab.setAttribute('aria-current', next === 'settings' ? 'page' : 'false');
     pluginTab.setAttribute('aria-current', next === 'plugins' ? 'page' : 'false');
     historyList.hidden = next !== 'history';
