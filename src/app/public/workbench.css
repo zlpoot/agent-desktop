@@ -1,4 +1,4 @@
-.workbench .shell{grid-template-columns:224px minmax(0,1fr);height:100dvh;min-height:0}
+.workbench .shell{display:grid;grid-template-columns:224px minmax(0,1fr);height:100dvh;min-height:0}
 .runtime-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px;margin:18px 0 26px}.runtime-card{padding:18px;overflow-wrap:anywhere}.runtime-card h3{margin:0 0 12px;font-size:16px}.runtime-card p{margin:8px 0}.runtime-card .runtime-state.active{color:#89dbb9}.runtime-card .runtime-state.failed{color:#f09ba0}.runtime-panel>button{background:#254b42;border:1px solid #588b7c;border-radius:8px;color:#d2f4e7;padding:9px 15px;cursor:pointer}
 .workspace-library{overflow:auto;min-height:0;padding:4px 0 20px}.workspace-library h1{font-size:22px}.workspace-library p{font-size:13px;color:#aabfce;line-height:1.7}
 .workflow-step-preview{padding-left:24px}.workflow-step-preview li{padding:10px 0;border-bottom:1px solid #30414f;overflow-wrap:anywhere}.workflow-step-preview strong{font-size:14px;font-weight:500;white-space:pre-wrap}
