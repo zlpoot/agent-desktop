@@ -159,3 +159,13 @@ Owner 随后实际点击创建，Task `ce3a52e9-a645-463b-aca2-cb8d9b04536d` 于
 本次尚未使用的新增一次创建许可可在停止 Dashboard 后由操作者显式对账：同时证明绑定 Task、未提交事件、无 intent、新 TXT 不存在、所属 Job / Desktop 清理完成，归档旧 reservation 与对账证据，再保留同一授权 ID / 名称 / 新文件用于 Owner 手动新建 Task。没有修改旧 Task、生成额外授权或自动重试；该操作不是产品的自动释放逻辑。只要存在 intent、提交动作、文件、未知动作或清理不确定，就禁止此对账。修正后的真实创建仍待 Owner 手动验证，PR 保持独立 Review。
 
 2026-10-09 12:46 已完成上述一次本机对账：停止无活动 Task 的本仓库 Dashboard，确认所属 Chrome 进程数为 0，严格检查旧 Task 与 Native 撤销 / 清理记录，归档原 reservation 和不含密钥的证据。使用相同私有配置重启后，固定创建场景为 supported，通用执行仍 blocked，新 TXT 仍不存在；没有点击 Task 或提交网页表单。第二个真实 Key 的成功验收仍待 Owner。
+
+## 本次真实创建：Owner 测试通过
+
+Owner 于 2026-10-09 13:00 手动执行新 Task `760f82ae-e5a9-4794-9980-a3ab19943c88`，随后在会话明确要求“标记为测试通过”。本次 #47 新增一次创建场景的人工测试结论记录为 **PASS / Owner 测试通过**。
+
+实际 Task 为 done，固定场景 execution / verification / cleanup 均 PASS；内部 Agent Loop done、独立文件门 acceptance pass，网页确认、TXT 与 GUI 全值相等、全部模型 / 40000 / 其它默认设置均通过。轨迹仅有一次提交按钮执行，已有 dispatch intent 绑定本 Task，该次授权已使用，不再开放创建。完整新 Key 仅保存于当前用户桌面 `AgentDesktop_8102_API_Key_20261009_2.txt`；本机复核文件仍符合已接受的 SHA-256 证据，原 TXT 未覆盖。
+
+根据真实轨迹保存的 Workflow ID 为 `cb1413f9-8d43-41c8-a138-c1565e80f7e7`，schema v2、15 个 UI 步骤、candidate 状态；Task 第 16 步为完成判断。候选不含密钥，未回放、未晋升，通用 Browser 回放仍拒绝，未来创建需另行明确授权。6209 个本机产物及 PR 全部 22 个文件 / 描述与新 Key 的 UTF-8 / UTF-16LE 明文匹配为 0，审计只输出计数和布尔结果，私有产物不提交。
+
+本次确认记录在验收文档和 PR。Dashboard 固定场景的人工标签目前写死为 `NOT HUMAN VERIFIED`，其人工验收接口只接受符合条件的通用 paused 任务；没有绕过接口改写 Task、自动验收或历史失败。旧失败 Task 保持 paused，首次原 Task 结果保留。本次业务测试通过不代表独立代码 Review 通过，不改变 Windows PAUSED、A5 safety FAIL 或其它未完成范围；PR 继续保持 Draft，不自行合并或关闭 Issue。
