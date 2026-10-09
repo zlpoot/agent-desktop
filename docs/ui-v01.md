@@ -1,8 +1,27 @@
 # Agent Desktop · v0.1 最终操作页面设计
 
-> 状态：**Design Candidate / 等待独立 Review**。对应 Issue #49，页面设计基线 main@32370a8063009600357fe5c1060610c507877610。本文冻结的是**面向最终产品的页面信息架构与交互原则候选**，不是声明后台已实现所有模式、环境或能力。PR 评审通过后才能作为后续 UI 开发基线。
+> 阶段 A 原始状态（历史）：**Design Candidate / 等待独立 Review**。对应 Issue #49，页面设计基线 main@32370a8063009600357fe5c1060610c507877610。本文冻结的是**面向最终产品的页面信息架构与交互原则候选**，不是声明后台已实现所有模式、环境或能力。PR 评审通过后才能作为后续 UI 开发基线。
 >
 > 交付顺序：**本文件审查 → 工作台与统一 AppShell → 任务/Workflow → 环境/设置/响应式 → Owner 页面验收 → #50 发布 v0.1 → #51 新真实任务和回放**。当前不打版本标签，不启动真实任务。
+
+## 当前阶段与版本状态（2026-10-09）
+
+本文原设计、开发切片及第 10 节未勾选门禁保留为阶段 A 的历史规划；现状以本段和 Issue 的验收记录为准，不把历史待办误作 E 尚未验收。
+
+| 切片 | 当前事实 |
+| --- | --- |
+| A · IA/Design | [PR #52](https://github.com/zlpoot/agent-desktop/pull/52) 已审查合并 |
+| B · AppShell/Workspace | [PR #53](https://github.com/zlpoot/agent-desktop/pull/53) 已审查合并 |
+| C · Runs/Workflow | [PR #54](https://github.com/zlpoot/agent-desktop/pull/54) 整改后已审查合并 |
+| D · Environment/Apps/Settings/Responsive | [PR #55](https://github.com/zlpoot/agent-desktop/pull/55) 整改后已审查合并；main 为 `c4885c7bd6a0e91ee961a570193a22d39a8bbf2c` |
+| E · Owner UI UAT | [E2 五区人工验收](https://github.com/zlpoot/agent-desktop/issues/49#issuecomment-6080617594) PASS；工作台、已有 Task、15 步 Workflow candidate、环境与应用、设置均由 Owner 亲自体验 |
+| #50 · v0.1 | `OWNER_UI_UAT_PASS / RELEASE_PREPARATION_NEEDED / TAG_NOT_CREATED / RELEASE_NOT_CREATED`；发布准备候选仍待独立 Review，Tag/Release 须 Owner 单独明确授权 |
+
+v0.1 定位为可在本地运行的控制台**源码版**，没有正式 Windows 安装包或打包系统。Owner E2 的 PASS 仅确认页面体验，不能转写为已有 Task 人工复核 PASS、四模式后台完成、Windows/Agent 整体安全 PASS 或 Workflow 回放成功。Hidden Chrome candidate 仍未回放、不可通用执行、未晋升。
+
+Owner 提出的“学习/优化入口灰化”和“16 个内层步骤聚合为一个外层步骤、复核颗粒度不足”作为已知 UI 限制/后续迭代，本轮不追加重构。历史 `A5 safety FAIL / Windows PAUSED / overall INCOMPLETE` 与 [#45 两项 Browser 下载 canceled](https://github.com/zlpoot/agent-desktop/issues/45) 保留，不能宣称完整 Browser 全绿。#49 保持 OPEN；#51、新 Key、新真实 Task/Workflow 回放未启动。
+
+发布前仍须独立审查发布准备 PR、完成必要检查，回读最终 main SHA 并核对无未审查变更；该 SHA 才能在 Owner 授权后作为发布来源。当前验收 SHA 不预先充当最终 release commit。详见 [#50 发布前核对](https://github.com/zlpoot/agent-desktop/issues/50#issuecomment-6080664096)、[README](../README.md) 和 [Release Notes 草稿](release-notes-v0.1.md)。
 
 ## 1. 产品目标、关键边界
 
@@ -239,7 +258,7 @@ Agent Desktop 是以任务和可复用能力为中心的桌面 Agent 产品。�
 - 只验证页面和已有受限能力；不创建新的 API Key，不为 UI 复查微软 Hidden Desktop 隔离。
 - 修复 UI P0/P1；确认合并 clean main。Owner 明确认可后才由 #50 执行 tag/release v0.1。
 
-## 10. v0.1 Release Gate（本文件不授权发布）
+## 10. v0.1 Release Gate（阶段 A 原始清单，本文件不授权发布）
 
 - [ ] A–D 所需 PR 经独立 Review 接受、合并，主分支代码和设计一致。
 - [ ] 五区页面在空闲、执行中、暂停、等待人类、完成与失败时信息真实、按钮有意义。
