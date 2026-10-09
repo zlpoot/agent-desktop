@@ -309,7 +309,7 @@ test('Task UI submits exact environment identity, preserves selection, and never
     assert.equal(await page.locator('#task-goal').inputValue(), 'VM: ordinary task text');
     await page.locator('#task-destination').selectOption('browser');
     await page.locator('#task-submit').click();
-    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · task-1');
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · task-2');
     assert.match(page.url(), /#\/live$/);
     assert.deepEqual(submitted[1], { goal: 'VM: ordinary task text', target: undefined });
     await page.evaluate(() => sessionStorage.setItem('agent-desktop.task-draft.v2', JSON.stringify({ goal: 'retained draft', destination: '["synthetic","removed"]' })));

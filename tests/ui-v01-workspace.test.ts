@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { createDashboardServer } from '../src/app/server.js';
 import { initialState } from '../src/graph/state.js';
 import { SqliteTrace } from '../src/trace/sqlite-trace.js';
@@ -148,5 +149,98 @@ test('UI-01 prevents concurrent POST and reports lost acknowledgement without au
     await page.getByRole('button', { name: '任务', exact: true }).click();
     await page.locator('#refresh').click();
     assert.equal(requests, 1, 'polling and refresh must never replay a POST');
+  } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('UI-01 keeps acknowledged Browser B selected over paused Guest A, including a delayed list and reload', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'ui-v01-submitted-'));
+  const routes = new DatabaseSync(join(directory, 'web-task-routes.sqlite'));
+  routes.exec('CREATE TABLE generic_routes (task_id TEXT PRIMARY KEY, environment TEXT, window_handle INTEGER, created_at TEXT NOT NULL)');
+  for (const [id, environment] of [['guest-A', 'windows'], ['browser-B', 'browser']]) {
+    routes.prepare('INSERT INTO generic_routes (task_id, environment, created_at) VALUES (?, ?, ?)').run(id, environment, new Date().toISOString());
+  }
+  routes.close();
+  const save = (state: ReturnType<typeof initialState>) => {
+    const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+    try { trace.save(state.status, state); } finally { trace.close(); }
+  };
+  save({ ...initialState('guest-A', 'synthetic paused Guest A'), status: 'paused', taskBindingVersion: 1,
+    desktopTarget: { providerId: 'hyper-v', environmentId: 'vm:synthetic' } });
+  let admissions = 0;
+  const server = createDashboardServer(directory, {
+    submit(goal, options) {
+      admissions++; assert.equal(options?.desktopTarget, undefined);
+      save(initialState('browser-B', goal)); // Persist HTTP admission only; no runtime or model execution.
+      return 'browser-B';
+    },
+    resume() { assert.fail('no resume'); }, pause() { assert.fail('no pause'); }, continue() { assert.fail('no continue'); },
+  });
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+  const base = `http://127.0.0.1:${address.port}`;
+  const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage(); const errors: string[] = [], posts: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { if (request.method() === 'POST') posts.push(new URL(request.url()).pathname); });
+    let listCaughtUp = false;
+    await page.route('**/api/runs', async route => {
+      const response = await route.fetch(); const data = await response.json();
+      if (!listCaughtUp) data.runs = data.runs.filter((run: { taskId: string }) => run.taskId !== 'browser-B');
+      await route.fulfill({ response, json: data });
+    });
+    await page.route('**/api/desktop/control', route => route.fulfill({ json: {
+      mode: 'PAUSED', workerReady: true, taskId: 'guest-A', connection: { status: 'ready' },
+      task: { id: 'guest-A', goal: 'synthetic paused Guest A', status: 'paused' },
+    } }));
+    await page.route('**/api/desktop/sessions', route => route.fulfill({ json: {
+      sessions: [{ sessionId: 'synthetic-guest', status: 'online' }],
+    } }));
+    const frame = await page.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 32;
+      return canvas.toDataURL().split(',')[1];
+    });
+    await page.routeWebSocket('**/stream', ws => { ws.send(Buffer.from(frame, 'base64')); });
+    const assertB = async () => {
+      await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · browser-B' &&
+        !(document.querySelector('#detail') as HTMLElement)?.hidden);
+      assert.equal(await page.locator('.desktop-panel').isVisible(), false, 'B must not display A Guest frame or controls');
+      assert.equal(await page.locator('.task-live-slot .desktop-panel').count(), 0);
+      assert.equal(await page.locator('#task-continue').isVisible(), false, 'A paused continue action must not appear for B');
+      assert.match(await page.locator('.task-runtime-summary').innerText(), /环境：浏览器/);
+      assert.doesNotMatch(await page.locator('#detail').innerText(), /synthetic paused Guest A/);
+    };
+    await page.goto(base);
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · guest-A');
+    await page.waitForFunction(() => (document.querySelector('#desktop-frame') as HTMLImageElement)?.naturalWidth === 64);
+    assert.equal(await page.locator('.task-live-slot .desktop-panel').isVisible(), true);
+    assert.equal(await page.locator('#task-continue').isVisible(), true);
+    await page.locator('#task-destination').selectOption('browser');
+    await page.locator('#task-goal').fill('synthetic Browser B');
+    const acknowledged = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/tasks');
+    await page.locator('#task-submit').click(); const response = await acknowledged;
+    assert.equal(response.status(), 202); assert.deepEqual(await response.json(), { taskId: 'browser-B', source: 'web-tasks.sqlite' });
+    const persisted = await (await page.request.get(`${base}/api/runs/web-tasks.sqlite/browser-B`)).json();
+    assert.equal(persisted.taskId, 'browser-B'); assert.equal(persisted.goal, 'synthetic Browser B'); assert.equal(persisted.status, 'running');
+    await page.locator('.task-load-feedback').getByText(/已提交任务 web-tasks.sqlite\/browser-B/).waitFor();
+    assert.match(page.url(), /#\/live$/);
+    assert.equal(await page.locator('#detail').isVisible(), false, 'list lag must not substitute A details or Task controls');
+    assert.equal(await page.locator('.desktop-panel').isVisible(), false);
+    await page.getByRole('button', { name: '重试读取任务', exact: true }).click();
+    assert.equal(await page.locator('#detail').isVisible(), false);
+    await page.reload();
+    await page.locator('.task-load-feedback').getByText(/已提交任务 web-tasks.sqlite\/browser-B/).waitFor();
+    assert.equal(await page.locator('.desktop-panel').isVisible(), false, 'reload with delayed list must keep B identity');
+    listCaughtUp = true;
+    await page.getByRole('button', { name: '重试读取任务', exact: true }).click(); await assertB();
+    assert.equal(await page.locator('#task-pause').isVisible(), true, 'running B has its own Task pause action');
+    await page.goto(`${base}/#/history?task=web-tasks.sqlite%2Fguest-A`);
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · guest-A');
+    await page.locator('.task-live-slot .desktop-panel').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#task-continue').isVisible(), true, 'explicit history A retains A controls');
+    await page.getByRole('button', { name: '工作台', exact: true }).click(); await assertB();
+    await page.reload(); await assertB();
+    assert.equal(admissions, 1); assert.deepEqual(posts, ['/api/tasks']); assert.deepEqual(errors, []);
   } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); rmSync(directory, { recursive: true, force: true }); }
 });

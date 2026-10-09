@@ -204,6 +204,7 @@ window.Workbench = (() => {
   let frameAt = 0;
   let streamDisconnected = true;
   let submittedKey = null;
+  try { submittedKey = sessionStorage.getItem('agent-desktop.submitted-task'); } catch { /* storage unavailable */ }
   let changed = () => {};
   let routeTask = null;
   let currentRun = null;
@@ -349,12 +350,17 @@ window.Workbench = (() => {
       for (const run of completed) addRun(recent, run);
       if (!completed.length) recent.append(create('p', '', '完成任务后，结果会出现在这里。'));
     },
-    submitted(key) { submittedKey = key; },
+    submitted(key) {
+      submittedKey = key;
+      try { sessionStorage.setItem('agent-desktop.submitted-task', key); } catch { /* storage unavailable */ }
+    },
+    get submittedKey() { return submittedKey; },
     editDraft() { composerDisclosure.open = true; },
     select(runs, selected) {
+      // An acknowledged submission keeps its identity even before the list catches up.
+      if (mode === 'live' && submittedKey) return runs.find(run => `${run.source}/${run.taskId}` === submittedKey);
       return mode === 'live' ? runs.find(run => run.source === 'web-tasks.sqlite' && run.taskId === state.taskId &&
         !['done', 'failed', 'stopped'].includes(run.status))
-        || runs.find(run => `${run.source}/${run.taskId}` === submittedKey)
         || runs.find(run => run.source === 'web-tasks.sqlite' && ['queued', 'running', 'waiting_user', 'pause_requested'].includes(run.status)) : runs.find(run => `${run.source}/${run.taskId}` === selected);
     },
     matches(run) {

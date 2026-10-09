@@ -5,7 +5,7 @@ let selectionRequest = 0;
 const taskLoadFeedback = node('section', 'task-load-feedback panel'); taskLoadFeedback.hidden = true;
 const taskLoadMessage = node('p', 'operation-feedback'); taskLoadMessage.setAttribute('role', 'status');
 const taskLoadRetry = node('button', '', '重试读取任务'); taskLoadRetry.type = 'button';
-taskLoadRetry.onclick = () => { void loadSelected(); };
+taskLoadRetry.onclick = () => { void (view.runs.some(run => key(run) === view.selected) ? loadSelected() : refresh()); };
 taskLoadFeedback.append(taskLoadMessage, taskLoadRetry); byId('detail').before(taskLoadFeedback);
 let reportUrl;
 const evidenceTools = document.createElement('div');
@@ -75,7 +75,10 @@ async function refresh() {
     view.runs = (await response.json()).runs;
     if (workbench?.mode === 'history' && workbench.routeTask) view.selected = workbench.routeTask;
     else if (!view.selected || !view.runs.some((run) => key(run) === view.selected)) view.selected = view.runs[0] ? key(view.runs[0]) : null;
-    if (workbench?.mode === 'live') view.selected = workbench.select(view.runs, view.selected) ? key(workbench.select(view.runs, view.selected)) : null;
+    if (workbench?.mode === 'live') {
+      const active = workbench.select(view.runs, view.selected);
+      view.selected = active ? key(active) : workbench.submittedKey;
+    }
     renderRuns();
     if (view.selected) await loadSelected();
     else { selectionRequest++; taskLoadFeedback.hidden = true; view.detail = null; byId("empty").hidden = false; byId("detail").hidden = true; workbench?.sync(null); }
@@ -105,7 +108,16 @@ function renderRuns() {
 
 async function loadSelected() {
   const run = view.runs.find((item) => key(item) === view.selected);
-  if (!run) { selectionRequest++; taskLoadFeedback.hidden = true; view.detail = null; workbench?.sync(null); return; }
+  if (!run) {
+    selectionRequest++; view.detail = null; byId('detail').hidden = true; workbench?.sync(null);
+    const pending = workbench?.mode === 'live' && view.selected && view.selected === workbench.submittedKey;
+    taskLoadFeedback.hidden = !pending; taskLoadRetry.hidden = false;
+    if (pending) {
+      taskLoadMessage.dataset.state = 'loading';
+      taskLoadMessage.textContent = `已提交任务 ${view.selected}，等待记录列表更新。可重试读取或到任务记录核对；不会重新提交。`;
+    }
+    return;
+  }
   const request = ++selectionRequest;
   if (!view.detail || key(view.detail) !== key(run)) {
     view.detail = null; workbench?.sync(null); byId('detail').hidden = true;
@@ -726,7 +738,7 @@ byId("task-continue").addEventListener("click", () => taskControl("continue").ca
 workbench?.bind(() => {
   if (workbench.mode === 'live') {
     const active = workbench.select(view.runs, view.selected);
-    view.selected = active ? key(active) : null;
+    view.selected = active ? key(active) : workbench.submittedKey;
   } else if (workbench.mode === 'history' && workbench.routeTask) {
     view.selected = workbench.routeTask;
   } else if (!view.selected && view.runs.length) {

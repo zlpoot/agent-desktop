@@ -26,6 +26,16 @@
 
 没有新增 Task/Workflow 状态库、REST 执行接口或模式字段，没有改变 Agent Loop、Host/Guest 协议、Provider Contract、Workflow schema、风险门、预算边界和 3 秒输入租约。
 
+## 独立 Review P1 的限定修复
+
+[Review 5466527275](https://github.com/zlpoot/agent-desktop/pull/53#pullrequestreview-5466527275) 对 `fe53d1e` 的结论为 `REQUEST_CHANGES_SCOPED`（原生 GitHub 状态为 `COMMENTED`）。[唯一 P1](https://github.com/zlpoot/agent-desktop/pull/53#discussion_r4227285969) 是旧 Guest A 暂停时，新 Browser B 提交成功后仍优先显示 A。本次只调整前端选择及待读取反馈，新增一个针对该冲突的合成 Browser 回归，等待新 head 的独立限定复审。
+
+- 成功确认的新提交以完整 `source/taskId` 精确匹配，优先于其它 Guest 活动任务。列表尚未包含 B 时保留 B 的 ID、显示待读取/核对提示并隐藏旧详情、控制与现场；重试只重新读取列表，不 POST。
+- 同一浏览器标签页的 `sessionStorage` 仅保留最近成功提交的 `source/taskId`，用于页面刷新后的选择；不保存任务内容、密钥或运行状态。历史深链接仍显式选择 A；返回工作台仍选择 B。未提交新任务时保留原活动任务选择。
+- 新增回归先证明 A 的暂停继续按钮和合成 Guest 帧确实可见，再显式选择 Browser 并通过生产 HTTP 路由获得 B 的 202、读取临时 SQLite 中的同一 B。覆盖列表延迟、读取重试、页面刷新、B 的独立暂停资格、历史 A 深链接及返回工作台，断言只有一次 POST。合成控制器仅持久化准入，不启动模型或 Runtime，不证明真实业务执行。
+- 既有 `desktop-selection-ui.test.ts` 连续两次提交的断言原先仍等待第一个 `task-1`；同步改为第二个 `task-2`，单项 1/1 PASS（`.ui-b-review-second-submit.log`）。第一轮完整 Browser 因该旧断言额外失败，修正后重新运行全套；下载断言保持不变。
+- 专项 `node --import tsx --test tests/ui-v01-workspace.test.ts tests/workbench.test.ts` 为 4/4 PASS（本机 `.ui-b-review-targeted.log`）。本地忽略的测试副本仅把工作台脚本换回 `fe53d1e` 时，新冲突用例在 B 待读取提示处失败（`.ui-b-review-red.log`），确认新断言能捕捉旧选择逻辑。
+
 ## 合成验证证据
 
 回归使用合成数据；Task/原生部分采用 FakeModel/FakeRuntime/合成 Provider，真实 Chromium 访问本地测试页面与临时目录服务。本阶段没有导入真实 #48 数据库、截图、配置、浏览器状态或密钥；未访问 8102，未创建 Key，未启动新的实机任务。
@@ -39,14 +49,14 @@
 
 | 命令 | 结果 | 本机原始日志 |
 | --- | --- | --- |
-| `npm run check` | PASS，退出码 0 | `.ui-b-check-final.log` |
-| `npm run test:offline` | 755/755 PASS，退出码 0 | `.ui-b-offline-final.log` |
-| `npm run test:python` | 18 个契约文件 PASS，退出码 0 | `.ui-b-python-final.log` |
-| `npm run test:browser` | 81/83 PASS、2 fail、0 skip，退出码 1；新增 B 用例及七宽度提交链均 PASS | `.ui-b-browser-final.log` |
+| `npm run check` | PASS，退出码 0 | `.ui-b-review-check.log` |
+| `npm run test:offline` | 755/755 PASS，退出码 0 | `.ui-b-review-offline.log` |
+| `npm run test:python` | 18 个契约文件 PASS，退出码 0 | `.ui-b-review-python.log` |
+| `npm run test:browser` | 82/84 PASS、2 fail、0 cancelled、0 skip，退出码 1；P1 冲突、连续第二次提交及七宽度提交链均 PASS | `.ui-b-review-browser-final.log` |
 
 浏览器专项亦通过：工作台归属回归、模式/草稿/键盘/布局/丢失响应、预算更新与应用接入。没有把合成 Task 完成作为真实业务完成或 Owner 验收。
 
-最终输入归属文案不再从 Guest 活动任务外推其它 Provider 的输入权；七宽度提交链及工作台归属专项另行复核为 8/8 PASS（`.ui-b-binding-final.log`）。
+首轮交付 `fe53d1e` 的输入归属文案不从 Guest 活动任务外推其它 Provider 的输入权；其七宽度提交链及工作台归属专项为 8/8 PASS（`.ui-b-binding-final.log`），本次最终全套继续通过这些用例。
 
 两项下载取消在未经修改的精确基线 `32370a8` 源码快照中复现：`desktop-selection-ui.test.ts` 的 `download.createReadStream: canceled`、`workflow-library.test.ts` 的 `download.saveAs: canceled`。对照日志为本机 `.validation/ui-b-baseline-download.log`，对应既有 [#45](https://github.com/zlpoot/agent-desktop/issues/45)。原因未确定，不跳过、不削弱断言、不声明 Browser 全绿。
 
