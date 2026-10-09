@@ -19,7 +19,7 @@ import {Command,MemorySaver} from '@langchain/langgraph';
 
 process.env.PLAYWRIGHT_BROWSERS_PATH??=resolve('.playwright-browsers');
 const seed='SYNTHETIC_ONLY_KEY_1234567890abcdef';
-const fixture=`<form hidden><input name="name" value="SYNTHETIC_OTHER_FORM"></form><button role="tab" id="access-tab" onclick="document.querySelector('section').hidden=false">接入权限</button>
+const fixture=`<form hidden><input name="name" value="SYNTHETIC_OTHER_FORM"></form><button role="tab" id="access-tab" onclick="document.querySelector('section').hidden=false;if(location.protocol==='http:')location.hash='access'">接入权限</button>
 <section hidden><button type="button" id="new-api-key" onclick="document.getElementById('synthetic-key-form').hidden=false">生成 API Key</button>
 <form id="synthetic-key-form" hidden><label>Key 名称<input name="name" required></label><label>每分钟请求<input name="rpm" type="number" value="5" required></label>
 <input name="max_output_tokens" type="number" value="1024" required><select name="days"><option value="30">30 天</option></select>
@@ -30,10 +30,12 @@ const fixture=`<form hidden><input name="name" value="SYNTHETIC_OTHER_FORM"></fo
 class SyntheticNative implements ChromeNativeBackend {
   grant?:InputAuthority; stopped=false; drift=false; checks=0;
   slowPing=0;
+  failure?:string;
   async request<T>(method:string,authority?:InputAuthority):Promise<T> {
     if(method==='stop'){this.stopped=true;return {ownedJobEmpty:true,desktopHandleClosed:true} as T;}
     if(method==='activate'){assert.equal(authority?.owner.kind,'agent');this.grant=authority;return {ready:true} as T;}
     if(method==='inspect'){assert.ok(!this.drift&&!this.stopped);return {ready:true} as T;}
+    if(this.failure)throw new Error(this.failure);
     assert.ok(!this.drift&&!this.stopped&&authority===this.grant,'synthetic native identity/grant gate');
     if(method==='ping'&&this.slowPing)await new Promise(done=>setTimeout(done,this.slowPing));
     this.checks++;return {ready:true} as T;
@@ -90,6 +92,19 @@ test('Chrome runtime preserves native authority, fresh observation, same-origin 
     await assert.rejects(h.session.observe(),/native identity/);
     assert.equal((await h.session.status()).state,'stale');
   }finally{await h.close();}
+});
+
+test('Native Task errors expose only recognized protocol codes, never arbitrary failure text',async()=>{
+  for(const [failure,suffix] of [['Chrome native bridge: native_ack_timeout',': native_ack_timeout'],[seed,'']]) {
+    const h=await harness();
+    try {
+      h.native.failure=failure;
+      await assert.rejects(h.session.observe(),error=>{
+        assert.equal((error as Error).message,'Chrome native identity or grant unavailable'+suffix);
+        assert.ok(!String(error).includes(seed));return true;
+      });
+    }finally{await h.close();}
+  }
 });
 
 test('synthetic live-path regression: risk gate stays pending, one submit, private file equality, no secret in trace/candidate',async()=>{
@@ -191,4 +206,22 @@ test('read-only session blocks mutating page requests and cannot admit a Key con
       abort:async()=>{denied=true;},continue:async()=>assert.fail('read-only POST cannot leave the browser')} as unknown as import('playwright').Route);
     assert.equal(denied,true);assert.equal(h.session.creationDispatched,false);
   }finally{await h.close();}
+});
+
+test('read-only acceptance requires the exact access fragment, not the root or an unrelated URL',async()=>{
+  const h=await unclaimedHarness();
+  await h.page.route('http://192.168.2.3:8102/**',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}));
+  const executor=new HiddenChromeTaskExecutor(h.provider),control=executor.taskControl(h.session);
+  let prepared:import('../src/contracts/desktop-scenario.js').PreparedDesktopScenario|undefined;
+  try {
+    prepared=await executor.prepareScenario(h.session,'',HIDDEN_CHROME_READONLY_SCENARIO);
+    await control.beginTask('synthetic-fragment');await prepared.observe();await prepared.execute();
+    assert.equal((await prepared.verify()).verdict,'pass');
+    for(const suffix of ['', '#other', '?unrelated=1#access']) {
+      await h.page.evaluate(suffix=>history.replaceState(null,'','/'+suffix),suffix);
+      const result=await prepared.verify();
+      assert.equal(result.verdict,'pending');assert.equal(result.facts.siteConfirmed,false);
+    }
+    assert.equal(h.session.creationDispatched,false);
+  }finally{await prepared?.close();await h.close();}
 });

@@ -103,7 +103,24 @@ npm run dashboard
 
 新增合成网页端到端测试覆盖下拉可见、无默认场景、选择前零启动/零 grant、只读 Task 真正走现有队列、无模型、无创建及清理。
 测试 HTTP fixture 曾因缺少 UTF-8 charset 导致中文 tab 不可识别，修正合成响应编码后通过；没有改真实页面操作或安全时限。
-本次只核对 Dashboard 的环境元数据并把界面交给操作者；新增场景的真实执行与人工体验仍待反馈。
+初版只核对 Dashboard 环境元数据，随后操作者执行只读场景反馈 Native 错误；真实验证与修正见下文。
 Dashboard 补丁的检查结果：check PASS；offline 750/750；Python 18 个文件通过（Native inspector 单元测试 4/4）；Local Workspace 53/53；Viewer 1/1；本功能 Browser 单独复核 6/6。
 完整 Browser 为 70/73：两项既有下载取消仍复现，一项合成 Key 测试在风险门前 failed、单独复核通过；原因未确认，完整套件保持失败，不能宣称全绿。
 本次 PR 的 17 个文件及 PR 描述再次比较 Key 明文，UTF-8 / UTF-16LE 匹配均为 0；原桌面 TXT 与首次真实任务的验收哈希仍一致。
+
+## Dashboard 真实只读反馈与地址验收修正
+
+操作者 Task `c3362719-902b-40d8-b48e-d43f823c7779` 在首次观察、场景发出后报 `Chrome native identity or grant unavailable`，状态 paused，清理完成；原失败记录与禁止自动重放保持。
+旧代码要求页面 URL 精确等于根网址，但实际点击接入权限后为 `http://192.168.2.3:8102/#access`，因此独立验收持续 pending。
+真实只读诊断确认 origin / 根路径 / 空 query / `#access`、可见 Key opener、未授权创建和资源清理；没有再次创建 Key。
+原记录没有保留 Native 具体错误码，不能推断它是 ACK 超时、租约或身份漂移；新增仅输出固定 allowlist 协议错误码，任意错误文本仍不进入 Task。
+验收改为精确匹配 `/#access`，并保留接入控件、只读限制和未创建等独立事实；根网址、其它 fragment 或额外 query 均不能通过。
+没有增加 ACK timeout、续租权限、Native 预算或观察有效期。
+
+修正后通过标准 Dashboard 固定 Task 入口执行真实 Hidden Chrome，只操作导航与接入权限 tab：Task `05d969e8-142f-40c9-a62e-9fe97f060ecf` 为 done，独立 verdict pass，`siteConfirmed=true`、`accessVisible=true`、`keyCreationAdmitted=false`；记录包含 cleanup_done 和 done，原 Key TXT 验收哈希保持一致。
+人工体验交给操作者；新只读 Task 不自动回放旧任务或创建候选。
+合成回归新增真实 fragment 行为、错误 fragment / query 拒绝，以及错误诊断脱敏。合成 about:blank Key 测试保留原网址，避免把夹具 fragment 当成被授权站点。
+
+修正后的检查：check PASS；offline 750/750；Python 18 个文件 PASS；Local Workspace 53/53；Viewer 1/1；Hidden Chrome 单独及完整套件中的 8/8 PASS。
+完整 Browser 为 73/75，两项既有下载仍 canceled（`download.createReadStream`、`download.saveAs`），原因未确认；不声明全绿。首次未设置项目测试浏览器缓存路径的运行已停止，使用现有 `.playwright-browsers` 配置复核，不安装或升级依赖。
+再次将原 Key 与 LIVE-01 产物、本机验证记录 5160 个文件及 PR 17 个文件 / 描述比较，UTF-8 / UTF-16LE 明文匹配均为 0；桌面 TXT 哈希与原验收一致。上述产物和日志保持本机忽略文件，不提交。

@@ -112,7 +112,9 @@ export class HiddenChromeTaskExecutor implements DesktopTaskExecutor {
         await dispatch({kind:'click',target:{kind:'role',role:tabs[0]!.role,name:'接入权限'}});
       },verify:async()=>{
         const observation=await observe();
-        const siteConfirmed=observation.url===SITE;
+        // The access tab changes the real page fragment; retain an exact URL
+        // match so unrelated fragments, paths and query parameters cannot pass.
+        const siteConfirmed=observation.url===SITE+'#access';
         const accessVisible=!!session.discovery?.controls.some(control=>control.id==='new-api-key'&&!control.submit);
         const noCreation=session.readOnlyRestricted&&!session.creationDispatched&&!session.keyFileSaved;
         return {verdict:dispatched&&siteConfirmed&&accessVisible&&noCreation?'pass':'pending',observation,

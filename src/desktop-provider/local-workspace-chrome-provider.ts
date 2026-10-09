@@ -296,7 +296,13 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
   private async guard() {
     this.assertHostAuthority();
     try { await this.bridge.request('check', this.authority); }
-    catch (error) { this.state = 'stale'; this.nativeFailure = error instanceof Error ? error.message : 'Chrome native check failed'; throw new Error('Chrome native identity or grant unavailable'); }
+    catch (error) {
+      this.state = 'stale';
+      this.nativeFailure = error instanceof Error ? error.message : 'Chrome native check failed';
+      // Only fixed protocol failure codes may enter a Task; never child output or authority values.
+      const reason = /^Chrome native bridge: (native_binding_stale|native_authority_revoked|native_authority_rejected|native_ack_timeout)$/.exec(this.nativeFailure)?.[1];
+      throw new Error('Chrome native identity or grant unavailable' + (reason ? ': ' + reason : ''));
+    }
     this.assertHostAuthority();
   }
   async observe(): Promise<Observation> {
