@@ -48,7 +48,7 @@ test("local dashboard can inspect and start its configured VM", async () => {
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(base);
-    await page.getByRole('button', { name: '桌面', exact: true }).click();
+    await page.getByRole('button', { name: '环境与应用', exact: true }).click();
     await page.waitForFunction(() => document.querySelector("#desktop-vm-state")?.textContent?.includes("Running"));
     await page.locator("#desktop-vm-console").click();
     await page.getByText("已打开虚拟机窗口").waitFor();

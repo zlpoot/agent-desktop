@@ -18,16 +18,7 @@ window.Workbench = (() => {
   document.title = 'Agent Desktop · 工作台';
   document.querySelector('.brand strong').textContent = 'Agent Desktop';
   document.querySelector('.brand small').textContent = '任务与桌面工作台';
-  const nav = create('nav', 'workspace-nav');
-  nav.setAttribute('aria-label', '主要导航');
-  sidebar.querySelector('.brand').after(nav);
-  const buttons = new Map();
-  for (const [id, label] of [['live', '工作台'], ['history', '任务'], ['workflows', '流程库'], ['desktop', '桌面'], ['apps', '应用管理'], ['settings', '设置']]) {
-    if (id === 'live' || id === 'desktop') nav.append(create('span', 'nav-group', id === 'live' ? '工作' : '管理'));
-    const button = create('button', '', label);
-    button.type = 'button'; button.onclick = () => navigate(id);
-    nav.append(button); buttons.set(id, button);
-  }
+  const shell = window.createAppShell(navigate);
   const filters = create('div', 'run-filters');
   const search = create('input', '');
   search.type = 'search'; search.placeholder = '搜索任务'; search.setAttribute('aria-label', '搜索任务');
@@ -57,19 +48,36 @@ window.Workbench = (() => {
   for (const child of [...detail.children]) if (!child.classList.contains('hero')) diagnostics.append(child);
   detail.append(diagnostics);
   detail.insertBefore($('stage-list').closest('section'), diagnostics);
-  taskPane.append(context, $('task-message'), empty, detail, composer);
-  workspace.append(desktop, taskPane); main.append(workspace);
+  taskPane.append(context, $('task-message'), empty, detail);
+  workspace.append(taskPane); main.append(workspace);
   const home = create('section', 'workspace-home'); home.id = 'workspace-home';
   const homeHeader = create('header', 'home-header');
-  homeHeader.append(create('h1', '', '工作台'), create('p', '', '开始新任务，或处理需要你介入的事项。'));
-  const environment = create('button', 'home-environment', '正在检查桌面状态');
+  homeHeader.append(create('h1', '', '今天想让 Agent 做什么？'), create('p', '', '描述目标，明确选择环境，再查看执行范围。'));
+  const homeLayout = create('div', 'home-layout');
+  const homeContextToggle = create('button', 'context-toggle', '收起准备上下文'); homeContextToggle.type = 'button';
+  homeContextToggle.setAttribute('aria-expanded', 'true');
+  homeContextToggle.onclick = () => {
+    const collapsed = homeLayout.classList.toggle('home-context-collapsed');
+    homeContextToggle.textContent = collapsed ? '展开准备上下文' : '收起准备上下文';
+    homeContextToggle.setAttribute('aria-expanded', String(!collapsed));
+  };
+  homeHeader.append(homeContextToggle);
+  const homeMain = create('div', 'home-main');
+  const composerDisclosure = create('details', 'composer-disclosure'); composerDisclosure.open = true;
+  composerDisclosure.append(create('summary', '', '新建任务'), composer);
+  homeMain.append(composerDisclosure);
+  const idleContext = create('aside', 'workspace-idle-context panel'); idleContext.setAttribute('aria-label', '任务准备上下文');
+  const environment = create('button', 'home-environment', '尚未选择执行环境');
   environment.type = 'button'; environment.onclick = () => navigate('desktop');
   const homeCurrent = create('section', 'panel home-current'); homeCurrent.setAttribute('aria-label', '当前任务');
   const recent = create('section', 'panel home-recent'); recent.setAttribute('aria-label', '最近完成');
-  home.append(homeHeader, environment, composer, homeCurrent, recent); main.append(home);
+  const draftContext = create('p', '', '选择环境后显示真实支持范围。'); draftContext.id = 'workspace-draft-context';
+  const workflowEntry = create('button', '', '查看已保存工作流'); workflowEntry.type = 'button'; workflowEntry.onclick = () => navigate('workflows');
+  idleContext.append(create('h2', '', '准备与上下文'), environment, draftContext, workflowEntry, homeCurrent, recent);
+  homeLayout.append(homeMain, idleContext); home.append(homeHeader, homeLayout); taskPane.prepend(home);
   const desktopPage = create('section', 'workspace-desktop'); desktopPage.append(desktop); main.append(desktopPage);
   const connectionPanel = create('section', 'desktop-overview panel'); connectionPanel.setAttribute('aria-label', '连接检查');
-  const connectionTitle = create('h1', '', '桌面连接');
+  const connectionTitle = create('h1', '', '环境连接与能力');
   const connectionSummary = create('p', '', '正在读取连接状态'); connectionSummary.setAttribute('role', 'status');
   const recoveryHint = create('p', 'desktop-recovery-hint');
   const checkConnection = create('button', '', '刷新连接状态'); checkConnection.type = 'button';
@@ -78,18 +86,43 @@ window.Workbench = (() => {
   openTask.onclick = () => { if (state.taskId) document.dispatchEvent(new CustomEvent('workbench:open-run', { detail: `web-tasks.sqlite/${state.taskId}` })); };
   const recoverySteps = create('details', 'desktop-recovery'); recoverySteps.append(create('summary', '', '连接恢复步骤'));
   const steps = create('ol', '');
-  for (const text of ['虚拟机关机时，使用下方“启动虚拟机”。', '打开虚拟机窗口，确认 Windows 已登录，AgentDesktop Worker 正在运行。', 'Worker 会自动重连。刷新状态后，确认画面为实时画面。', '如有保留任务，进入任务详情检查现场，再决定继续或停止。']) steps.append(create('li', '', text));
+  for (const text of ['先在工作台明确选择执行环境；可查看应用管理中的真实支持范围。', '仅对已配置的虚拟机使用下方启动与窗口入口，确认 Windows 已登录且 Worker 已启动。', '当前流仅提供已连接 Session 的画面；其它 Provider 不据此宣称离线。', '保留任务请从任务页打开，核对其环境、证据与控制资格；不自动重放。']) steps.append(create('li', '', text));
   recoverySteps.append(steps);
   connectionPanel.append(connectionTitle, connectionSummary, recoveryHint, checkConnection, openTask, recoverySteps);
   desktopPage.prepend(connectionPanel);
   const taskHeader = create('header', 'task-heading panel');
   const hero = detail.querySelector('.hero');
   taskHeader.append(hero.querySelector('.eyebrow'), hero.querySelector('.hero-title'), hero.querySelector('.meta'));
+  const contextToggle = create('button', 'context-toggle', '收起上下文'); contextToggle.type = 'button'; contextToggle.setAttribute('aria-expanded', 'true');
+  contextToggle.onclick = () => {
+    const collapsed = detail.classList.toggle('context-collapsed'); contextToggle.textContent = collapsed ? '展开上下文与任务控制' : '收起上下文';
+    contextToggle.setAttribute('aria-expanded', String(!collapsed));
+  };
+  taskHeader.append(contextToggle);
   const taskLayout = create('div', 'task-detail-layout');
   const scene = create('section', 'task-scene'); scene.setAttribute('aria-label', '任务现场与证据');
   const liveSlot = create('div', 'task-live-slot');
   const recorded = create('section', 'task-recorded panel'); recorded.id = 'task-recorded';
-  scene.append(liveSlot, recorded); taskLayout.append(scene, hero);
+  const views = create('div', 'task-view-tabs'); views.setAttribute('aria-label', '现场视图');
+  let observationView = false;
+  const imageView = create('button', '', '画面与证据'); const textView = create('button', '', '文字与结构');
+  const observation = create('section', 'task-observation panel'); observation.setAttribute('aria-label', '已记录观察');
+  observation.append(create('h2', '', '执行现场 · 已记录观察'));
+  const observationNote = create('p', ''), observationFacts = create('pre', ''); observation.append(observationNote, observationFacts);
+  for (const [button, value] of [[imageView, false], [textView, true]]) {
+    button.type = 'button'; button.onclick = () => { observationView = value; sync(currentRun); }; views.append(button);
+  }
+  const timeline = create('section', 'panel section workspace-timeline'); timeline.append(create('h2', '', '最近执行步骤'));
+  const timelineItems = create('ol', ''); timeline.append(timelineItems);
+  const controlAvailability = create('p', 'control-availability'); controlAvailability.id = 'task-control-availability';
+  const runtimeSummary = create('p', 'task-runtime-summary');
+  const unavailableControls = create('div', 'unsupported-task-controls');
+  for (const label of ['接管任务', '停止任务', '紧急停止']) {
+    const button = create('button', '', label); button.type = 'button'; button.disabled = true;
+    button.title = '此任务接口未声明该操作；已连接桌面另按其真实控制资格处理。'; unavailableControls.append(button);
+  }
+  hero.append(create('h2', 'context-title', '任务上下文'), runtimeSummary, controlAvailability, unavailableControls);
+  scene.append(views, liveSlot, recorded, observation, timeline); taskLayout.append(scene, hero);
   detail.prepend(taskHeader, taskLayout);
   const settings = create('section', 'workspace-settings panel');
   const settingsIntro = create('p', 'settings-intro', '');
@@ -134,12 +167,18 @@ window.Workbench = (() => {
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(budget) });
       const result = await response.json(); if (!response.ok) throw new Error(result.error || '保存失败');
       budgetMessage.textContent = '已保存，后续新任务将使用这些默认值';
+      document.dispatchEvent(new Event('workbench:budget-updated'));
     } catch (error) { budgetMessage.textContent = `保存失败：${error.message || error}`; }
     finally { saveBudget.disabled = false; }
   };
   settings.append($('prompt-editor')); main.append(settings);
   const appsPage = create('section', 'workspace-apps panel'); main.append(appsPage);
   const appManagement = window.createAppManagement(appsPage);
+  const environmentsPage = create('section', 'workspace-environments');
+  const environmentTabs = create('nav', 'environment-tabs'); environmentTabs.setAttribute('aria-label', '环境与应用视图');
+  const environmentTab = create('button', '', '环境'), appsTab = create('button', '', '已接入应用');
+  environmentTab.type = appsTab.type = 'button'; environmentTab.onclick = () => navigate('desktop'); appsTab.onclick = () => navigate('apps');
+  environmentTabs.append(environmentTab, appsTab); environmentsPage.append(environmentTabs, desktopPage, appsPage); main.append(environmentsPage);
   const library = create('section', 'workspace-library'); main.append(library);
   const workflowLibrary = window.createWorkflowLibrary(library);
   const runtimePanel = create('section', 'workspace-library runtime-panel'); main.append(runtimePanel);
@@ -165,21 +204,27 @@ window.Workbench = (() => {
   let frameAt = 0;
   let streamDisconnected = true;
   let submittedKey = null;
+  try { submittedKey = sessionStorage.getItem('agent-desktop.submitted-task'); } catch { /* storage unavailable */ }
   let changed = () => {};
   let routeTask = null;
+  let currentRun = null;
+  let draftEnvironment = '';
   function readRoute() {
-    const [path, query] = location.hash.slice(2).split('?');
-    return { page: buttons.has(path) || path === 'plugins' ? path : 'live', task: new URLSearchParams(query).get('task') };
+    return shell.readRoute();
   }
   function navigate(next, task = null, fromHistory = false) {
     desktopPage.append(desktop);
-    if (!buttons.has(next) && next !== 'plugins') next = 'live';
+    if (next === 'environments') next = 'desktop';
+    if (!['live', 'history', 'workflows', 'desktop', 'apps', 'settings', 'plugins'].includes(next)) next = 'live';
     routeTask = next === 'history' ? task : null;
-    const hash = `#/${next}${routeTask ? `?${new URLSearchParams({ task: routeTask })}` : ''}`;
+    const hash = shell.route(next, routeTask);
     if (!fromHistory && location.hash !== hash) history.pushState(null, '', hash);
     mode = next;
-    workspace.hidden = next !== 'history'; settings.hidden = !['settings', 'plugins'].includes(next);
+    workspace.hidden = !['history', 'live'].includes(next); settings.hidden = !['settings', 'plugins'].includes(next);
     home.hidden = next !== 'live'; desktopPage.hidden = next !== 'desktop';
+    environmentsPage.hidden = !['desktop', 'apps'].includes(next);
+    environmentTab.setAttribute('aria-current', next === 'desktop' ? 'page' : 'false');
+    appsTab.setAttribute('aria-current', next === 'apps' ? 'page' : 'false');
     if (next === 'live') composer.prepend($('task-message'));
     else taskPane.prepend($('task-message'));
     appsPage.hidden = next !== 'apps';
@@ -196,8 +241,8 @@ window.Workbench = (() => {
     pluginTab.setAttribute('aria-current', next === 'plugins' ? 'page' : 'false');
     historyList.hidden = next !== 'history';
     workspace.classList.toggle('history-view', next === 'history');
-    for (const [id, button] of buttons) button.setAttribute('aria-current', id === (next === 'plugins' ? 'settings' : next) ? 'page' : 'false');
-    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '桌面 / 连接与人工控制', workflows: '流程库 / 版本与参数', apps: '应用管理 / 先选环境', plugins: '设置 / 插件与扩展', settings: '设置 / 预算与提示词' }[next];
+    shell.render(next);
+    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '环境与应用 / 环境', workflows: '工作流 / 版本与参数', apps: '环境与应用 / 已接入应用', plugins: '设置 / 插件与扩展', settings: '设置 / 预算与提示词' }[next];
     if (next === 'plugins') void runtimePlugins.load();
     if (next === 'workflows') void workflowLibrary.load();
     if (next === 'settings') $('prompt-editor').open = true;
@@ -205,20 +250,54 @@ window.Workbench = (() => {
     requestAnimationFrame(() => { window.scrollTo(0, 0); main.scrollTop = 0; taskPane.scrollTop = 0; window.dispatchEvent(new Event('resize')); });
   }
   function sync(run) {
+    const changedRun = currentRun?.taskId !== run?.taskId || currentRun?.source !== run?.source;
+    currentRun = run;
     const isActive = run && run.source === 'web-tasks.sqlite' && run.taskId === state.taskId;
     const isSubmitted = run && `${run.source}/${run.taskId}` === submittedKey;
-    const hide = mode === 'live' && !isActive && !isSubmitted;
-    detail.hidden = !run || hide; empty.hidden = !!run && !hide;
+    const inProgress = run && run.source === 'web-tasks.sqlite' && ['queued', 'running', 'waiting_user', 'pause_requested'].includes(run.status);
+    const hide = mode === 'live' && !isActive && !isSubmitted && !inProgress;
+    detail.hidden = !run || hide; empty.hidden = mode === 'live' || !!run && !hide;
+    context.hidden = !run || hide;
+    home.classList.toggle('has-current-task', !!run && !hide);
     empty.querySelector('h2').textContent = mode === 'history' ? routeTask ? '找不到指定任务记录' : '暂无任务记录' : '当前没有活动任务';
     empty.querySelector('p').textContent = mode === 'history' ? routeTask ? '记录可能已移除。请从任务列表选择其他记录。' : '提交任务后，可在这里查看执行结果与证据。' : '可以提交新任务，或在任务记录中查看已有结果。';
-    const showLive = mode === 'history' && isActive && !['done', 'failed', 'stopped'].includes(run.status)
+    // This stream belongs to the Guest Session, never to Browser/Hidden Chrome.
+    const guestTask = run?.desktopTarget?.providerId === 'hyper-v' || (!run?.desktopTarget && run?.desktopTargetRequired === true);
+    const showLive = ['history', 'live'].includes(mode) && guestTask && isActive && !['done', 'failed', 'stopped'].includes(run.status)
       && (!routeTask || routeTask === `${run.source}/${run.taskId}`);
     if (showLive) { liveSlot.append(desktop); desktop.hidden = false; }
     else { desktopPage.append(desktop); desktop.hidden = mode !== 'desktop'; }
-    liveSlot.hidden = !showLive; recorded.hidden = !!showLive;
+    liveSlot.hidden = !showLive || observationView; recorded.hidden = !!showLive || observationView;
+    observation.hidden = !observationView;
+    imageView.setAttribute('aria-pressed', String(!observationView)); textView.setAttribute('aria-pressed', String(observationView));
     taskLayout.classList.toggle('has-live', !!showLive);
-    context.textContent = mode === 'history' ? showLive ? '当前任务 · 实时桌面与控制归属已核对' : '任务记录 · 展示历史证据，不发送桌面输入' : isSubmitted && !isActive ? '本次提交的任务 · 当前未占用桌面输入权' : '当前现场 · 服务端活动任务';
-    $('task-controls').classList.toggle('workspace-suppressed', mode === 'live' && !!isActive);
+    context.textContent = mode === 'history' ? showLive ? '当前任务 · 实时桌面与控制归属已核对' : '任务记录 · 展示历史证据，不发送桌面输入' : isSubmitted && !isActive ? '本次提交的任务 · 输入归属以所选环境的后台检查为准' : '当前现场 · 服务端活动任务';
+    $('task-controls').classList.remove('workspace-suppressed');
+    shell.run(run && !hide ? run : null);
+    shell.environment(run && !hide ? run.desktopTarget ? `${run.desktopTarget.providerId} / ${run.desktopTarget.environmentId}` : '浏览器 / 记录' : draftEnvironment);
+    if (changedRun && run && !hide && inProgress && !composer.contains(document.activeElement)) composerDisclosure.open = false;
+    if (changedRun || run?.status === 'waiting_user') {
+      detail.classList.remove('context-collapsed');
+      contextToggle.setAttribute('aria-expanded', 'true'); contextToggle.textContent = '收起上下文';
+    }
+    contextToggle.disabled = run?.status === 'waiting_user';
+    contextToggle.title = contextToggle.disabled ? '等待人工处理时保留审批与任务控制入口。' : '折叠或展开当前任务上下文';
+    const latest = run?.steps?.at(-1);
+    observationNote.textContent = latest ? `第 ${latest.step} 步 · 已记录观察，非实时画面。${latest.time ? '记录于 ' + new Date(latest.time).toLocaleString('zh-CN') : '未记录时间。'}` : '本环境暂无可用现场视图；等待后端记录观察。';
+    observationFacts.textContent = latest ? JSON.stringify({step:latest.step, sources:latest.textSources || [],
+      action:latest.action?.kind || '尚未决定', dispatch:latest.result?.ok === true ? '已发出' : latest.result?.ok === false ? '失败' : '未知',
+      verification:latest.verification?.ok === true ? '通过' : latest.verification?.ok === false ? '未通过' : '未知',
+      recordedText:latest.pageText || '未记录可读文本；请查看已有证据。'}, null, 2) : '';
+    timelineItems.replaceChildren();
+    for (const step of (run?.steps || []).slice(-6)) {
+      const row = create('li', '', `第 ${step.step} 步 · ${step.action?.kind || '观察'} · 动作 ${step.result?.ok === true ? '已发出' : step.result?.ok === false ? '失败' : '未知'} · 验证 ${step.verification?.ok === true ? '通过' : step.verification?.ok === false ? '未通过' : '未知'}`);
+      timelineItems.append(row);
+    }
+    if (!timelineItems.children.length) timelineItems.append(create('li', '', '尚无已记录步骤。'));
+    controlAvailability.textContent = !run ? '选择任务后核对控制资格。' : run.desktopScenario
+      ? '固定规则计划：仅后端声明的“停止并清理”可用；暂停后不支持 Resume、接管或自动重放。'
+      : `暂停 / 继续：${run.canPause ? '按当前 Task 状态提供' : '后端未声明'}。接管 / 停止 / 紧急停止：通用 Task 未提供独立接口；桌面控制须匹配当前 Session。`;
+    runtimeSummary.textContent = !run ? '' : `环境：${run.desktopTarget ? run.desktopTarget.providerId + ' / ' + run.desktopTarget.environmentId : run.desktopTargetRequired ? '旧桌面绑定，需后台核对' : '浏览器'}\n来源：${run.source}\n${run.desktopScenario ? '计划：固定规则计划；不启用模型' : '模型：' + (run.modelNames?.join('、') || '尚未记录模型名称')}\n预算：${run.taskBudget ? Object.entries(run.taskBudget.limits).map(([name, limit]) => `${name} ${limit.maxCalls} 次 / ${limit.maxTokens} Token`).join('；') : '该记录未提供预算快照'}\n当前步骤：${latest ? latest.step : '尚无记录'} · 独立验证：${latest?.verification?.ok === true ? '通过' : latest?.verification?.ok === false ? '未通过' : '未知'}`;
     if (run) {
       $('progress-number').textContent = run.stagePlanVersion ? `${run.completedStages.length} 阶段完成` : '按实际步骤执行';
       $('progress-fill').parentElement.hidden = true;
@@ -234,9 +313,9 @@ window.Workbench = (() => {
     connectionSummary.textContent = `${worker} · ${streamDisconnected ? '画面连接未建立' : stale ? '画面待更新' : '画面实时'} · ${state.mode === 'HUMAN_CONTROL' ? '人工控制中' : state.taskId ? '有保留任务' : !state.mode || state.mode === 'ERROR' ? '控制归属待确认' : '无占用任务'}`;
     recoveryHint.textContent = state.mode === 'STOPPED' ? '任务已停止并保存在任务记录中。点击下方“准备新任务”后可再次提交。'
       : state.connection?.status === 'incompatible' ? 'Worker 身份或协议不兼容，请展开连接诊断核对错误。'
-      : state.workerReady !== true ? '先确认虚拟机已登录且 Worker 已启动，系统会自动尝试重连。'
+      : state.workerReady !== true ? '当前桌面流未就绪；请核对所选 Provider 的连接与能力，不据此判断其它执行环境。'
       : stale ? 'Worker 可达，但画面尚未恢复，请等待新画面后再操作。'
-      : state.taskId ? '连接已就绪。可进入占用任务查看暂停原因与恢复操作。' : '连接已就绪。可以接管桌面，或回到工作台提交任务。';
+      : state.taskId ? '当前 Session 已就绪。进入占用任务核对暂停原因与恢复资格。' : '当前 Session 已就绪。控制操作仍以服务端资格为准。';
     openTask.hidden = !state.taskId;
   }
   const initialRoute = readRoute();
@@ -248,6 +327,12 @@ window.Workbench = (() => {
     get routeTask() { return routeTask; },
     bind(callback) { changed = callback; },
     navigate, sync,
+    draft({label, description}) {
+      draftEnvironment = label;
+      environment.textContent = label ? `所选环境：${label} →` : '选择与管理执行环境 →';
+      draftContext.textContent = description;
+      if (!currentRun || detail.hidden) shell.environment(label);
+    },
     runs(runs) {
       const addRun = (parent, run) => {
         const button = create('button', 'home-run', run.goal.replace(/^VM:\s*/i, '').slice(0, 90));
@@ -265,11 +350,18 @@ window.Workbench = (() => {
       for (const run of completed) addRun(recent, run);
       if (!completed.length) recent.append(create('p', '', '完成任务后，结果会出现在这里。'));
     },
-    submitted(key) { submittedKey = key; },
+    submitted(key) {
+      submittedKey = key;
+      try { sessionStorage.setItem('agent-desktop.submitted-task', key); } catch { /* storage unavailable */ }
+    },
+    get submittedKey() { return submittedKey; },
+    editDraft() { composerDisclosure.open = true; },
     select(runs, selected) {
+      // An acknowledged submission keeps its identity even before the list catches up.
+      if (mode === 'live' && submittedKey) return runs.find(run => `${run.source}/${run.taskId}` === submittedKey);
       return mode === 'live' ? runs.find(run => run.source === 'web-tasks.sqlite' && run.taskId === state.taskId &&
         !['done', 'failed', 'stopped'].includes(run.status))
-        || runs.find(run => `${run.source}/${run.taskId}` === submittedKey) : runs.find(run => `${run.source}/${run.taskId}` === selected);
+        || runs.find(run => run.source === 'web-tasks.sqlite' && ['queued', 'running', 'waiting_user', 'pause_requested'].includes(run.status)) : runs.find(run => `${run.source}/${run.taskId}` === selected);
     },
     matches(run) {
       return run.goal.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()) &&
@@ -277,11 +369,11 @@ window.Workbench = (() => {
     },
     control(next) {
       const previousTask = state.taskId; state = next;
-      environment.textContent = `桌面：${next.workerReady ? '已连接' : '未就绪'} · ${next.mode === 'STOPPED' ? '已停止，准备新任务' : next.taskId ? '有保留任务' : next.mode === 'HUMAN_CONTROL' ? '人工控制中' : '查看与管理'} →`;
       const resume = document.querySelector('[data-desktop-command="resume"]');
       resume.textContent = state.mode === 'HUMAN_CONTROL' ? '交还 Agent' : state.taskId ? '恢复执行' : '启用 Agent';
       for (const button of document.querySelectorAll('[data-desktop-command]')) {
-        button.hidden = button.disabled && !['stop', 'emergency'].includes(button.dataset.desktopCommand);
+        button.hidden = false;
+        button.title = button.disabled ? '当前 Session 状态、连接或控制归属不允许此操作。' : '操作当前已连接 Session';
       }
       if (!state.taskId && state.mode !== 'HUMAN_CONTROL') resume.hidden = true;
       freshness();

@@ -178,6 +178,7 @@ test('网页设置全局预算并在单次任务提交中覆盖，空白字段�
     assert.equal(globalTaskBudget(dir).deepseek.maxCalls, 7);
     await page.locator('.workspace-nav').getByRole('button', { name: '工作台' }).click();
     await page.locator('#task-destination').selectOption('browser');
+    await page.waitForFunction(() => document.querySelector('#task-preview-summary')?.textContent?.includes('DeepSeek 7 次'));
     await page.locator('#task-goal').fill('整理文档');
     await page.getByText('完成条件、操作限制与单次预算（可选）').click();
     await page.locator('#task-deepseekCalls').fill('2');

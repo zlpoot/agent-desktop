@@ -1,5 +1,5 @@
 // Shared by Task drafts and fixed-version Workflow execution. Values carry both identity dimensions.
-window.createDesktopSelection = function (select, includeBrowser, changed, allowScenarios = false) {
+window.createDesktopSelection = function (select, includeBrowser, changed, allowScenarios = false, explicitSelection = false) {
   let environments = [], loaded = false, error = '', fixtureOnly = false;
   const key = item => JSON.stringify([item.providerId, item.environmentId]);
   const option = (value, label, disabled = false) => {
@@ -7,7 +7,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
     node.value = value; node.textContent = label; node.disabled = disabled;
     if (!node.parentElement) select.append(node);
   };
-  if (includeBrowser) option('browser', '浏览器');
+  if (includeBrowser) { if (explicitSelection) option('', '请选择执行环境'); option('browser', '浏览器'); }
   else option('', '请选择执行桌面');
   const ready = fetch('/api/desktop/environments').then(async response => {
     const data = await response.json();
@@ -52,7 +52,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       if (includeBrowser && select.value === 'browser' && !fixtureOnly) return '';
       if (!loaded) return error || '正在读取执行桌面';
       const item = this.selected();
-      if (!item) return '请选择可用的执行桌面';
+      if (!item) return '请选择可用的执行环境';
       if (allowScenarios && scenarioId) {
         const scene = item.scenarios?.find(scene => scene.id === scenarioId);
         return scene?.availability === 'supported' ? '' : '此前选择的场景不可用，请重新选择。';
@@ -78,18 +78,48 @@ window.createTaskExperience = function () {
   const $ = id => document.getElementById(id);
   const el = (tag, text, cls = '') => { const e = document.createElement(tag); e.textContent = text; e.className = cls; return e; };
   const form = $('task-form');
-  const targetLabel = el('label', '执行位置');
+  function clearAdmissionMessage() {
+    if ($('task-message').dataset.state === 'admission') { $('task-message').textContent = ''; delete $('task-message').dataset.state; }
+  }
+  document.querySelector('.composer-intro h2').textContent = '告诉 Agent 想完成什么';
+  document.querySelector('.composer-intro p').textContent = '任务、规则计划与工作流共用已有执行记录。权限与结果以后台检查为准。';
+  $('task-goal').placeholder = '例如：整理当前文档，并说明希望得到的结果…';
+  const targetLabel = el('label', '执行环境');
   const target = el('select', ''); target.id = 'task-destination';
   targetLabel.append(target); form.prepend(targetLabel);
-  const scenarioLabel = el('label', '目标 / 固定场景');
+  const scenarioLabel = el('label', '执行计划 / 已支持的固定场景');
   const scenario = el('select', ''); scenario.id = 'task-scenario'; scenarioLabel.append(scenario); targetLabel.after(scenarioLabel);
   scenarioLabel.hidden = true;
+  const choices = el('div', '', 'composer-choices'); choices.append(targetLabel, scenarioLabel);
+  const modes = [['stable','稳定','通过已验证工作流运行；工作台尚未接通稳定模式，请从工作流页核对版本与执行资格。'],
+    ['autonomous','自主','沿用通用任务入口。模型配置、目标连接、权限和预算仍由后端执行前检查；可提交不代表已就绪。'],
+    ['learning','学习','待启用：尚无专用学习执行适配，不用自主任务冒充学习模式。'],
+    ['optimize','优化','待实现：尚无版本优化执行适配；可在工作流页查看已有版本与证据。']];
+  const modeField = el('input', ''); modeField.type = 'hidden'; modeField.id = 'task-mode'; modeField.value = 'autonomous';
+  const modeSelector = el('fieldset', '', 'mode-selector'); modeSelector.append(el('legend', '运行模式'));
+  const modeOptions = el('div', '', 'mode-options');
+  const modeDescription = el('p', '', 'mode-description'); modeDescription.id = 'task-mode-description'; modeDescription.setAttribute('role', 'status');
+  const radios = [];
+  for (const [value, label] of modes) {
+    const wrapper = el('label', ''); const radio = el('input', ''); radio.type = 'radio'; radio.name = 'task-mode-choice';radio.value = value;
+    radio.setAttribute('aria-label', label); radio.setAttribute('aria-describedby','task-mode-description');
+    const caption = el('span', label);
+    caption.append(el('small', ({stable:'需工作流入口', autonomous:'后台预检', learning:'待启用', optimize:'待实现'})[value]));
+    wrapper.append(radio, caption); modeOptions.append(wrapper);radios.push(radio);
+    radio.onchange = () => {clearAdmissionMessage();modeField.value = value;save();update();};
+  }
+  modeSelector.append(modeField, modeOptions, modeDescription);
+  form.querySelector('.task-composer').after(modeSelector, choices);
+  const appLabel = el('label', '应用（可选）'); const app = el('select', ''); app.disabled = true;
+  app.id = 'task-application'; app.setAttribute('aria-label', '应用（可选）');
+  app.append(el('option', '从任务目标发现并确认；工作台暂不支持手动绑定'));appLabel.append(app);choices.append(appLabel);
+  app.title = '任务中的应用发现与确认复用后台接入流程；这里不生成绑定或启动应用。';
   const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
   const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
   form.before(readiness);
   $('task-goal').maxLength = 2000;
   const advanced = el('details', '', 'task-options'); advanced.append(el('summary', '完成条件、操作限制与单次预算（可选）'));
-  const fields = { goal: $('task-goal'), destination: target, scenario };
+  const fields = { goal: $('task-goal'), destination: target, scenario, mode:modeField };
   for (const [name, label] of [['criteria', '完成条件'], ['constraints', '操作限制']]) {
     const wrapper = el('label', label); const input = el('textarea', ''); input.rows = 2; input.maxLength = 500;
     input.id = `task-${name}`; wrapper.append(input); advanced.append(wrapper); fields[name] = input;
@@ -102,6 +132,14 @@ window.createTaskExperience = function () {
     input.id = `task-${name}`; wrapper.append(input); advanced.append(wrapper); fields[name] = input;
   }
   form.append(advanced);
+  const preview = el('details', '', 'execution-preview'); preview.id = 'task-execution-preview';
+  const previewText = el('p', ''); previewText.id = 'task-preview-summary';
+  preview.append(el('summary', '查看执行计划与准备条件'), previewText);
+  const workflowButton = el('button', '选择与预览工作流'); workflowButton.type = 'button';workflowButton.onclick = () => window.Workbench.navigate('workflows');
+  preview.append(workflowButton);form.append(preview,form.querySelector('.task-composer-footer'));
+  readiness.remove(); form.append(readiness); // Readiness stays next to the real submit button.
+  form.append(form.querySelector('.task-composer-footer'));
+  const submitStatus = el('span', '');submitStatus.id = 'task-submit-state';submitStatus.setAttribute('role', 'status');readiness.append(submitStatus);
   const attention = el('section', '', 'attention-list panel'); attention.append(el('h3', '待处理'));
   attention.hidden = true;
   const attentionItems = el('div', ''); attention.append(attentionItems);
@@ -206,7 +244,7 @@ window.createTaskExperience = function () {
   recorded.append(evidenceTitle, evidenceCaption, evidenceImage, missingEvidence, evidenceLink);
   let evidenceUrl = '';
   evidenceImage.onerror = () => { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '截图文件不可读取，请查看执行记录中的文字证据。'; };
-  let busy = false, currentRun = null, budgetReady = false;
+  let busy = false, currentRun = null, budgetReady = false, globalBudget = null;
   const storageKey = 'agent-desktop.task-draft.v2';
   let draftDestination, draftScenario, renderedDestination;
   try {
@@ -217,7 +255,8 @@ window.createTaskExperience = function () {
       draftScenario = draft.scenario;
     }
   } catch {}
-  const selection = window.createDesktopSelection(target, true, update, true);
+  if (!modes.some(([id])=>id === modeField.value)) modeField.value = 'autonomous';
+  const selection = window.createDesktopSelection(target, true, update, true, true);
   if (typeof draftDestination === 'string') selection.restore(draftDestination);
   function save() { try { sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])))); } catch {} }
   function update() {
@@ -241,20 +280,36 @@ window.createTaskExperience = function () {
       }
     }
     scenarioLabel.hidden = !catalog.length && !scenario.value;
-    const finite = !!scenario.value || !!catalog.length && !item?.executable;
+    const finite = !!scenario.value;
     fields.goal.disabled = finite; fields.criteria.disabled = finite; fields.constraints.disabled = finite; $('task-admin').disabled = finite;
-    const problem = selection.problem(scenario.value);
+    const mode = modes.find(([id])=>id === modeField.value);
+    const modeProblem = !finite && modeField.value !== 'autonomous' ? mode[2] : '';
+    for (const radio of radios) {radio.checked = radio.value === modeField.value;radio.disabled = finite;}
+    modeDescription.textContent = finite ? '当前明确选择了固定规则计划；四种模式不参与该计划执行。' : mode[2];
+    const problem = selection.problem(scenario.value) || modeProblem;
     const blocked = !!problem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
-    heading.textContent = problem ? '执行桌面不可用' : !budgetReady ? '任务预算服务未就绪' : `执行位置：${target.selectedOptions[0]?.textContent || ''}`;
+    readiness.dataset.state = problem || !budgetReady ? 'blocked' : 'ready';
+    heading.textContent = problem ? '尚不可提交' : !budgetReady ? '任务预算服务未就绪' : finite ? '可提交固定规则计划 · 后台重新预检' : '可提交通用任务 · 后台检查模型与环境';
     hint.textContent = (selection.synthetic() ? '合成体验：无真实桌面输入、应用启动或模型调用；NOT HUMAN VERIFIED。' : '') +
       (problem || (!budgetReady ? '任务预算服务暂不可用。' : finite ? '仅执行所选固定场景，自由任务文本、完成条件与管理员开关不参与执行。支持状态不代表当前窗口已就绪；执行时重新检查目标、能力与输入租约。' : target.value === 'browser' ? '在浏览器中执行任务。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。'));
+    const label = target.value ? target.selectedOptions[0]?.textContent || '' : '';
+    const budgetText = globalBudget ? [['deepseek', 'DeepSeek'], ['jev', 'JEV']].map(([key, name]) =>
+      `${name} ${fields[key + 'Calls'].value || globalBudget[key].maxCalls} 次 / ${fields[key + 'Tokens'].value || globalBudget[key].maxTokens} Token`).join('；') : '预算服务未就绪';
+    previewText.textContent = `模式：${finite ? '固定规则计划（不属于四种模式）' : mode[1]}\n环境：${label || '待选择'}\n计划：${finite ? scenario.selectedOptions[0]?.textContent : modeProblem ? '此模式没有已接通的工作台执行入口' : '根据目标在后台规划；未获得输入与副作用许可前不执行'}\n应用：按当前任务的后台发现与确认，页面不自动启动\n文件：只从实际执行与验收记录确认；此预览不创建文件\n模型 / 预算：${finite ? '规则执行；不启用模型' : '模型配置在后台核对'}；${budgetText}\n权限 / 副作用：动作可能修改应用或文件；真实风险批准与一次性授权由后台校验，本预览不发出动作。`;
+    submitStatus.textContent = busy ? '提交处理中，请勿重复发送。' : blocked ? '禁用原因见上方；选择与预览不会执行。' : '';
+    window.Workbench?.draft({label,description:modeDescription.textContent+' '+hint.textContent});
   }
-  fetch('/api/settings/task-budget').then(response => response.ok ? response.json() : Promise.reject(new Error('预算服务不可用')))
-    .then(result => { budgetReady = !!result.budget; update(); }).catch(() => { budgetReady = false; update(); });
-  form.addEventListener('input', () => { save(); update(); });
-  target.addEventListener('change', () => { draftScenario = undefined; update(); save(); });
-  scenario.addEventListener('change', () => { save(); update(); });
+  function loadBudget() {
+    budgetReady = false; update();
+    return fetch('/api/settings/task-budget').then(response => response.ok ? response.json() : Promise.reject(new Error('预算服务不可用')))
+    .then(result => { globalBudget = result.budget; budgetReady = !!globalBudget; update(); }).catch(() => { budgetReady = false; update(); });
+  }
+  void loadBudget();
+  document.addEventListener('workbench:budget-updated', loadBudget);
+  form.addEventListener('input', () => { clearAdmissionMessage(); save(); update(); });
+  target.addEventListener('change', () => { clearAdmissionMessage(); draftScenario = undefined; update(); save(); });
+  scenario.addEventListener('change', () => { clearAdmissionMessage(); save(); update(); });
   retry.onclick = () => {
     if (!currentRun) return;
     fields.goal.value = currentRun.goal;
@@ -262,13 +317,14 @@ window.createTaskExperience = function () {
     draftScenario = currentRun.desktopScenario; renderedDestination = undefined;
     selection.restore(currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : currentRun.desktopTargetRequired ? 'legacy-desktop-target-required' : 'browser');
     fields.criteria.value = ''; fields.constraints.value = ''; save();
-    window.Workbench.navigate('live'); update(); fields.goal.focus();
+    window.Workbench.navigate('live'); window.Workbench.editDraft(); update(); fields.goal.focus();
   };
   return {
     control() { update(); },
     submitting(value) { busy = value; update(); },
     payload() {
-      update(); if ($('task-submit').disabled && !busy) throw new Error(hint.textContent);
+      if (busy) throw new Error('任务提交处理中，不重复提交。');
+      update(); if ($('task-submit').disabled) throw new Error(hint.textContent);
       const budget = {};
       for (const [kind, names] of Object.entries({ deepseek: ['deepseekCalls', 'deepseekTokens'], jev: ['jevCalls', 'jevTokens'] })) {
         const entries = names.map((name, index) => [index ? 'maxTokens' : 'maxCalls', fields[name].value.trim()])
@@ -307,7 +363,7 @@ window.createTaskExperience = function () {
         evidenceUrl = url; evidenceImage.hidden = !url; evidenceLink.hidden = !url; missingEvidence.hidden = !!url;
         if (url) { evidenceImage.src = url; evidenceLink.href = url; } else { evidenceImage.removeAttribute('src'); evidenceLink.removeAttribute('href'); }
       }
-      if (!url) { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '此任务尚无已记录截图。'; }
+      if (!url) { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '此任务尚无已记录截图。本环境暂无可用现场视图；可查看已记录观察和执行过程。'; }
       evidenceCaption.textContent = shot ? `第 ${shot.step} 步 · ${shot.screenshotTime ? new Date(shot.screenshotTime).toLocaleString('zh-CN') : '时间未记录'} · ${shot.screenshotScope === "desktop" ? "完整桌面" : shot.screenshotScope === "window" ? "窗口截图，未包含桌面" : "页面截图"} · 历史画面，不代表当前桌面${shot.desktopCaptureError ? " · 完整桌面采集失败" : ""}` : '不会用其他任务的实时画面替代证据。';
       const text = run.goal.replace(/^VM:\s*/i, ''); $('goal').textContent = text.length > 60 ? `${text.slice(0, 60)}…` : text;
       originalText.textContent = run.goal; original.hidden = text.length <= 60;
@@ -316,7 +372,7 @@ window.createTaskExperience = function () {
       reason.textContent = run.error || run.summary || '尚未记录具体原因，请查看执行过程。';
       reason.hidden = run.status === 'running';
       requestTitle.textContent = waiting ? ({ app_onboarding: '需要确认应用配置', question: '需要补充信息', final_review: '请确认最终结果', approval: '需要批准下一步动作' }[run.interactionKind] || '需要你处理') : '任务已暂停或正在暂停';
-      requestNext.textContent = waiting ? run.interactionKind === 'final_review' ? '核对下方结果与截图后，再确认完成；未满足目标请选择“尚未完成”。' : run.interactionKind === 'question' ? '提交回答后任务继续处理。' : '查看动作说明后决定是否允许。' : run.recoveryRequired ? '任务现场已保留。先确认环境就绪，继续时会重新观察，再判断下一步。' : '核对原因及现场后继续，或在桌面页接管处理。';
+      requestNext.textContent = waiting ? run.interactionKind === 'final_review' ? '核对下方结果与截图后，再确认完成；未满足目标请选择“尚未完成”。' : run.interactionKind === 'question' ? '提交回答后任务继续处理。' : '查看动作说明后决定是否允许。' : run.recoveryRequired && run.canPause ? '任务现场已保留。先确认环境就绪，继续时会重新观察，再判断下一步。' : '核对原因与已有证据；下一步操作以当前任务的控制资格为准。';
       if (run.status === 'failed' || run.status === 'stopped') { requestTitle.textContent = run.status === 'failed' ? '任务未完成' : '任务已停止'; requestNext.textContent = '查看原因和历史证据，可用下方“新建草稿”修改要求后重新提交。'; }
       if (run.status === 'running') { requestTitle.textContent = '任务正在执行'; requestNext.textContent = '需要介入时可请求暂停，等待当前动作到达安全边界。'; }
       if (run.interactionKind === 'app_onboarding') requestNext.textContent = '配置完成后继续当前任务，无需重输要求；应用启动不代表业务完成。';
@@ -329,7 +385,7 @@ window.createTaskExperience = function () {
           desktop_scenario_verifying: '独立验证', desktop_scenario_verified: '验证通过', desktop_scenario_cleanup: '停止与清理',
           desktop_scenario_cleanup_done: '清理完成', desktop_scenario_done: '完成', desktop_scenario_error: '阻断', desktop_scenario_cleanup_error: '清理失败' };
         sceneStatus.textContent = `${run.desktopTarget?.providerId} / ${run.desktopTarget?.environmentId} · ${run.desktopScenario}\n` +
-          `阶段：${phases[result?.phase] || result?.phase || 'UNKNOWN'} · ${result?.blocked ? 'BLOCKED · ' : ''}执行 ${result?.execution || 'UNKNOWN'} · 验证 ${result?.verification || 'UNKNOWN'} · 清理 ${result?.cleanup || 'UNKNOWN'} · NOT HUMAN VERIFIED`;
+          `阶段：${phases[result?.phase] || result?.phase || 'UNKNOWN'} · ${result?.blocked ? 'BLOCKED · ' : ''}执行 ${result?.execution || 'UNKNOWN'} · 验证 ${result?.verification || 'UNKNOWN'} · 清理 ${result?.cleanup || 'UNKNOWN'} · NOT HUMAN VERIFIED\n暂无可读取的系统内人工验收记录；外部 Owner 报告另行保留。${result?.execution === 'UNKNOWN' || result?.verification === 'UNKNOWN' ? '\n结果未知，不自动重放。' : ''}`;
         sceneFacts.textContent = JSON.stringify(result?.facts || {}, null, 2);
         sceneHistory.replaceChildren(...(result?.events || []).map(event => el('li', `${new Date(event.time).toLocaleString('zh-CN')} · ${phases[event.kind] || event.kind} · ${event.detail || ''}`)));
         if (paused || run.status === 'failed') requestNext.textContent = '固定场景停止后清理资源；不支持 Dashboard 接管或 Resume。先核对结果与清理记录；UNKNOWN 不自动重放。需要重试时显式新建任务。';

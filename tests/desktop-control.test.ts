@@ -141,7 +141,7 @@ test("D3 browser sends normalized pointer and Unicode text only after taking con
     const page = await browser.newPage();
     const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${da.port}`);
-    await page.getByRole('button', { name: '桌面', exact: true }).click();
+    await page.getByRole('button', { name: '环境与应用', exact: true }).click();
     await page.locator("#desktop-frame").waitFor({ state: "visible" });
     await page.locator('[data-desktop-command="take"]').click();
     await page.locator("#desktop-human-text").waitFor({ state: "visible" });

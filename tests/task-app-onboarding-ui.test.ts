@@ -19,7 +19,7 @@ test('Browser covers real waiting card/confirm API, explicit single/multi select
       if (request.url().endsWith('/app-onboarding')) confirms.push(request.postDataJSON());
     });
     await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 2);
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 3);
     await page.locator('#task-destination').selectOption(JSON.stringify([f.target.providerId, f.target.environmentId]));
     await page.locator('#task-goal').fill('使用 AA音乐 搜索合成歌曲'); await page.locator('#task-submit').click();
     const card = page.locator('#app-onboarding'); await card.waitFor({ state: 'visible' });
