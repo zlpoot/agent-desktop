@@ -144,4 +144,18 @@ Dashboard 选择 **Hidden Workspace Chrome** → **#47 一次创建 Key → 桌�
 合成复核曾出现 `invalid-input-authority`，诊断证实管理心跳间隔超出原 3 秒租约；产品按原规则阻断。流程测试改用现有 Arbiter 可注入的可控单调时钟，保留单独的真实计时心跳回归，并新增明确推进到 3001 ms 后在 UI effect 前拒绝的测试；生产时钟、租约、Native ACK 和观察期限均未更改。
 候选新增创建步骤的文件后置声明，与最终独立接受的文件结果对齐；参数注入同时替换既有 `durableContract` 的字段，避免 outputFile 仅在步骤中展开。schema 不变，悬空契约仍拒绝，冻结原定义保持原样；新增合成回归通过。
 最终验证：check PASS；offline 754/754；Python 18 个文件 PASS；Local Workspace 53/53；Viewer 1/1；Hidden Chrome 10/10（单独与完整 Browser 均通过）；完整 Browser 75/77，两项既有下载 canceled 仍保留，不能声明全绿。
-原 TXT 哈希仍与首次验收一致；LIVE-01 / 本机验证产物及 PR 全部 21 个文件比较原 Key 明文均为 0。私有授权配置、台账、Key、产物与日志不进入提交。PR 保持独立 Review，不合并；第二次真实执行仍待 Owner 点击与验收。
+原 TXT 哈希仍与首次验收一致；LIVE-01 / 本机验证产物及 PR 全部 21 个文件比较原 Key 明文均为 0。私有授权配置、台账、Key、产物与日志不进入提交。PR 保持独立 Review，不合并；截至该次开放，第二次真实执行仍待 Owner 点击与验收。
+
+## Owner 新创建 Task 阻断：真实时钟与轨迹写入修正
+
+Owner 随后实际点击创建，Task `ce3a52e9-a645-463b-aca2-cb8d9b04536d` 于 2026-10-09 12:29 执行，外层 paused / recovery required，内部第 11 步 failed，错误为 `Desktop admission denied: invalid-input-authority`，当时动作仍为勾选第 6 个模型。没有 dispatch intent、没有提交按钮执行事件，也没有新 TXT；原文件不变。所属 Session 撤销后清理完成，旧 Task、逐步记录与失败结论保留，不改为通过。
+
+内部 node metrics 显示第 11 步 resolve_action 结束至 pause_before_execute 开始有约 3.39 秒间隙；risk_check 本身约 11 ms。真实 Task 未采集 CPU profile，不能据此指定停顿的每个调用。使用合成网页、生产时钟重新执行时同样在创建前阻断，CPU 采样记录一次同步 `SqliteTrace.save` 约 2.22 秒，足以超过原 2 秒观察期限；原 3 秒输入租约也必须继续阻断长间隙。之前改用受控时钟只证明流程逻辑，未验证这个真实计时路径，不能作为该问题已解决的证据。
+
+最小修正为 SqliteTrace 的可选 WAL 模式，只由新创建 Task 的内部 trace 显式启用，保留 `synchronous=FULL`、逐次提交、原事务、schema、TraceStore 契约和默认数据库行为。避免每个节点重复创建 / 删除 rollback journal，并让读者持有旧快照时写者仍能提交。没有扩大租约、观察期限、ACK、预算或 Native 权限；不是后台续租失效 grant，也不把同步停顿当成成功。
+
+创建与只读流程回归均恢复生产单调时钟，夹具增加到 9 个合成模型；独立风险中断、一次提交、私有文件与当前 GUI 全值比对、旧文件保护、无密钥候选、许可耗尽拒绝仍验证。专项 10/10 PASS；新增 WAL 并发读取 / 写入提交 / 关闭重开保存回归与授权测试 5/5 PASS；check PASS，offline 754/754 PASS（新增 WAL 断言另行复核），Python 18 个文件 PASS。完整 Browser 75/77，本功能 10/10 PASS；两项原有下载仍 canceled，不宣称全绿。首次遗漏项目 Chromium 缓存环境变量的 Browser 运行已停止，随后使用现有缓存复核，不安装浏览器或升级依赖。不能用合成通过宣称第二个真实 Key 已创建。
+
+本次尚未使用的新增一次创建许可可在停止 Dashboard 后由操作者显式对账：同时证明绑定 Task、未提交事件、无 intent、新 TXT 不存在、所属 Job / Desktop 清理完成，归档旧 reservation 与对账证据，再保留同一授权 ID / 名称 / 新文件用于 Owner 手动新建 Task。没有修改旧 Task、生成额外授权或自动重试；该操作不是产品的自动释放逻辑。只要存在 intent、提交动作、文件、未知动作或清理不确定，就禁止此对账。修正后的真实创建仍待 Owner 手动验证，PR 保持独立 Review。
+
+2026-10-09 12:46 已完成上述一次本机对账：停止无活动 Task 的本仓库 Dashboard，确认所属 Chrome 进程数为 0，严格检查旧 Task 与 Native 撤销 / 清理记录，归档原 reservation 和不含密钥的证据。使用相同私有配置重启后，固定创建场景为 supported，通用执行仍 blocked，新 TXT 仍不存在；没有点击 Task 或提交网页表单。第二个真实 Key 的成功验收仍待 Owner。

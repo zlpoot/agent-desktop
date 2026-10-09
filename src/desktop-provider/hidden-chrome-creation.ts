@@ -73,7 +73,7 @@ export class HiddenChromeCreationRun {
   async execute() {
     if(this.started)throw new Error('Chrome creation Task replay forbidden');this.started=true;
     await mkdir(this.directory,{recursive:true});
-    const path=resolve(this.directory,'task.sqlite'),trace=new SqliteTrace(path);
+    const path=resolve(this.directory,'task.sqlite'),trace=new SqliteTrace(path,{journalMode:'wal'});
     const main=new SqliteTrace(resolve(this.root,'web-tasks.sqlite'));
     try {
       const graph=createAgentLoop({runtime:this.runtime,model:new CreateOneKey(this.config.keyName),trace,

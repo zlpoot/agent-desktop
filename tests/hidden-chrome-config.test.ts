@@ -6,6 +6,31 @@ import {tmpdir} from 'node:os';
 import {loadDesktopEnvironmentConfig} from '../src/composition/desktop-environment-config.js';
 import {createRootAssembly} from '../src/composition/root.js';
 import {HiddenChromeCreationPermit,validateChromeCreationAuthorization} from '../src/desktop-provider/hidden-chrome-creation.js';
+import {DatabaseSync} from 'node:sqlite';
+import {SqliteTrace} from '../src/trace/sqlite-trace.js';
+import {initialState} from '../src/graph/state.js';
+
+test('opt-in FULL WAL trace preserves committed state while a reader holds its previous snapshot',()=>{
+  const directory=mkdtempSync(join(tmpdir(),'chrome-wal-')),path=join(directory,'trace.sqlite');
+  const trace=new SqliteTrace(path,{journalMode:'wal'}),reader=new DatabaseSync(path,{readOnly:true});
+  try {
+    trace.save('observe',initialState('synthetic-wal','synthetic trace'));
+    reader.exec('BEGIN');
+    assert.equal(reader.prepare('SELECT step FROM tasks').get()?.step,0);
+    // A rollback-journal writer cannot commit with this reader held. WAL must
+    // commit independently, keeping UI timing separate from reader contention.
+    trace.save('decide',{...initialState('synthetic-wal','synthetic trace'),step:1});
+    assert.equal(reader.prepare('SELECT step FROM tasks').get()?.step,0);
+    reader.exec('ROLLBACK');
+    assert.equal(reader.prepare('SELECT step FROM tasks').get()?.step,1);
+    assert.equal(reader.prepare('PRAGMA journal_mode').get()?.journal_mode,'wal');
+  }finally{reader.close();trace.close();}
+  const reopened=new SqliteTrace(path,{journalMode:'wal'});
+  try {
+    assert.equal(reopened.load('synthetic-wal')?.step,1);
+    assert.equal(reopened.events('synthetic-wal').length,2);
+  }finally{reopened.close();rmSync(directory,{recursive:true,force:true});}
+});
 
 test('explicit Hidden Chrome config registers lazy read-only scenario and never promotes generic Tasks',async()=>{
   const directory=mkdtempSync(join(tmpdir(),'hidden-chrome-config-'));

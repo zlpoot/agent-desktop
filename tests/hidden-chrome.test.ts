@@ -25,7 +25,7 @@ const fixture=`<form hidden><input name="name" value="SYNTHETIC_OTHER_FORM"></fo
 <section hidden><button type="button" id="new-api-key" onclick="document.getElementById('synthetic-key-form').hidden=false">生成 API Key</button>
 <form id="synthetic-key-form" hidden><label>Key 名称<input name="name" required></label><label>每分钟请求<input name="rpm" type="number" value="5" required></label>
 <input name="max_output_tokens" type="number" value="1024" required><select name="days"><option value="30">30 天</option></select>
-<label>合成模型 A<input name="allowed_models" type="checkbox"></label><label>合成模型 B<input name="allowed_models" type="checkbox"></label>
+${Array.from({length:9},(_,i)=>`<label>合成模型 ${i}<input name="allowed_models" type="checkbox"></label>`).join('')}
 <button type="submit">确认生成</button></form><pre id="api-key-secret" hidden></pre></section>
 <script>document.getElementById('synthetic-key-form').onsubmit=e=>{e.preventDefault();document.getElementById('api-key-secret').textContent='${seed}';document.getElementById('api-key-secret').hidden=false;document.getElementById('synthetic-key-form').hidden=true;};</script>`;
 
@@ -130,9 +130,9 @@ test('Native Task errors expose only recognized protocol codes, never arbitrary 
 });
 
 test('synthetic live-path regression: risk gate stays pending, one submit, private file equality, no secret in trace/candidate',async()=>{
-  // Flow assertions use the arbiter's supported deterministic monotonic clock;
-  // real heartbeat timing and explicit expiry are verified separately.
-  const h=await harness(()=>0);let claims=0;const trace=new SqliteTrace(join(h.directory,'task.sqlite'));
+  // Exercise all nine checkboxes with the production clock and FULL WAL trace.
+  // A frozen clock would hide writer stalls that expire input/capture authority.
+  const h=await harness();let claims=0;const trace=new SqliteTrace(join(h.directory,'task.sqlite'),{journalMode:'wal'});
   try{
     h.session.authorizeCreation({keyName:'agent-desktop-hidden-chrome-20261009',maxOutputTokens:40000,allModels:true,claim:async()=>{claims++;assert.equal(claims,1);}});
     // about:blank carries a synthetic fixture; use the real rule decisions after
@@ -165,7 +165,7 @@ test('synthetic live-path regression: risk gate stays pending, one submit, priva
 });
 
 test('Dashboard lists Hidden Chrome, requires explicit read-only scenario, uses fixed Task chain without model or Key creation',async()=>{
-  const h=await unclaimedHarness(()=>0);
+  const h=await unclaimedHarness();
   // Page routing fulfills the synthetic document; no request reaches 8102.
   await h.page.route('http://192.168.2.3:8102/**',route=>route.request().method()==='GET'
     ? route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}):route.fallback());
@@ -251,7 +251,7 @@ test('read-only acceptance requires the exact access fragment, not the root or a
 });
 
 test('Dashboard newly authorized one-Key scenario uses the real Task/Agent Loop/file gate, saves a secret-free candidate and refuses reuse',async()=>{
-  const h=await unclaimedHarness(()=>0);
+  const h=await unclaimedHarness();
   await h.page.route('http://192.168.2.3:8102/**',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}));
   const config={authorizationId:'33333333-3333-4333-8333-333333333333',keyName:'agent-desktop-hidden-chrome-20261009-2',
     outputFile:'AgentDesktop_8102_API_Key_20261009_2.txt',allModels:true as const,maxOutputTokens:40000 as const,otherDefaults:true as const};
