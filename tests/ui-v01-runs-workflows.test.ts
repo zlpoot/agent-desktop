@@ -142,6 +142,66 @@ test('C Runs separates execution, auto, cleanup and human facts; legacy states a
   });
 });
 
+test('C P1 grounding failure without execute stays undispatched; execution receipts keep their origin', { timeout: 60000 }, async () => {
+  await dashboard(root => {
+    const trace = new SqliteTrace(join(root, 'web-tasks.sqlite'));
+    const action = { kind: 'click' as const, target: { kind: 'text' as const, text: 'synthetic missing target' } };
+    const ground: ComputerState = { ...initialState('ground-only', 'synthetic grounding failure'), step: 1, lastAction: action };
+    trace.save('observe', { ...ground, observation: { pageText: 'synthetic recorded observation' } });
+    trace.save('decide', ground);
+    const failed = { ...ground, lastResult: { ok: false, message: '所有目标定位策略均失败' } };
+    trace.save('ground', failed);
+    trace.save('recover', { ...failed, status: 'failed', error: 'synthetic grounding failed' });
+    const executed: ComputerState = { ...initialState('execute-control', 'synthetic execute comparison'), step: 1, lastAction: action };
+    trace.save('decide', executed);
+    trace.save('execute', { ...executed, lastResult: { ok: true, message: 'synthetic execute success' } });
+    trace.save('decide', { ...executed, step: 2 });
+    trace.save('execute', { ...executed, step: 2, status: 'failed', lastResult: { ok: false, message: 'synthetic execute failure' } });
+    trace.close();
+  }, async (page, base, root) => {
+    const writes: string[] = []; page.on('request', request => { if (request.method() === 'POST') writes.push(request.url()); });
+    const db = new DatabaseSync(join(root, 'web-tasks.sqlite'), { readOnly: true });
+    try { assert.deepEqual(db.prepare('SELECT node FROM events WHERE task_id=? ORDER BY id').all('ground-only').map(row => row.node), ['observe', 'decide', 'ground', 'recover']); }
+    finally { db.close(); }
+    const ground = await (await page.request.get(`${base}/api/runs/web-tasks.sqlite/ground-only`)).json();
+    assert.equal(ground.steps[0].resultOrigin, 'ground');
+    const executed = await (await page.request.get(`${base}/api/runs/web-tasks.sqlite/execute-control`)).json();
+    assert.deepEqual(executed.steps.map((step: { resultOrigin: string }) => step.resultOrigin), ['execute', 'execute']);
+    await page.goto(`${base}/#/history?task=web-tasks.sqlite%2Fground-only`);
+    await page.locator('#task-execution-fact').getByText(/定位失败 1 步（未派发）/).waitFor();
+    assert.doesNotMatch(await page.locator('#task-execution-fact').innerText(), /动作回执：/);
+    assert.equal(await page.locator('#action-count').textContent(), '0');
+    assert.match(await page.locator('.workspace-timeline').innerText(), /定位失败 · 未派发/);
+    await page.getByRole('button', { name: '文字与结构', exact: true }).click();
+    assert.match(await page.locator('.task-observation').innerText(), /定位失败 · 未派发/);
+    const evidence = async () => {
+      if (!await page.locator('.task-diagnostics').evaluate((detail: HTMLDetailsElement) => detail.open)) await page.locator('.task-diagnostics > summary').click();
+      await page.getByRole('button', { name: '步骤证据', exact: true }).click();
+    };
+    await evidence();
+    for (const selector of ['#step-list', '#step-detail']) {
+      assert.match(await page.locator(selector).innerText(), /定位失败 · 未派发/);
+      assert.doesNotMatch(await page.locator(selector).innerText(), /动作回执\s*失败/);
+    }
+    assert.match(await page.locator('#step-detail').innerText(), /所有目标定位策略均失败/);
+    await page.getByRole('button', { name: '执行过程', exact: true }).click();
+    assert.match(await page.locator('#flow-chart').innerText(), /定位失败 · 未派发/);
+    assert.doesNotMatch(await page.locator('#flow-chart').innerText(), /动作回执\s*失败/);
+    await page.goto(`${base}/#/history?task=web-tasks.sqlite%2Fexecute-control`);
+    await page.locator('#task-execution-fact').getByText(/动作回执：成功 1 \/ 失败 1/).waitFor();
+    assert.equal(await page.locator('#action-count').textContent(), '1');
+    await evidence();
+    assert.match(await page.locator('#step-list').innerText(), /动作回执 成功 · 独立验证 UNKNOWN/);
+    assert.match(await page.locator('#step-list').innerText(), /动作回执 失败 · 独立验证 UNKNOWN/);
+    // A legacy response without provenance cannot establish dispatch just from result.ok.
+    await page.route('**/api/runs/web-tasks.sqlite/execute-control', route => route.fulfill({ json: { ...executed,
+      steps: executed.steps.map(({ resultOrigin: _origin, ...step }: Record<string, unknown>) => step) } }));
+    await page.reload(); await page.locator('#task-execution-fact').getByText(/UNKNOWN.*未记录执行回执/).waitFor();
+    assert.equal(await page.locator('#action-count').textContent(), '0');
+    assert.deepEqual(writes, []);
+  });
+});
+
 function workflow(id = 'versions'): Workflow {
   return { id, version: 1, status: 'candidate', environment: 'browser', taskPattern: `synthetic ${id} {{value}}`,
     inputs: [{ name: 'value', example: 'synthetic' }], preconditions: [{ kind: 'url_host', value: 'synthetic.invalid' }],

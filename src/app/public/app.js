@@ -214,11 +214,13 @@ function renderDetail() {
     : { verdict: 'unknown', message: '未记录自动完成验收' });
   byId('goal-verification').textContent = `自动验收 ${automatic.verdict?.toUpperCase() || 'UNKNOWN'}${automatic.reason ? `（${automatic.reason}）` : ''} · ${automatic.message || '未记录验收说明'}${evidenceDetails}`;
   byId('task-auto-fact').dataset.verdict = automatic.verdict || 'unknown';
-  const results = run.steps.filter(step => step.result);
+  const results = run.steps.filter(step => step.resultOrigin === 'execute' && step.result);
+  const groundFailures = run.steps.filter(step => step.resultOrigin === 'ground' && step.result?.ok === false);
+  const groundingNote = groundFailures.length ? `定位失败 ${groundFailures.length} 步（未派发）；` : '';
   byId('task-execution-fact').textContent = run.desktopScenarioResult?.execution
     ? `${run.desktopScenarioResult.execution} · 后台场景执行结果`
-    : results.length ? `动作回执：成功 ${results.filter(step => step.result.ok === true).length} / 失败 ${results.filter(step => step.result.ok === false).length}；副作用结果须核对逐步证据，不代表目标完成。`
-      : 'UNKNOWN · 未记录执行回执或副作用结果';
+    : results.length ? `动作回执：成功 ${results.filter(step => step.result.ok === true).length} / 失败 ${results.filter(step => step.result.ok === false).length}；${groundingNote}副作用结果须核对逐步证据，不代表目标完成。`
+      : `UNKNOWN · ${groundingNote}未记录执行回执或副作用结果`;
   byId('task-cleanup-fact').textContent = run.desktopScenarioResult?.cleanup
     ? `${run.desktopScenarioResult.cleanup} · 后台场景清理结果；不代表目标验收`
     : 'UNKNOWN · 未记录可靠的清理 / 遗留状态';
@@ -450,7 +452,7 @@ function renderSteps() {
 }
 
 function stepFacts(step) {
-  return `动作回执 ${step.result?.ok === true ? '成功' : step.result?.ok === false ? '失败' : 'UNKNOWN'} · 独立验证 ${step.verification?.ok === true ? 'PASS' : step.verification?.ok === false ? 'FAIL' : 'UNKNOWN'}`;
+  return `${window.runDispatchFact(step)} · 独立验证 ${step.verification?.ok === true ? 'PASS' : step.verification?.ok === false ? 'FAIL' : 'UNKNOWN'}`;
 }
 
 function addRow(parent, label, value, pre = false) {
@@ -492,7 +494,7 @@ function renderStepDetail() {
   const decision = step.metrics?.find((item) => item.node === "decide");
   const execution = step.metrics?.find((item) => item.node === "execute");
   addRow(detail, "决策方式", decision ? `${decision.actor === "model" ? "模型" : "规则"} · ${decision.operator}` : "旧记录未采集");
-  addRow(detail, "执行方式", execution?.operator || "尚未执行");
+  addRow(detail, "执行方式", execution?.operator || (step.resultOrigin === 'execute' ? '未记录执行者' : step.resultOrigin === 'ground' ? '定位失败，未派发' : 'UNKNOWN · 未记录执行方式'));
   const resolution = (view.detail.actionResolutions || []).find((item) => item.step === step.step);
   if (resolution) {
     addRow(detail, "预选工具", resolution.selected);
@@ -514,7 +516,8 @@ function renderStepDetail() {
     addRow(detail, "语义目标", step.targetBinding.semantic?.label || "未标注");
     addRow(detail, "目标定位证据", `${step.targetBinding.strategy} · ${step.targetBinding.detail}`);
   }
-  addRow(detail, "动作回执", step.result ? `${step.result.ok === true ? '成功' : step.result.ok === false ? '失败' : 'UNKNOWN'} · ${step.result.message || '说明未记录'}` : 'UNKNOWN · 未记录派发结果');
+  if (step.resultOrigin === 'ground') addRow(detail, '定位结果', step.result?.message || '定位说明未记录');
+  addRow(detail, "动作回执", `${window.runDispatchFact(step)}${step.resultOrigin === 'execute' ? ' · ' + (step.result?.message || '说明未记录') : ''}`);
   addRow(detail, "独立验证", step.verification ? `${step.verification.ok === true ? 'PASS' : step.verification.ok === false ? 'FAIL' : 'UNKNOWN'} · ${step.verification.message || '说明未记录'}` : 'UNKNOWN · 未记录验证');
   addRow(detail, "页面地址", step.url || "—");
   facetRows(detail, step.facets);

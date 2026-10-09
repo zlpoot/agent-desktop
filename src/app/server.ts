@@ -43,6 +43,8 @@ interface RunStep {
   strategy?: string;
   targetBinding?: ComputerState["targetBinding"];
   result?: { ok: boolean; message: string };
+  /** Read-only trace provenance; a grounding failure is not an execution receipt. */
+  resultOrigin?: 'ground' | 'execute';
   verification?: { ok: boolean; message: string };
   url?: string;
   pageText?: string;
@@ -175,9 +177,15 @@ function readRun(rootDir: string, source: string, taskId: string) {
       if (event.node === "ground") {
         item.strategy = snapshot.groundingStrategy;
         item.targetBinding = snapshot.targetBinding;
-        if (snapshot.lastResult?.ok === false) item.result = snapshot.lastResult;
+        if (snapshot.lastResult?.ok === false) {
+          item.result = snapshot.lastResult;
+          item.resultOrigin = 'ground';
+        }
       }
-      if (event.node === "execute") item.result = snapshot.lastResult;
+      if (event.node === "execute") {
+        item.result = snapshot.lastResult;
+        item.resultOrigin = 'execute';
+      }
       if (event.node === "verify") item.verification = snapshot.lastVerification;
       if (event.node === "observe") {
         const observation = snapshot.observation as Observation | undefined;

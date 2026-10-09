@@ -1,4 +1,11 @@
 // Layout and presentation only. Control authorization remains on the Host.
+// Shared presentation for the trace projection, including the legacy layout.
+window.runDispatchFact = step => {
+  if (step.resultOrigin === 'ground' && step.result?.ok === false) return '定位失败 · 未派发';
+  if (step.resultOrigin !== 'execute') return '动作回执 UNKNOWN · 派发来源未记录';
+  return `动作回执 ${step.result?.ok === true ? '成功' : step.result?.ok === false ? '失败' : 'UNKNOWN'}`;
+};
+
 window.Workbench = (() => {
   if (new URLSearchParams(location.search).has('legacy')) return null;
   document.body.classList.add('workbench');
@@ -289,12 +296,12 @@ window.Workbench = (() => {
     const latest = run?.steps?.at(-1);
     observationNote.textContent = latest ? `第 ${latest.step} 步 · 已记录观察，非实时画面。${latest.time ? '记录于 ' + new Date(latest.time).toLocaleString('zh-CN') : '未记录时间。'}` : '本环境暂无可用现场视图；等待后端记录观察。';
     observationFacts.textContent = latest ? JSON.stringify({step:latest.step, sources:latest.textSources || [],
-      action:latest.action?.kind || '尚未决定', dispatch:latest.result?.ok === true ? '已发出' : latest.result?.ok === false ? '失败' : '未知',
+      action:latest.action?.kind || '尚未决定', dispatch:window.runDispatchFact(latest),
       verification:latest.verification?.ok === true ? '通过' : latest.verification?.ok === false ? '未通过' : '未知',
       recordedText:latest.pageText || '未记录可读文本；请查看已有证据。'}, null, 2) : '';
     timelineItems.replaceChildren();
     for (const step of (run?.steps || []).slice(-6)) {
-      const row = create('li', '', `第 ${step.step} 步 · ${step.action?.kind || '观察'} · 动作 ${step.result?.ok === true ? '已发出' : step.result?.ok === false ? '失败' : '未知'} · 验证 ${step.verification?.ok === true ? '通过' : step.verification?.ok === false ? '未通过' : '未知'}`);
+      const row = create('li', '', `第 ${step.step} 步 · ${step.action?.kind || '观察'} · ${window.runDispatchFact(step)} · 验证 ${step.verification?.ok === true ? '通过' : step.verification?.ok === false ? '未通过' : '未知'}`);
       timelineItems.append(row);
     }
     if (!timelineItems.children.length) timelineItems.append(create('li', '', '尚无已记录步骤。'));
