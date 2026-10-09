@@ -21,13 +21,17 @@ window.Workbench = (() => {
   const shell = window.createAppShell(navigate);
   const filters = create('div', 'run-filters');
   const search = create('input', '');
-  search.type = 'search'; search.placeholder = '搜索任务'; search.setAttribute('aria-label', '搜索任务');
+  search.type = 'search'; search.placeholder = '搜索目标、Task ID 或来源'; search.setAttribute('aria-label', '搜索任务');
   const filter = create('select', ''); filter.setAttribute('aria-label', '筛选任务状态');
-  for (const [value, label] of [['all', '所有状态'], ['attention', '待处理'], ['running', '执行中'], ['done', '已完成'], ['failed', '失败']]) {
+  for (const [value, label] of [['all', '所有状态'], ['attention', '待处理'], ['running', '执行中'], ['waiting_user', '等待人工'], ['paused', '已暂停'], ['done', '已完成'], ['failed', '失败'], ['blocked', '已阻断'], ['unknown', '结果未知'], ['stopped', '已停止']]) {
     const option = create('option', '', label); option.value = value; filter.append(option);
   }
-  filters.append(search, filter); $('run-list').before(filters);
-  search.oninput = filter.onchange = () => document.dispatchEvent(new Event('workbench:filter'));
+  const records = create('select', ''); records.setAttribute('aria-label', '任务记录范围');
+  for (const [value, label] of [['all', '全部记录'], ['current', '进行中 / 待处理'], ['history', '终态记录']]) {
+    const option = create('option', '', label); option.value = value; records.append(option);
+  }
+  filters.append(search, records, filter); $('run-list').before(filters);
+  search.oninput = records.onchange = filter.onchange = () => document.dispatchEvent(new Event('workbench:filter'));
   const legacy = create('a', 'legacy-link', '切换旧版布局'); legacy.href = '/?legacy=1';
   sidebar.querySelector('.side-foot').textContent = '本地工作区';
   sidebar.querySelector('.side-foot').append(legacy);
@@ -112,7 +116,7 @@ window.Workbench = (() => {
   for (const [button, value] of [[imageView, false], [textView, true]]) {
     button.type = 'button'; button.onclick = () => { observationView = value; sync(currentRun); }; views.append(button);
   }
-  const timeline = create('section', 'panel section workspace-timeline'); timeline.append(create('h2', '', '最近执行步骤'));
+  const timeline = create('section', 'panel section workspace-timeline'); timeline.append(create('h2', '', '实际过程 · 最近执行步骤'));
   const timelineItems = create('ol', ''); timeline.append(timelineItems);
   const controlAvailability = create('p', 'control-availability'); controlAvailability.id = 'task-control-availability';
   const runtimeSummary = create('p', 'task-runtime-summary');
@@ -364,8 +368,10 @@ window.Workbench = (() => {
         || runs.find(run => run.source === 'web-tasks.sqlite' && ['queued', 'running', 'waiting_user', 'pause_requested'].includes(run.status)) : runs.find(run => `${run.source}/${run.taskId}` === selected);
     },
     matches(run) {
-      return run.goal.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()) &&
-        (filter.value === 'all' || (filter.value === 'attention' ? ['paused', 'waiting_user', 'pause_requested'].includes(run.status) : run.status === filter.value));
+      const terminal = ['done', 'completed', 'failed', 'blocked', 'stopped'].includes(run.status);
+      return `${run.goal} ${run.source}/${run.taskId}`.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()) &&
+        (records.value === 'all' || (records.value === 'history' ? terminal : !terminal)) &&
+        (filter.value === 'all' || (filter.value === 'attention' ? ['paused', 'waiting_user', 'pause_requested', 'unknown'].includes(run.status) : run.status === filter.value));
     },
     control(next) {
       const previousTask = state.taskId; state = next;

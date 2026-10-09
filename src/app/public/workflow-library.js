@@ -3,7 +3,7 @@ window.createWorkflowLibrary = function (container) {
     const node = document.createElement(tag); node.textContent = text; node.className = cls; return node;
   };
   const heading = el('h1', '流程库');
-  const note = el('p', '选择流程，再选择固定版本。填写参数并预览后，可执行或试运行。');
+  const note = el('p', '选择固定版本，核对来源、条件和参数。预览不执行；实际回放仍受版本、环境与后台许可限制。');
   const search = el('input', ''); search.type = 'search'; search.placeholder = '搜索流程名称或 ID'; search.setAttribute('aria-label', '搜索流程');
   const status = el('select', ''); status.setAttribute('aria-label', '流程状态');
   const labels = { candidate: '候选', verified: '已验证', retired: '已停用' };
@@ -22,6 +22,28 @@ window.createWorkflowLibrary = function (container) {
   const nameOf = w => metadata[w.id]?.displayName || (w.taskPattern.length > 48 ? `${w.taskPattern.slice(0, 48)}…` : w.taskPattern);
   const key = workflow => JSON.stringify([workflow.id, workflow.version]);
   const endpoint = workflow => `/api/workflows/${encodeURIComponent(workflow.id)}/${workflow.version}`;
+  const ownedChrome = flow => flow.steps.some(step => step.preferredMethods?.includes('owned-chrome-cdp'));
+  function replayRestriction(flow) {
+    if (ownedChrome(flow)) return `Hidden Chrome 创建流程：${flow.successCount === 0 && flow.failureCount === 0 ? '未回放' : '回放计数不授予通用许可'} / 不允许通用回放${flow.status === 'candidate' ? ' / 未晋升' : ''}。一次创建许可不可继承，须另行授权固定任务。`;
+    if (flow.status === 'retired') return '此版本已停用，仅供审计和预览，不允许直接启动。';
+    if (flow.scope === 'stage') return '阶段流程需要阶段上下文与 Stage Verifier，不能作为整任务单独试运行。';
+    if (flow.inputs.some(input => ['number', 'bool'].includes(input.kind))) return '现有页面预览接口仅接受文字参数，数值 / 布尔参数执行适配未接通；此版本仅可查看与文字展开预览。';
+    if (!['windows', 'browser'].includes(flow.environment)) return `环境 ${flow.environment} 未接通通用回放，仅可预览。`;
+    if (!['candidate', 'verified'].includes(flow.status)) return '版本状态未支持，不能执行。';
+    return '';
+  }
+  function stepList(steps) {
+    const rows = el('ol', '', 'workflow-definition-steps');
+    for (const step of steps) {
+      const row = el('li', '');
+      const condition = step.successCondition || {};
+      row.append(el('strong', step.goal), el('p', `动作：${step.action.kind} · 后置：${condition.kind || '未记录'}${condition.value !== undefined ? ' · ' + condition.value : ''}`),
+        el('small', step.idempotent === false ? '非幂等动作：可能产生新副作用，预览不授予执行权限。' : step.idempotent === true ? '定义声明幂等；当次权限仍由后台核对。' : '幂等性未声明，不能推断可安全重试。'));
+      rows.append(row);
+    }
+    if (!steps.length) rows.append(el('li', '未记录步骤。'));
+    return rows;
+  }
   function renderList() {
     list.replaceChildren();
     const visible = workflows.filter(w => `${metadata[w.id]?.displayName || ''} ${metadata[w.id]?.description || ''} ${w.taskPattern} ${w.id}`.toLowerCase().includes(search.value.toLowerCase()) && (status.value === 'all' || status.value === w.status));
@@ -62,12 +84,32 @@ window.createWorkflowLibrary = function (container) {
       versionPicker.value = String(flow.version); versionPicker.onchange = () => open(workflows.find(v => v.id === flow.id && String(v.version) === versionPicker.value));
       versionLabel.append(versionPicker);
       detail.replaceChildren(flowTitle, description, versionLabel, el('p', `v${flow.version} · ${labels[flow.status]} · ${flow.scope === 'stage' ? '阶段流程' : '整任务流程'} · ${flow.environment}`));
+      const body = el('div', '', 'workflow-version-layout');
+      const definition = el('section', '', 'workflow-definition'); definition.setAttribute('aria-label', '流程定义与参数');
+      const lifecycle = el('aside', '', 'workflow-lifecycle'); lifecycle.setAttribute('aria-label', '版本资格与回放记录');
+      body.append(definition, lifecycle); detail.append(body);
+      const restriction = replayRestriction(flow);
+      const sourceName = flow.sourceTrace?.split(/[\\/]/).at(-1) || '未记录';
+      definition.append(el('h3', '用途与来源'), el('p', `目标：${flow.taskPattern}`),
+        el('p', `来源 Task：${flow.sourceTaskId || '未记录'} · 轨迹：${sourceName}`),
+        el('h3', `固定步骤 · ${flow.steps.length} 步`), stepList(flow.steps));
+      const conditions = el('section', '', 'workflow-conditions'); conditions.append(el('h3', '前置与完成条件'));
+      for (const condition of flow.preconditions) conditions.append(el('p', `${condition.kind} · ${condition.value ?? `${condition.source} / ${condition.role} / ${condition.name}`}`));
+      if (!flow.preconditions.length) conditions.append(el('p', '未声明前置条件，不代表任意环境可用。'));
+      if (flow.scope === 'stage') conditions.append(el('p', `阶段完成条件：${flow.stageCondition || '未记录'}`));
+      showJSON('完成条件与文件结果声明（非生成证明）', { successConditions: flow.successConditions, durableContract: flow.durableContract || [] }, conditions);
+      definition.append(conditions);
+      lifecycle.append(el('h3', '版本资格'), el('p', flow.status === 'candidate' ? '候选尚未晋升；保存候选不证明可回放。' : flow.status === 'verified' ? '此固定版本已验证；当次环境、参数和权限仍须重新核对。' : '已停用版本保留历史，不直接运行。'),
+        el('p', restriction || '仅对现有 Windows / Browser 整任务接口开放；预览不授予输入权。', 'workflow-restriction'));
+      lifecycle.append(el('h3', '已知限制'));
+      for (const failure of flow.knownFailures || []) lifecycle.append(el('p', failure));
+      if (!flow.knownFailures?.length) lifecycle.append(el('p', '未记录已知失败，不代表不存在风险。'));
       const edit = el('details', '', 'workflow-description'); edit.append(el('summary', '编辑名称与说明'));
       const editForm = el('form', '');
       const nameLabel = el('label', '流程名称'); const nameInput = el('input', ''); nameInput.value = metadata[flow.id].displayName || flow.taskPattern.slice(0, 80); nameInput.maxLength = 80; nameInput.required = true; nameLabel.append(nameInput);
       const descLabel = el('label', '用途说明'); const descInput = el('textarea', ''); descInput.value = metadata[flow.id].description; descInput.maxLength = 500; descInput.rows = 3; descLabel.append(descInput);
       const save = el('button', '保存名称与说明'); save.type = 'submit'; const saveMessage = el('p', '所有版本共用名称与说明；不会修改执行步骤或验证状态。'); saveMessage.setAttribute('role', 'status');
-      editForm.append(nameLabel, descLabel, save, saveMessage); edit.append(editForm); detail.append(edit);
+      editForm.append(nameLabel, descLabel, save, saveMessage); edit.append(editForm); definition.append(edit);
       let revision = metadata[flow.id].revision;
       editForm.onsubmit = async event => {
         event.preventDefault(); save.disabled = true;
@@ -78,19 +120,20 @@ window.createWorkflowLibrary = function (container) {
           if (current === requestId) { flowTitle.textContent = nameOf(flow); description.textContent = saved.metadata.description || '尚未填写用途说明。'; saveMessage.textContent = '名称与说明已保存'; renderList(); }
         } catch (error) { saveMessage.textContent = String(error); } finally { save.disabled = false; }
       };
-      detail.append(el('p', `成功 ${flow.successCount} 次 / 失败 ${flow.failureCount} 次；最近成功回放：${flow.lastVerifiedAt || '尚无成功回放记录'}`));
-      detail.append(el('p', flow.scope === 'stage'
+      lifecycle.append(el('p', `成功 ${flow.successCount} 次 / 失败 ${flow.failureCount} 次；最近成功回放：${flow.lastVerifiedAt || '尚无成功回放记录'}`));
+      lifecycle.append(el('p', flow.scope === 'stage'
         ? '阶段候选在相似任务中尝试回放；只有阶段验收通过且未回退探索才自动晋级。已验证也不代表所有环境都适用。'
-        : '试运行只记录结果并保留候选状态；“已验证”表示此版本已显式发布，不代表所有环境都适用。'));
+        : '页面试运行只记录结果并保留候选状态；“已验证”是后台版本状态，须结合回放证据核对，不代表所有环境都适用。'));
       if (flow.status === 'candidate' && flow.scope !== 'stage') {
         const publishReview = el('details', '', 'workflow-publish');
         publishReview.append(el('summary', '审核并发布此候选版本'));
         publishReview.append(el('p', `请核对 v${flow.version} 的步骤、完成条件与最近回放：成功 ${flow.successCount} 次，失败 ${flow.failureCount} 次。发布后此版本可被正常执行和匹配。`));
         const publish = el('button', '确认发布为已验证'); publish.type = 'button';
-        publish.disabled = flow.successCount < 1;
-        const publishMessage = el('p', flow.successCount < 1 ? '至少需要一次成功试运行。' : '');
+        publish.disabled = ownedChrome(flow) || flow.successCount < 1;
+        const publishMessage = el('p', ownedChrome(flow) ? restriction : flow.successCount < 1 ? '至少需要一次成功试运行。' : '');
         publishMessage.setAttribute('role', 'status');
         publish.onclick = async () => {
+          if (ownedChrome(flow) || flow.successCount < 1 || current !== requestId) return;
           publish.disabled = true; publishMessage.textContent = '正在核对版本与回放记录…';
           try {
             const response = await fetch(`${endpoint(flow)}/publish`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -102,9 +145,9 @@ window.createWorkflowLibrary = function (container) {
             if (index >= 0) workflows[index] = result.workflow;
             await open(result.workflow);
           } catch (error) { if (current === requestId) publishMessage.textContent = `${String(error)}。请刷新版本并重新审核。`; }
-          finally { if (current === requestId) publish.disabled = false; }
+          finally { if (current === requestId) publish.disabled = ownedChrome(flow) || flow.successCount < 1; }
         };
-        publishReview.append(publish, publishMessage); detail.append(publishReview);
+        publishReview.append(publish, publishMessage); lifecycle.append(publishReview);
       }
       const technical = el('details', '', 'workflow-technical'); technical.append(el('summary', '技术详情与原始定义'));
       showJSON('执行定义摘要与来源', { id: flow.id, taskPattern: flow.taskPattern, definitionHash: data.definitionHash, sourceTaskId: flow.sourceTaskId, createdAt: flow.createdAt }, technical);
@@ -117,6 +160,7 @@ window.createWorkflowLibrary = function (container) {
         field.name = input.name; field.required = true; field.maxLength = 300; field.placeholder = input.example || '请输入参数';
         if (typeof draft[input.name] === 'string') field.value = draft[input.name];
         label.append(field); form.append(label);
+        form.append(el('p', `参数类型：${input.kind || 'text'}${input.boundTo ? ` · 绑定步骤 ${input.boundTo.stepId} / ${input.boundTo.argument}` : ' · 未声明步骤绑定'}`));
       }
       if (!flow.inputs.length) form.append(el('p', '此版本没有参数。'));
       const button = el('button', '预览步骤（不执行）'); button.type = 'submit'; form.append(button);
@@ -135,17 +179,17 @@ window.createWorkflowLibrary = function (container) {
         }
       }
       const trial = flow.status === 'candidate';
-      const eligible = ['candidate', 'verified'].includes(flow.status) && flow.scope !== 'stage' && ['windows', 'browser'].includes(flow.environment);
+      const eligible = !restriction;
       if (trial) execute.textContent = '试运行此候选版本';
       execution.append(el('p', eligible ? '执行前会准备目标并重新观察；流程偏离时停止，不转入自由探索。请先预览并核对步骤。' : '当前版本仅可预览。'), budgetOptions, execute, executionMessage);
-      execute.hidden = !eligible;
+      execute.title = restriction || '须先预览并核对当次参数、环境；后台继续检查授权。';
       if (trial && eligible) execution.firstChild.textContent = '试运行会实际执行，并记录成功或失败；不会自动发布。请审核回放证据后显式发布。';
       if (flow.scope === 'stage') execution.firstChild.textContent = '这是阶段流程，需要阶段上下文与 Stage Verifier，目前不能作为整任务单独试运行。可继续预览。';
       let prepared = null, submitting = false;
       let desktopSelection;
       const updateDesktopSelection = () => {
         const problem = desktopSelection?.problem();
-        execute.disabled = !prepared || submitting || !!problem;
+        execute.disabled = !eligible || !prepared || submitting || !!problem;
         if (!submitting) executionMessage.textContent = problem || '';
       };
       if (eligible && flow.environment === 'windows') {
@@ -155,7 +199,7 @@ window.createWorkflowLibrary = function (container) {
         select.onchange = updateDesktopSelection;
       }
       execute.onclick = async () => {
-        if (!prepared || submitting) return;
+        if (!eligible || !prepared || submitting || current !== requestId) return;
         const selectedPreview = prepared;
         submitting = true; execute.disabled = true;
         executionMessage.textContent = '正在检查桌面状态并提交…';
@@ -177,22 +221,24 @@ window.createWorkflowLibrary = function (container) {
           executionMessage.textContent = `任务已提交：${result.taskId}`;
           document.dispatchEvent(new CustomEvent('workbench:workflow-submitted', { detail: `${result.source}/${result.taskId}` }));
         } catch (error) { executionMessage.textContent = `${String(error)} 若网络中断，请先检查任务记录再重试。`; }
-        finally { submitting = false; execute.disabled = !prepared || !!desktopSelection?.problem(); }
+        finally { submitting = false; execute.disabled = !eligible || !prepared || !!desktopSelection?.problem(); }
       };
-      let previewRequest = 0;
+      let previewRequest = 0, previewing = false;
       form.oninput = () => {
         prepared = null; execute.disabled = true; executionMessage.textContent = '';
         try { sessionStorage.setItem(draftKey, JSON.stringify(Object.fromEntries(new FormData(form)))); } catch {}
         previewRequest++; preview.replaceChildren(el('p', '参数已改变，请重新预览。'));
       };
       form.onsubmit = async event => {
-        event.preventDefault(); const previewId = ++previewRequest; button.disabled = true; prepared = null; execute.disabled = true;
+        event.preventDefault(); if (previewing || current !== requestId) return;
+        const previewId = ++previewRequest; previewing = true; button.disabled = true; prepared = null; execute.disabled = true;
         preview.replaceChildren(el('p', '正在展开参数…'));
         try {
           const result = await fetch(`${endpoint(flow)}/preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: Object.fromEntries(new FormData(form)) }) });
           const value = await result.json();
           if (current !== requestId || previewId !== previewRequest) return;
           if (!result.ok) throw new Error(value.error || '参数预览失败');
+          if (value.executed !== false || value.id !== flow.id || value.version !== flow.version || typeof value.definitionHash !== 'string') throw new Error('预览身份或只读结果不匹配，请重新读取版本。');
           prepared = value; execute.disabled = !eligible || submitting || !!desktopSelection?.problem();
           preview.replaceChildren(el('p', `v${value.version} 参数预览 · 未执行任何动作`));
           const steps = el('ol', '', 'workflow-step-preview');
@@ -203,20 +249,23 @@ window.createWorkflowLibrary = function (container) {
             steps.append(row);
           }
           preview.append(steps);
+          preview.append(el('p', restriction || '本次只展开参数；实际执行仍需后台检查环境、前置条件、风险和许可。'));
+          if (value.steps.some(step => step.idempotent === false)) preview.append(el('p', '包含非幂等步骤：可能创建或修改数据，结果未知时禁止自动重试。'));
+          preview.append(el('p', `当前参数：${JSON.stringify(value.values)}`));
           if (flow.scope === 'stage' && value.stageCondition) preview.append(el('p', `阶段完成条件：${value.stageCondition}`));
           showJSON('查看完整步骤定义', value.steps, preview);
           showJSON('前置条件与完成条件', { preconditions: value.preconditions, successConditions: value.successConditions }, preview);
         } catch (error) { if (current === requestId && previewId === previewRequest) preview.replaceChildren(el('p', String(error))); }
-        finally { button.disabled = false; }
+        finally { previewing = false; button.disabled = false; }
       };
-      detail.append(form, preview, execution);
+      definition.append(form, preview); lifecycle.append(execution);
       showJSON('原始步骤与前置条件', { steps: flow.steps, preconditions: flow.preconditions, successConditions: flow.successConditions }, technical);
       showJSON('已知失败', flow.knownFailures, technical);
-      detail.append(el('h3', '最近回放记录'));
-      detail.append(el('p', data.runsAvailable ? `最多展示最近 ${data.runsLimit} 条，此处仅记录流程回放结果。` : '旧存储没有回放记录表。'));
-      if (!data.runs.length) detail.append(el('p', '暂无回放记录。'));
-      for (const run of data.runs) detail.append(el('p', `${run.outcome === 'success' ? '成功' : '失败'} · ${run.createdAt} · 任务 ${run.taskId}${run.stageId ? ` · 阶段 ${run.stageId}` : ''}${run.reason ? ` · ${run.reason}` : ''}`));
-      detail.append(technical);
+      lifecycle.append(el('h3', '最近回放记录'));
+      lifecycle.append(el('p', data.runsAvailable ? `最多展示最近 ${data.runsLimit} 条，此处仅记录流程回放结果。` : '旧存储没有回放记录表。'));
+      if (!data.runs.length) lifecycle.append(el('p', '暂无回放记录。'));
+      for (const run of data.runs) lifecycle.append(el('p', `${run.outcome === 'success' ? '成功' : run.outcome === 'failure' ? '失败' : run.outcome || 'UNKNOWN'} · ${run.createdAt} · 任务 ${run.taskId}${run.stageId ? ` · 阶段 ${run.stageId}` : ''}${run.reason ? ` · ${run.reason}` : ''}`));
+      definition.append(technical);
     } catch (error) { if (current === requestId) { const retry = el('button', '重试读取版本'); retry.type = 'button'; retry.onclick = () => open(w); detail.replaceChildren(el('p', `版本读取失败：${error.message || error}`, 'operation-feedback'), retry); } }
   }
   async function load() {

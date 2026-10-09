@@ -20,6 +20,21 @@ const workflowBinding = node('p', 'workflow-binding');
 document.querySelector('.hero').append(workflowBinding, report);
 const artifactNote = node('p', 'artifact-note', '此处提供执行报告与已记录截图。Guest 内生成的文件尚未接入下载，不根据任务描述推断文件已生成。');
 report.after(artifactNote);
+const outcomePanel = node('section', 'task-outcome-summary panel'); outcomePanel.setAttribute('aria-label', '结果及核对');
+const facts = node('dl', 'task-outcome-facts');
+for (const [id, label, content] of [['task-execution-fact', '执行 / 副作用', null],
+  ['task-auto-fact', '自动完成验收', byId('goal-verification')],
+  ['task-cleanup-fact', '清理 / 遗留', null], ['task-human-fact', '人工核对记录', byId('manual-review-record')]]) {
+  const card = node('div', 'outcome-fact'); const value = node('dd'); value.id = id;
+  if (content) value.append(content);
+  card.append(node('dt', '', label), value); facts.append(card);
+}
+const acceptanceRecord = node('p', 'acceptance-report-record');
+outcomePanel.append(node('h2', '', '结果及核对'));
+const resultTitle = document.querySelector('.task-result-title');
+if (resultTitle) outcomePanel.append(resultTitle);
+outcomePanel.append(byId('summary'), facts, acceptanceRecord);
+(document.querySelector('.task-scene') || byId('detail')).append(outcomePanel);
 function moveEvidence(offset) {
   const steps = view.detail?.steps || [];
   const index = steps.findIndex(step => step.step === view.activeStep);
@@ -31,7 +46,7 @@ nextEvidence.onclick = () => moveEvidence(1);
 const view = { runs: [], selected: null, detail: null, activeStep: null,
   activeTab: "process", activeStepTab: "action", prompts: [] };
 const statusText = { queued: "排队中", preparing: "准备中", verifying: "正在验证", unknown: "结果未知", running: "运行中", pause_requested: "请求暂停中", paused: "已暂停",
-  waiting_user: "等待人工", done: "已完成", failed: "失败", stopped: "已停止" };
+  waiting_user: "等待人工", done: "已完成", completed: "已完成", blocked: "已阻断", failed: "失败", stopped: "已停止" };
 const actionText = { navigate: "打开网页", click: "点击", double_click: "双击", type: "输入", keypress: "按键", scroll: "滚动", wait: "等待", screenshot: "截图", ask_user: "询问用户", done: "结束" };
 const phaseText = { observe: "观察", decide: "决策", ground: "定位", resolve_action: "工具选择", risk_check: "风险检查", execute: "执行", verify: "动作验证", verify_task: "目标验证", recover: "重试", human_interrupt: "人工确认", finish: "结束" };
 const evidenceSourceText = { dom: "网页 DOM", uia: "Windows UIA", visual_model: "截图模型转录", browser: "浏览器地址", window: "窗口标题", human: "人工核对", unknown: "来源未记录" };
@@ -96,6 +111,10 @@ function renderRuns() {
     button.type = "button";
     button.append(node("span", "run-title", run.goal), node("span", "run-meta"));
     button.lastChild.append(node("span", "", statusText[run.status] || run.status), node("span", "", when(run.updatedAt)));
+    const identity = node('small', 'run-identity', `Task ID · ${run.taskId}\n来源 · ${run.source}`);
+    button.append(identity, node('small', 'run-environment', run.desktopTarget
+      ? `环境 · ${run.desktopTarget.providerId} / ${run.desktopTarget.environmentId}`
+      : '环境 · 列表未记录，请打开详情核对'));
     button.addEventListener("click", async () => {
       view.selected = key(run); view.activeStep = null; view.activeTab = "process";
       if (workbench) workbench.navigate('history', key(run));
@@ -182,23 +201,31 @@ function renderDetail() {
   byId("empty").hidden = true; byId("detail").hidden = false;
   byId("source-name").textContent = run.source;
   byId("goal").textContent = run.goal;
-  const statusLabel = run.status === 'done' && run.humanReview?.approved ? '人工确认完成' : statusText[run.status] || run.status;
+  const statusLabel = statusText[run.status] || run.status;
   const status = byId("status"); status.textContent = statusLabel; status.className = `status ${run.status}`;
   byId("summary").textContent = (run.status === "failed" ? run.error : run.summary) ||
-    run.error || run.summary || "任务仍在进行，结果尚未生成。";
-  const outcomeLabels = { execution_failure: '执行失败', verification_failure: '验证失败',
-    verifier_unsupported: '验证器不支持当前完成条件', human_confirmed_auto_unknown: '人工确认完成；自动验收仍未知',
-    evidence_insufficient: '结果证据不足', verified: '自动验证通过', in_progress: '尚未得到最终结果' };
+    run.error || run.summary || "未记录结果摘要，请核对下方验收与逐步证据。";
   const outcome = run.outcome;
   const evidenceDetails = run.goalVerification?.evidence?.length
     ? `；证据：${run.goalVerification.evidence.map((item) =>
       `${evidenceSourceText[item.source] || item.source}（${item.strength === "strong" ? "强" : item.strength === "weak" ? "弱" : "未知"}）`).join("、")}` : "";
-  byId("goal-verification").textContent = outcome
-    ? `结果判断：${outcomeLabels[outcome.diagnosis] || outcome.diagnosis}；自动验收 ${outcome.autoVerification.verdict.toUpperCase()}${outcome.autoVerification.reason ? `（${outcome.autoVerification.reason}）` : ''}${outcome.autoVerification.message ? `；${outcome.autoVerification.message}` : ''}${evidenceDetails}`
-    : run.goalVerification
-    ? `完成验证：${run.goalVerification.message}${run.goalVerification.evidence?.length
-      ? `；证据：${run.goalVerification.evidence.map((item) =>
-        `${evidenceSourceText[item.source] || item.source}（${item.strength === "strong" ? "强" : item.strength === "weak" ? "弱" : "未知"}）`).join("、")}` : ""}` : "";
+  const automatic = outcome?.autoVerification || (run.goalVerification
+    ? { verdict: run.goalVerification.ok === true ? 'pass' : run.goalVerification.ok === false ? 'fail' : 'unknown', message: run.goalVerification.message }
+    : { verdict: 'unknown', message: '未记录自动完成验收' });
+  byId('goal-verification').textContent = `自动验收 ${automatic.verdict?.toUpperCase() || 'UNKNOWN'}${automatic.reason ? `（${automatic.reason}）` : ''} · ${automatic.message || '未记录验收说明'}${evidenceDetails}`;
+  byId('task-auto-fact').dataset.verdict = automatic.verdict || 'unknown';
+  const results = run.steps.filter(step => step.result);
+  byId('task-execution-fact').textContent = run.desktopScenarioResult?.execution
+    ? `${run.desktopScenarioResult.execution} · 后台场景执行结果`
+    : results.length ? `动作回执：成功 ${results.filter(step => step.result.ok === true).length} / 失败 ${results.filter(step => step.result.ok === false).length}；副作用结果须核对逐步证据，不代表目标完成。`
+      : 'UNKNOWN · 未记录执行回执或副作用结果';
+  byId('task-cleanup-fact').textContent = run.desktopScenarioResult?.cleanup
+    ? `${run.desktopScenarioResult.cleanup} · 后台场景清理结果；不代表目标验收`
+    : 'UNKNOWN · 未记录可靠的清理 / 遗留状态';
+  byId('task-cleanup-fact').dataset.verdict = run.desktopScenarioResult?.cleanup?.toLowerCase() || 'unknown';
+  acceptanceRecord.textContent = run.acceptanceReport
+    ? `验收报告：${run.acceptanceReport.mode || '来源未记录'} · ${run.acceptanceReport.verdict?.toUpperCase() || 'UNKNOWN'} · ${run.acceptanceReport.message || '说明未记录'}；与人工核对记录分别展示。`
+    : '验收报告：未记录。人工核对不能替代自动验收，清理成功不能替代目标完成。';
   byId("goal-criteria").textContent = criteriaText(run.completionCriteria);
   const reviewRecord = byId('manual-review-record');
   reviewRecord.hidden = false;
@@ -238,7 +265,8 @@ function renderDetail() {
     ? `${run.completedStages.length} 阶段完成` : `${percentage}%`;
   byId("progress-fill").parentElement.hidden = staged;
   byId("progress-fill").style.width = `${percentage}%`;
-  byId("action-count").textContent = String(run.completedActions);
+  byId("action-count").textContent = String(results.filter(step => step.result.ok === true).length);
+  byId('action-count').nextElementSibling.textContent = '成功动作回执，不代表目标完成';
   byId("elapsed-time").textContent = duration(run.elapsedMs);
   byId("active-time").textContent = run.activeDurationMs == null
     ? "旧任务未采集处理耗时" : `节点处理 ${duration(run.activeDurationMs)}`;
@@ -257,8 +285,7 @@ function renderDetail() {
   const planRows = staged ? [...run.completedStages.map((item) => item.goal),
     ...(run.stage ? [run.stage.goal] : [])] : run.plan;
   planRows.forEach((item, index) => {
-    const complete = staged ? index < run.completedStages.length
-      : run.status === "done" || index < run.completedActions;
+    const complete = staged && index < run.completedStages.length;
     const row = node("li", complete ? "complete" : "");
     row.append(node("span", "plan-dot", complete ? "✓" : index + 1), node("span", "", item)); planList.append(row);
   });
@@ -339,13 +366,12 @@ function renderFlow() {
     const items = node("div", "flow-stage-steps");
     if (!group.steps.length) items.append(node("p", "", "等待执行动作"));
     for (const step of group.steps) {
-      const outcome = step.verification || step.result;
-      const state = outcome ? outcome.ok ? "success" : "failure" : "pending";
+      const state = step.verification?.ok === true ? 'success' : step.verification?.ok === false ? 'failure' : 'pending';
       const card = node("button", `flow-node action ${state}${view.activeStep === step.step ? " active" : ""}`);
       card.type = "button";
       card.append(node("span", "flow-kicker", `第 ${step.step} 步 · ${duration(step.durationMs)}`),
         node("strong", "", labelAction(step.action)),
-        node("small", "", outcome ? `${outcome.ok ? "通过" : "未通过"} · ${outcome.message}` : "等待执行或确认"));
+        node("small", "", stepFacts(step)));
       card.addEventListener("click", () => selectStep(step.step, true));
       items.append(card);
     }
@@ -410,18 +436,21 @@ function renderCapabilities() {
 
 function renderSteps() {
   const list = byId("step-list"); clear(list);
+  if (!view.detail.steps.length) list.append(node('p', '', '尚无已记录步骤；未推断执行或验证结果。'));
   for (const step of view.detail.steps) {
     const button = node("button", `step-card${step.step === view.activeStep ? " active" : ""}`);
     button.type = "button";
     const top = node("div", "step-card-top");
-    const outcome = step.verification || step.result;
     top.append(node("span", "", `${String(step.step).padStart(2, "0")}  ${actionText[step.action?.kind] || step.action?.kind || "步骤"}`),
-      node("span", outcome ? (outcome.ok ? "ok" : "bad") : "pending",
-        `${duration(step.durationMs)} · ${outcome ? (outcome.ok ? "已验证" : "未通过") : "待处理"}`));
-    button.append(top, node("small", "", shortTarget(step.action) || step.url || ""));
+      node("span", step.verification?.ok === true ? 'ok' : step.verification?.ok === false ? 'bad' : 'pending', duration(step.durationMs)));
+    button.append(top, node('small', 'step-facts', stepFacts(step)), node("small", "", shortTarget(step.action) || step.url || ""));
     button.addEventListener("click", () => selectStep(step.step));
     list.append(button);
   }
+}
+
+function stepFacts(step) {
+  return `动作回执 ${step.result?.ok === true ? '成功' : step.result?.ok === false ? '失败' : 'UNKNOWN'} · 独立验证 ${step.verification?.ok === true ? 'PASS' : step.verification?.ok === false ? 'FAIL' : 'UNKNOWN'}`;
 }
 
 function addRow(parent, label, value, pre = false) {
@@ -485,13 +514,12 @@ function renderStepDetail() {
     addRow(detail, "语义目标", step.targetBinding.semantic?.label || "未标注");
     addRow(detail, "目标定位证据", `${step.targetBinding.strategy} · ${step.targetBinding.detail}`);
   }
-  addRow(detail, "执行结果", step.result ? `${step.result.ok ? "成功" : "失败"} · ${step.result.message}` : "尚未执行");
-  addRow(detail, "独立验证", step.verification ? `${step.verification.ok ? "通过" : "未通过"} · ${step.verification.message}` : "尚未验证");
+  addRow(detail, "动作回执", step.result ? `${step.result.ok === true ? '成功' : step.result.ok === false ? '失败' : 'UNKNOWN'} · ${step.result.message || '说明未记录'}` : 'UNKNOWN · 未记录派发结果');
+  addRow(detail, "独立验证", step.verification ? `${step.verification.ok === true ? 'PASS' : step.verification.ok === false ? 'FAIL' : 'UNKNOWN'} · ${step.verification.message || '说明未记录'}` : 'UNKNOWN · 未记录验证');
   addRow(detail, "页面地址", step.url || "—");
   facetRows(detail, step.facets);
-  addRow(detail, "页面文本摘录", step.pageText || "—", true);
-  if (step.textSources?.length) addRow(detail, "文本来源", step.textSources.map((source) =>
-    evidenceSourceText[source] || source).join("、"));
+  addRow(detail, "页面文本摘录", step.pageText || '未记录可读文本', true);
+  addRow(detail, "文本来源", step.textSources?.length ? step.textSources.map(source => evidenceSourceText[source] || source).join('、') : '未记录观察来源');
   if (step.metrics?.length) {
     metrics.append(node("h3", "", "阶段耗时与执行者"));
     const table = node("table"), head = node("thead"), body = node("tbody"), header = node("tr");
