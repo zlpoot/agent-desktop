@@ -21,6 +21,7 @@
   "web-tasks.test.ts",
   "workbench.test.ts",
   "ui-v01-workspace.test.ts",
+  "ui-v01-runs-workflows.test.ts",
   "workflow-execution-router.test.ts",
   "workflow-library.test.ts",
   "hidden-chrome.test.ts"

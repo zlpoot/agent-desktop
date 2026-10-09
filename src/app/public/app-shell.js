@@ -52,7 +52,7 @@ window.createAppShell = function (navigate) {
     environment(label) { environment.textContent = `执行环境：${label || '未选择'}`; },
     run(run) {
       status.textContent = !run ? '等待任务' : ({queued:'排队中', running:'执行中', pause_requested:'正在停止或暂停',
-        waiting_user:'等待人工处理', paused:'已暂停', failed:'失败', stopped:'已停止', done:'已完成'})[run.status] || run.status;
+        waiting_user:'等待人工处理', paused:'已暂停', blocked:'已阻断', unknown:'结果未知', failed:'失败', stopped:'已停止', done:'已完成', completed:'已完成'})[run.status] || run.status;
     },
   };
 };

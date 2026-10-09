@@ -1,4 +1,4 @@
-/* UI-01 B: product shell, composer and shared Task workspace. */
+/* UI-01: product shell, composer and shared Task workspace. */
 .workbench { --ui-bg:#0c141e; --ui-surface:#131f2c; --ui-line:#2b3e4e; --ui-text:#e0e9ef; --ui-muted:#9aafbe; --ui-accent:#8bd5bc; }
 .workbench .shell { grid-template-columns:220px minmax(0,1fr); height:100dvh; }
 .workbench .sidebar { width:auto; min-width:0; background:#101a25; }
@@ -65,6 +65,24 @@
 .task-runtime-summary { font-size:12px; line-height:1.8; white-space:pre-line; overflow-wrap:anywhere; color:var(--ui-muted); }
 .unsupported-task-controls { display:flex; flex-wrap:wrap; gap:8px; }.unsupported-task-controls button { background:#1b2e3e; color:var(--ui-muted); border:1px solid var(--ui-line); border-radius:8px; padding:8px; }
 .workspace-recent-list { display:grid; gap:8px; }.workbench .home-run { width:100%; }
+/* C: shared result facts and fixed-version Workflow, without new execution state. */
+.run-identity,.run-environment { display:block; white-space:pre-line; overflow-wrap:anywhere; color:var(--ui-muted); font-size:11px; margin-top:8px; }
+.task-outcome-summary { padding:18px; margin:16px 0; overflow-wrap:anywhere; }
+.task-outcome-summary h2 { font-size:17px; margin:0 0 12px; }
+.task-outcome-summary p { font-size:12px; line-height:1.8; white-space:pre-line; }
+.task-outcome-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.outcome-fact { border:1px solid var(--ui-line); border-radius:8px; padding:12px; min-width:0; }
+.outcome-fact dt { font-size:12px; color:var(--ui-muted); margin-bottom:8px; }.outcome-fact dd { margin:0; font-size:13px; line-height:1.8; }
+.outcome-fact p { margin:0; }.outcome-fact .goal-verification { color:inherit; }
+.outcome-fact [data-verdict=pass] { color:#a4d6c4; }.outcome-fact [data-verdict=fail] { color:#ffb5af; }.outcome-fact [data-verdict=unknown] { color:#f0cb8b; }
+.step-card .step-facts { white-space:normal; overflow-wrap:anywhere; }
+.workflow-version-layout { display:grid; grid-template-columns:minmax(0,1fr) 280px; gap:20px; align-items:start; }
+.workflow-definition,.workflow-lifecycle { min-width:0; }.workflow-lifecycle { border-left:1px solid var(--ui-line); padding-left:16px; }
+.workflow-restriction { border-left:3px solid #a77843; padding-left:10px; color:#f0cb8b; }
+.workflow-definition-steps { margin:12px 0; padding-left:24px; }.workflow-definition-steps li { padding:10px 0; border-bottom:1px solid var(--ui-line); overflow-wrap:anywhere; }
+.workflow-definition-steps small { color:var(--ui-muted); line-height:1.8; }.workflow-conditions { border-top:1px solid var(--ui-line); padding-top:12px; }
+@media(max-width:1365px) { .workflow-version-layout { grid-template-columns:1fr; }.workflow-lifecycle { grid-row:1; border-left:0; border-bottom:1px solid var(--ui-line); padding:0 0 14px; } }
+@media(max-width:600px) { .task-outcome-facts { grid-template-columns:1fr; } }
 .workbench input:focus-visible,.workbench textarea:focus-visible,.workbench select:focus-visible,.workbench summary:focus-visible { outline:2px solid var(--ui-accent); outline-offset:3px; }
 @media (max-width:1365px) {
   .workbench .shell { grid-template-columns:170px minmax(0,1fr); }

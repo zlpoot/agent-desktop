@@ -112,7 +112,7 @@ test('UI-01 shell keeps five routes, explicit admission, drafts, evidence and co
     for (const label of ['接管任务', '停止任务', '紧急停止']) assert.equal(await page.getByRole('button', { name: label, exact: true }).isDisabled(), true);
     await page.getByRole('button', { name: '文字与结构', exact: true }).click();
     assert.match(await page.getByRole('region', { name: '已记录观察' }).innerText(), /synthetic DOM evidence/);
-    assert.match(await page.locator('.workspace-timeline').innerText(), /动作 已发出 · 验证 未知/);
+    assert.match(await page.locator('.workspace-timeline').innerText(), /动作回执 成功 · 验证 未知/);
     await page.getByRole('button', { name: '收起上下文', exact: true }).click();
     assert.equal(await page.locator('.task-detail-layout > .hero').isVisible(), false);
     await page.getByRole('button', { name: '展开上下文与任务控制', exact: true }).click();

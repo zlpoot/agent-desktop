@@ -214,7 +214,7 @@ window.createTaskExperience = function () {
   document.querySelector('.hero').prepend(requestBox);
   const original = el('details', '', 'original-goal'); original.append(el('summary', '查看完整任务要求'));
   const originalText = el('p', ''); original.append(originalText); $('goal').parentElement.after(original);
-  const resultTitle = el('h3', '执行结果'); $('summary').before(resultTitle);
+  const resultTitle = el('h3', '执行结果', 'task-result-title'); $('summary').before(resultTitle);
   const sceneResult = el('section', '', 'scenario-card panel'); sceneResult.id = 'scenario-result';
   const sceneStatus = el('p', ''); sceneStatus.id = 'scenario-status';
   const sceneFacts = el('pre', ''); sceneFacts.id = 'scenario-facts';
@@ -368,12 +368,16 @@ window.createTaskExperience = function () {
       const text = run.goal.replace(/^VM:\s*/i, ''); $('goal').textContent = text.length > 60 ? `${text.slice(0, 60)}…` : text;
       originalText.textContent = run.goal; original.hidden = text.length <= 60;
       const waiting = run.status === 'waiting_user'; const paused = ['paused', 'pause_requested'].includes(run.status);
-      requestBox.hidden = !waiting && !paused && run.status !== 'failed' && run.status !== 'stopped' && !(run.canPause && run.status === 'running');
+      requestBox.hidden = !waiting && !paused && !['failed', 'stopped', 'blocked', 'unknown'].includes(run.status) && !(run.canPause && run.status === 'running');
       reason.textContent = run.error || run.summary || '尚未记录具体原因，请查看执行过程。';
       reason.hidden = run.status === 'running';
       requestTitle.textContent = waiting ? ({ app_onboarding: '需要确认应用配置', question: '需要补充信息', final_review: '请确认最终结果', approval: '需要批准下一步动作' }[run.interactionKind] || '需要你处理') : '任务已暂停或正在暂停';
       requestNext.textContent = waiting ? run.interactionKind === 'final_review' ? '核对下方结果与截图后，再确认完成；未满足目标请选择“尚未完成”。' : run.interactionKind === 'question' ? '提交回答后任务继续处理。' : '查看动作说明后决定是否允许。' : run.recoveryRequired && run.canPause ? '任务现场已保留。先确认环境就绪，继续时会重新观察，再判断下一步。' : '核对原因与已有证据；下一步操作以当前任务的控制资格为准。';
       if (run.status === 'failed' || run.status === 'stopped') { requestTitle.textContent = run.status === 'failed' ? '任务未完成' : '任务已停止'; requestNext.textContent = '查看原因和历史证据，可用下方“新建草稿”修改要求后重新提交。'; }
+      if (run.status === 'unknown' || run.status === 'blocked') {
+        requestTitle.textContent = run.status === 'unknown' ? '结果未知，请先核对' : '任务已阻断';
+        requestNext.textContent = '核对错误、权限和已有证据；不自动重放非幂等动作。当前状态没有通用 Resume 入口，重试须显式新建任务。';
+      }
       if (run.status === 'running') { requestTitle.textContent = '任务正在执行'; requestNext.textContent = '需要介入时可请求暂停，等待当前动作到达安全边界。'; }
       if (run.interactionKind === 'app_onboarding') requestNext.textContent = '配置完成后继续当前任务，无需重输要求；应用启动不代表业务完成。';
       if (run.appOnboarding?.state === 'new_task_required') requestNext.textContent = '应用配置成果保留。请用下方“以此任务新建草稿”明确创建新任务；旧动作不会重放。';
