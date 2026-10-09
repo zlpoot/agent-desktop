@@ -3,7 +3,11 @@ import {test} from 'node:test';
 import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {ChromeSession,KEY_SUBMIT_SELECTOR,CHROME_DISCOVERY_COLLECTOR,type ChromeNativeBackend} from '../src/desktop-provider/local-workspace-chrome-provider.js';
+import {ChromeSession,LocalWorkspaceChromeProvider,KEY_SUBMIT_SELECTOR,CHROME_DISCOVERY_COLLECTOR,type ChromeNativeBackend} from '../src/desktop-provider/local-workspace-chrome-provider.js';
+import {HiddenChromeTaskExecutor,HIDDEN_CHROME_READONLY_SCENARIO} from '../src/desktop-provider/hidden-chrome-task-executor.js';
+import {TaskDesktopSessions} from '../src/app/task-desktop-sessions.js';
+import {createRootAssembly} from '../src/composition/root.js';
+import {createDashboardServer} from '../src/app/server.js';
 import {ResourceInputControl} from '../src/desktop-provider/resource-input-control.js';
 import type {InputAuthority} from '../src/contracts/desktop-input-control.js';
 import {CreateOneKey} from '../testbench/live-01/hidden-chrome.js';
@@ -29,25 +33,31 @@ class SyntheticNative implements ChromeNativeBackend {
   async request<T>(method:string,authority?:InputAuthority):Promise<T> {
     if(method==='stop'){this.stopped=true;return {ownedJobEmpty:true,desktopHandleClosed:true} as T;}
     if(method==='activate'){assert.equal(authority?.owner.kind,'agent');this.grant=authority;return {ready:true} as T;}
+    if(method==='inspect'){assert.ok(!this.drift&&!this.stopped);return {ready:true} as T;}
     assert.ok(!this.drift&&!this.stopped&&authority===this.grant,'synthetic native identity/grant gate');
     if(method==='ping'&&this.slowPing)await new Promise(done=>setTimeout(done,this.slowPing));
     this.checks++;return {ready:true} as T;
   }
   async close(){this.stopped=true;}
 }
-async function harness() {
+async function unclaimedHarness() {
   const directory=await mkdtemp(join(tmpdir(),'chrome-contract-'));
   const {chromium}=await import('playwright');
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext();const page=await context.newPage();await page.setContent(fixture);
   const input=new ResourceInputControl();const native=new SyntheticNative();
+  const provider=new LocalWorkspaceChromeProvider(input,resolve('.'),resolve('synthetic/chrome.exe'),directory);
   const binding={providerId:'windows-local-workspace',environmentId:'local-workspace:chrome',sessionId:'synthetic',instanceId:'synthetic-native',inputResourceId:'synthetic-resource'};
-  const session=new ChromeSession(binding,native,1,input,async()=>({}),async()=>browser);
+  const session=new ChromeSession(binding,native,1,input,()=>provider.capabilities(),async()=>browser);
   input.registerBackend(b=>session.valid(b),()=>session.drain(),a=>session.activate(a));
-  const authority=await input.acquire(session,{kind:'agent',clientId:'synthetic-test'});
-  session.setSecretOutputPath(join(directory,'AgentDesktop_8102_API_Key.txt'));
-  await session.connectRuntime(authority);
-  return {directory,browser,page,input,native,session,authority,async close(){try{await session.close();}finally{await browser.close();await rm(directory,{recursive:true,force:true});}}};
+  return {directory,browser,page,input,native,session,provider,async close(){try{await session.close();}finally{await provider.close();await browser.close();await rm(directory,{recursive:true,force:true});}}};
+}
+async function harness() {
+  const h=await unclaimedHarness();
+  const authority=await h.input.acquire(h.session,{kind:'agent',clientId:'synthetic-test'});
+  h.session.setSecretOutputPath(join(h.directory,'AgentDesktop_8102_API_Key.txt'));
+  await h.session.connectRuntime(authority);
+  return {...h,authority};
 }
 
 test('Chrome collector never exports values, unknown identifiers or generated Key; real UI roles remain intact',async()=>{
@@ -100,7 +110,7 @@ test('synthetic live-path regression: risk gate stays pending, one submit, priva
     const config={configurable:{thread_id:state.taskId}};
     await graph.invoke(state,config);
     const pending=(await graph.getState(config)).values;
-    assert.equal(pending.status,'waiting_user');assert.equal(claims,0,'risk interrupt cannot submit without approval');
+    assert.equal(pending.status,'waiting_user',pending.error??pending.summary??'synthetic risk gate not reached');assert.equal(claims,0,'risk interrupt cannot submit without approval');
     const result=await graph.invoke(new Command({resume:{approved:true}}),config);
     assert.equal(result.status,'done',result.error??result.summary??'synthetic live-path did not complete');assert.equal(claims,1);assert.equal(h.session.creationDispatched,true);
     assert.equal(await readFile(join(h.directory,'AgentDesktop_8102_API_Key.txt'),'utf8'),seed+'\n');
@@ -113,4 +123,72 @@ test('synthetic live-path regression: risk gate stays pending, one submit, priva
     await writeFile(join(h.directory,'AgentDesktop_8102_API_Key.txt'),'SYNTHETIC_CHANGED_BODY');
     assert.equal((await h.session.verifyKeyOutcome()).fileMatchesUi,false);
   }finally{trace.close();await h.close();}
+});
+
+test('Dashboard lists Hidden Chrome, requires explicit read-only scenario, uses fixed Task chain without model or Key creation',async()=>{
+  const h=await unclaimedHarness();
+  // Page routing fulfills the synthetic document; no request reaches 8102.
+  await h.page.route('http://192.168.2.3:8102/**',route=>route.request().method()==='GET'
+    ? route.fulfill({contentType:'text/html; charset=utf-8',body:fixture}):route.fallback());
+  let opens=0;
+  const provider={id:h.provider.id,kind:h.provider.kind,capabilities:()=>h.provider.capabilities(),
+    discover:async()=>[{providerId:h.provider.id,environmentId:h.session.environmentId,kind:h.provider.kind}],
+    open:async()=>{opens++;return h.session;}};
+  const sessions=new TaskDesktopSessions([provider],new Map([[provider.id,new HiddenChromeTaskExecutor(h.provider)]]));
+  const assembly=await createRootAssembly({rootDir:h.directory,desktopSessions:sessions,
+    model:{createModel(){assert.fail('finite read-only scenario must not construct a model');}}});
+  const server=createDashboardServer(h.directory,assembly.controller);
+  await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));
+  const address=server.address();assert.ok(address&&typeof address!=='string');
+  const {chromium}=await import('playwright');
+  const dashboardBrowser=await chromium.launch({headless:true});
+  const dashboard=await dashboardBrowser.newPage();
+  try {
+    const options=await assembly.controller.desktopOptions();
+    assert.equal(opens,0);assert.equal(h.native.grant,undefined,'discovery does not acquire input');
+    assert.equal(options[0]!.executable,false);assert.equal(options[0]!.scenarios?.length,1);
+    assert.throws(()=>sessions.assertTarget(options[0]!),/generic-task-unavailable/);
+    await assert.rejects(h.session.execute({kind:'click',target:{kind:'selector',selector:KEY_SUBMIT_SELECTOR}}),/unavailable/);
+    await dashboard.goto(`http://127.0.0.1:${address.port}`);
+    const value=JSON.stringify([provider.id,h.session.environmentId]);
+    await dashboard.waitForFunction(value=>!!document.querySelector(`#task-destination option`)&&
+      [...(document.querySelector('#task-destination') as HTMLSelectElement).options].some(o=>o.value===value),value);
+    assert.match(await dashboard.locator('#task-destination').innerText(),/Hidden Workspace Chrome/);
+    await dashboard.locator('#task-destination').selectOption(value);
+    assert.equal(opens,0);assert.equal(await dashboard.locator('#task-submit').isDisabled(),true);
+    await dashboard.locator('#task-scenario').selectOption(HIDDEN_CHROME_READONLY_SCENARIO);
+    await dashboard.locator('#task-submit').click();
+    await dashboard.waitForFunction(()=>/阶段：完成|BLOCKED/.test(document.querySelector('#scenario-status')?.textContent??''));
+    const runs=await (await fetch(`http://127.0.0.1:${address.port}/api/runs`)).json() as {runs:Array<{taskId:string}>};
+    const trace=new SqliteTrace(join(h.directory,'web-tasks.sqlite'));
+    const final=trace.load(runs.runs[0]!.taskId);trace.close();
+    assert.match(await dashboard.locator('#scenario-status').innerText(),/执行 PASS.*验证 PASS.*清理 PASS/,final?.error??'synthetic Dashboard task incomplete');
+    assert.match(await dashboard.locator('#scenario-facts').innerText(),/"keyCreationAdmitted": false/);
+    assert.equal(opens,1);assert.equal(h.session.creationDispatched,false);assert.equal(h.session.keyFileSaved,false);
+    assert.equal(h.session.readOnlyRestricted,true);
+    assert.throws(()=>h.session.setSecretOutputPath(join(h.directory,'forbidden.txt')),/read-only/);
+    assert.throws(()=>h.session.authorizeCreation({keyName:'agent-desktop-hidden-chrome-20261009',maxOutputTokens:40000,allModels:true,claim:async()=>assert.fail('no creation intent')}),/not authorized/);
+    assert.equal(h.native.stopped,true);
+  }finally{await dashboardBrowser.close();await new Promise<void>(done=>server.close(()=>done()));await assembly.dispose();await h.close();}
+});
+
+test('read-only session blocks mutating page requests and cannot admit a Key configuration',async()=>{
+  const h=await unclaimedHarness();
+  try {
+    const context=h.browser.contexts()[0]!;
+    const originalRoute=context.route.bind(context);
+    let policy:((route:import('playwright').Route)=>unknown)|undefined;
+    context.route=async(pattern,handler,options)=>{policy=route=>handler(route,route.request());return originalRoute(pattern,handler,options);};
+    h.session.restrictToReadOnly();
+    assert.throws(()=>h.session.setSecretOutputPath(join(h.directory,'forbidden.txt')),/read-only/);
+    const authority=await h.input.acquire(h.session,{kind:'agent',clientId:'synthetic-read-only'});
+    await h.session.connectRuntime(authority);
+    let denied=false;
+    assert.ok(policy);
+    // Invoke the actual installed request fence with a synthetic Route. No
+    // browser request can reach the private site even if this regression fails.
+    await policy({request:()=>({url:()=> 'http://192.168.2.3:8102/synthetic-no-network',method:()=> 'POST'}),
+      abort:async()=>{denied=true;},continue:async()=>assert.fail('read-only POST cannot leave the browser')} as unknown as import('playwright').Route);
+    assert.equal(denied,true);assert.equal(h.session.creationDispatched,false);
+  }finally{await h.close();}
 });

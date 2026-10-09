@@ -173,6 +173,16 @@ class Bridge:
             time.sleep(.01)
         raise Blocked('native_ack_timeout')
 
+    def inspect(self):
+        """Read-only preflight: no grant, control write, ACK or lease renewal."""
+        with self.lock:
+            if self.stopped or time.monotonic() >= min(self.deadline, self.lease):
+                raise Blocked('native_binding_stale')
+            state = read_json(self.directory / 'state.json', {})
+            if state.get('status') != 'ready' or state.get('port') != self.port or time.monotonic() - state.get('heartbeat', 0) > 2:
+                raise Blocked('native_binding_stale')
+            return {'ready': True}
+
     def ping(self, authority):
         self.check(authority)
         with self.lock:
@@ -229,6 +239,7 @@ def main():
                 if method == 'start': result = bridge.start()
                 elif method == 'activate': result = bridge.activate(authority)
                 elif method == 'check': result = bridge.check(authority)
+                elif method == 'inspect': result = bridge.inspect()
                 elif method == 'ping': result = bridge.ping(authority)
                 elif method == 'stop': result = bridge.stop()
                 else: raise Blocked('unsupported_bridge_method')

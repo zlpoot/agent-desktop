@@ -131,6 +131,9 @@ export class LocalWorkspaceChromeProvider implements DesktopProvider {
   readonly id = 'windows-local-workspace';
   readonly kind = 'local-workspace' as const;
   private session?: ChromeSession;
+  private opening?: Promise<ChromeSession>;
+  private closed = false;
+  get inputControl() { return this.input; }
   constructor(private readonly input: DesktopInputArbiter, private readonly root: string,
     private readonly chromePath: string, private readonly directory: string) {
     input.registerBackend(binding => !!this.session?.valid(binding), async authority => {
@@ -142,19 +145,31 @@ export class LocalWorkspaceChromeProvider implements DesktopProvider {
   }
   async capabilities(): Promise<DesktopCapabilities> {
     const scope = { providerId: [this.id], environmentKind: [this.kind], application: ['chrome'],
-      targetRole: ['owned-page'], action: ['navigate', 'open-key-form', 'configure-key-form', 'create-one-key'], mechanism: ['owned-chrome-cdp'] };
-    return { 'input.semantic': [{ state: 'supported', scope }],
+      targetRole: ['owned-page'], action: ['navigate', 'open-access-tab', 'open-key-form', 'configure-key-form', 'create-one-key'], mechanism: ['owned-chrome-cdp'] };
+    return { 'input.semantic': [{ state: 'supported', scope, evidence: [{source:'docs/live-01-hidden-chrome.md',
+      description:'Owned Hidden Chrome native binding and narrow semantic UI actions; generic tasks and Key replay are not admitted.'}] }],
       'input.globalInput': [{ state: 'forbidden', scope: {} }],
       'input.rawIsolated': [{ state: 'not-proven', scope: {} }],
       'control.humanTakeover': [{ state: 'unsupported', scope: {} }] };
   }
   async discover() {
-    return process.platform === 'win32' ? [{ providerId: this.id, environmentId: 'local-workspace:chrome', kind: this.kind }] : [];
+    return !this.closed && process.platform === 'win32' ? [{ providerId: this.id, environmentId: 'local-workspace:chrome', kind: this.kind }] : [];
   }
   async open(environmentId: string): Promise<ChromeSession> {
-    if (process.platform !== 'win32' || environmentId !== 'local-workspace:chrome' || this.session)
+    if (this.closed || this.opening || process.platform !== 'win32' || environmentId !== 'local-workspace:chrome')
       throw new Error('Explicit Windows Chrome session required');
-    const bridge = new Bridge(this.root, this.directory, this.chromePath);
+    if(this.session) {
+      const previous=this.session;
+      if((await previous.status()).state!=='closed'||!previous.cleanup?.ownedJobEmpty||!previous.cleanup.desktopHandleClosed)
+        throw new Error('Chrome prior session cleanup required');
+      if(this.closed||this.opening||this.session!==previous)throw new Error('Chrome session unavailable');
+      this.session=undefined;
+    }
+    this.opening=this.startSession(environmentId);
+    try {return await this.opening;} finally {this.opening=undefined;}
+  }
+  private async startSession(environmentId: string): Promise<ChromeSession> {
+    const bridge = new Bridge(this.root, resolve(this.directory,randomUUID()), this.chromePath);
     try {
       const started = await bridge.request<{ binding: DesktopSessionIdentity; port: number; targetId: string;
         hiddenWindowBound: boolean; cdpListenerOwned: boolean }>('start');
@@ -169,6 +184,11 @@ export class LocalWorkspaceChromeProvider implements DesktopProvider {
       try { await bridge.request('stop'); } finally { await bridge.close(); }
       throw error;
     }
+  }
+  async close() {
+    this.closed=true;
+    try {await this.opening;} catch { /* startSession already drains its failed launch. */ }
+    await this.session?.close();
   }
 }
 
@@ -196,15 +216,21 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
   private keyOpenerAttempted = false;
   private secretOutputPath?: string;
   private creation?: ChromeCreationConfig;
+  private readOnly = false;
+  get readOnlyRestricted() {return this.readOnly;}
+  restrictToReadOnly() {
+    if(this.authority||this.runtime||this.creation||this.secretOutputPath||this.state!=='open')throw new Error('Chrome read-only restriction requires a fresh unclaimed session');
+    this.readOnly=true;
+  }
   private defaults?: {rpm:string;days:string};
   creationDispatched = false;
   authorizeCreation(config: ChromeCreationConfig) {
-    if (this.creation || config.allModels !== true || config.maxOutputTokens !== 40000 ||
+    if (this.readOnly || this.creation || config.allModels !== true || config.maxOutputTokens !== 40000 ||
         !/^agent-desktop-hidden-chrome-[0-9]{8}$/.test(config.keyName)) throw new Error('Chrome creation configuration not authorized');
     this.creation = Object.freeze({...config});
   }
   /** The caller resolves Windows Known Folder Desktop and checks conflicts first. */
-  setSecretOutputPath(path: string) { this.secretOutputPath = path; }
+  setSecretOutputPath(path: string) {if(this.readOnly)throw new Error('Chrome read-only session forbids a secret sink');this.secretOutputPath = path; }
   constructor(private readonly binding: DesktopSessionIdentity, private readonly bridge: ChromeNativeBackend,
     private readonly port: number, private readonly input: DesktopInputArbiter,
     readonly capabilities: () => Promise<DesktopCapabilities>,
@@ -217,7 +243,14 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
   }
   matches(binding: DesktopSessionIdentity) { return sameSession(this.binding, binding); }
   valid(binding: DesktopSessionIdentity) { return this.state === 'open' && this.matches(binding); }
-  async status() { return { state: this.state, readiness: {} }; }
+  async status() { return { state: this.state, readiness: {'input.semantic': {state:this.state==='open'?'ready' as const:'not-ready' as const}} }; }
+  /** Fresh native ownership status without acquiring or renewing input. */
+  async inspectBinding() {
+    if(this.state!=='open')throw new Error('Chrome session unavailable');
+    try {await this.bridge.request('inspect');}
+    catch {this.state='stale';throw new Error('Chrome native binding unavailable');}
+    if(this.state!=='open')throw new Error('Chrome session unavailable');
+  }
   async activate(authority: InputAuthority) {
     if (this.authority || authority.owner.kind !== 'agent') throw new Error('Chrome discovery is Agent-only');
     await this.bridge.request('activate', authority);
@@ -248,7 +281,7 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
     const context = contexts[0]!;
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
-      return url.origin === ORIGIN ? route.continue() : route.abort();
+      return url.origin === ORIGIN && (!this.readOnly || ['GET','HEAD'].includes(route.request().method())) ? route.continue() : route.abort();
     });
     context.on('page', page => { if (page !== this.page) void this.close().catch(() => {}); });
     this.runtime = PlaywrightRuntime.attach(this.page, { actionTimeoutMs: 1000, navigationTimeoutMs: 12000 });
@@ -291,6 +324,7 @@ export class ChromeSession implements DesktopSession, RuntimeAdapter {
     this.observedAt = -Infinity;
     if (action.kind === 'navigate') {
       if (new URL(action.url).origin !== ORIGIN) throw new Error('Origin not authorized');
+      if(this.readOnly&&action.url!==ORIGIN+'/')throw new Error('Chrome read-only navigation scope rejected');
     } else if (action.kind === 'type' && action.target.kind === 'selector' && this.creation &&
         ((action.target.selector === KEY_NAME_SELECTOR && action.text === this.creation.keyName) ||
          (action.target.selector === KEY_TOKENS_SELECTOR && action.text === String(this.creation.maxOutputTokens)))) {

@@ -1,7 +1,7 @@
 # LIVE-01：Hidden Workspace Chrome 单 Key 实际执行
 
 Refs zlpoot/agent-desktop#47。基线为 main `2ca406c664352b7c7dd4047694e1281023fd8008`。
-这是本次明确授权的狭窄 LIVE-01 路由；通用 Dashboard Chrome 路由尚未接通。
+这是本次明确授权的狭窄 LIVE-01 路由；Dashboard 另提供只读固定场景，通用 Chrome Task / Workflow 尚未接通。
 独立 Review 尚未完成，本记录不改变 Windows 实验 PAUSED、A5 safety FAIL 或项目整体未完成的状态。
 
 ## 实际结果（2026-10-09 10:00，Asia/Shanghai）
@@ -41,7 +41,7 @@ CDP 仅控制经 Native 核对的自有 Hidden Chrome 页面；没有默认桌�
 - 核心 model-only Workflow 蒸馏条件保持不变。单独的 LIVE-01 candidate 构造器要求真实 Task 已完成、独立验收 pass、文件证据、每个成功执行步骤有验证、唯一非幂等创建提交。候选参数包括名称、Token 上限、站点和输出文件。
 
 候选只能在可信且显式配置的 Hidden Chrome Runtime 中尝试执行；创建步骤需要下一次明确授权和独立风险门。
-候选没有实现默认 Dashboard 的通用 Chrome 路由，不能在现有默认路由中用 Host/Physical 或直接 API 替代，也没有用真实站点测试候选回放。
+候选没有实现 Dashboard 的通用 Chrome Task / Workflow 路由，不能用 Host/Physical 或直接 API 替代，也没有用真实站点测试候选回放。
 当前 CLI 是本次授权配置的执行入口，不承诺任意站点、任意模型组合或任意 Token 配置。
 
 ## 失败与审查后的修正
@@ -56,7 +56,7 @@ CDP 仅控制经 Native 核对的自有 Hidden Chrome 页面；没有默认桌�
 这些报告修正仅经合成回归验证，没有再次真实创建；私有 `executed-source.json` 保留成功执行时的源码哈希，没有改写为最终 PR 源码。
 真实运行的最终文件完成门采用核心文件验收路径；自定义 GUI/文件比较 verifier 另有合成测试，不把它描述为真实完成门中已运行的回调。
 
-## 回归验证
+## 回归验证（首次 CLI 交付）
 
 测试仅用合成页面、合成 Key 和 Fake Native，不读取真实运行证据、桌面 Key 或 profile。
 新增浏览器回归覆盖 Collector 脱敏、心跳、身份漂移、origin/新鲜观察边界、风险门等待、唯一提交、私有文件相等、候选不含秘密、修改文件验收失败和重复提交拒绝。
@@ -78,3 +78,32 @@ CDP 仅控制经 Native 核对的自有 Hidden Chrome 页面；没有默认桌�
 相关 Dashboard / Workflow 下载产品代码未修改，取消原因未确认；失败保留，不删除或跳过测试，不声称整套 Browser 回归通过。
 
 PR 停在独立 Review，不自行合并或把候选晋升为已验证 Workflow。
+
+## Dashboard 只读体验入口（操作者反馈后的最小接线）
+
+默认 `npm run dashboard` 不加载 Chrome 配置，所以原先下拉只有浏览器与本机桌面。
+显式设置 `AGENT_DESKTOP_ENVIRONMENT_CONFIG` 为 `config/desktop-environments.hidden-chrome.example.json` 后，标准 Root 注册真实的 `local-workspace:chrome` Provider，替换未配置的旧 Local Workspace 条目，仍保留 Hyper-V / Physical 原有准入。
+配置必须是绝对 `chrome.exe` 路径；不能同时配置旧 fixture / NetEase 工作区，不默认猜测安装路径或自动启用。
+
+```powershell
+$env:AGENT_DESKTOP_ENVIRONMENT_CONFIG = (Resolve-Path config/desktop-environments.hidden-chrome.example.json).Path
+npm run dashboard
+```
+
+刷新 Dashboard，在执行位置选择 **Hidden Workspace Chrome**，再显式选择 **只读打开 8102 接入权限页面（不创建 Key）**，点击执行。
+唯一场景 `live-01-chrome-readonly-8102` 复用现有固定场景 Task、预算、DesktopExecutionAdmission、完整输入 grant、独立结果观察及清理链路，只允许导航到 8102 与点击接入权限 tab。
+它没有创建配置、私有 Key sink、模型或通用 WorkerClient，也不打开 Key 表单，不读取桌面 TXT，不运行创建 Workflow；Runtime 还拒绝配置 Key / sink 与页面的非 GET/HEAD 请求。
+网页独立事实只有 `siteConfirmed`、`accessVisible`、`keyCreationAdmitted` 等布尔值；输入仍经过原 Native guard 与单次 2 秒观察门。
+原 Native Worker 的 `inspect` 方法仅返回当前窗口/监听器归属状态，不取得 grant、写控制、产生 ACK 或续租；每个实际输入仍重新执行原完整 Native grant ACK 检查。
+受控页面的精确应用版本元数据在此桥未报告，Target 标为 `unreported`；不据此宣称其它 Chrome 版本已验证。
+
+初始化、环境列表查询与选择场景不启动 Chrome 或模型；点击执行才启动自有 GUI Chrome。
+完成或失败后回收 Job / Desktop；只有确认上一 Session 清理通过才允许显式新建另一个只读 Task。停止后的旧场景不 Resume 或自动回放。
+通用 Task / Workflow 的 `executable` 保持 false，创建入口仍受原一次授权台账和 TXT 冲突保护。本次没有第二次创建 Key。
+
+新增合成网页端到端测试覆盖下拉可见、无默认场景、选择前零启动/零 grant、只读 Task 真正走现有队列、无模型、无创建及清理。
+测试 HTTP fixture 曾因缺少 UTF-8 charset 导致中文 tab 不可识别，修正合成响应编码后通过；没有改真实页面操作或安全时限。
+本次只核对 Dashboard 的环境元数据并把界面交给操作者；新增场景的真实执行与人工体验仍待反馈。
+Dashboard 补丁的检查结果：check PASS；offline 750/750；Python 18 个文件通过（Native inspector 单元测试 4/4）；Local Workspace 53/53；Viewer 1/1；本功能 Browser 单独复核 6/6。
+完整 Browser 为 70/73：两项既有下载取消仍复现，一项合成 Key 测试在风险门前 failed、单独复核通过；原因未确认，完整套件保持失败，不能宣称全绿。
+本次 PR 的 17 个文件及 PR 描述再次比较 Key 明文，UTF-8 / UTF-16LE 匹配均为 0；原桌面 TXT 与首次真实任务的验收哈希仍一致。

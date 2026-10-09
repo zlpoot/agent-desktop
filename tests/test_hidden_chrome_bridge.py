@@ -47,5 +47,12 @@ class ChromeBridgeContractTests(unittest.TestCase):
         obj=self.bridge();authority=self.authority(obj);obj.authority=authority
         with patch.object(bridge_module,'write_json'),patch.object(bridge_module,'read_json',return_value={'status':'ready','port':2,'heartbeat':time.monotonic()}):
             with self.assertRaisesRegex(Blocked,'native_binding_stale'):obj.check(authority)
+    def test_inspect_is_readonly_without_grant_or_lease_renewal_and_rejects_drift(self):
+        obj=self.bridge();before=obj.lease
+        with patch.object(bridge_module,'write_json') as write,patch.object(bridge_module,'read_json',return_value={'status':'ready','port':1,'heartbeat':time.monotonic()}):
+            self.assertEqual(obj.inspect(),{'ready':True});write.assert_not_called()
+        self.assertIsNone(obj.authority);self.assertEqual(obj.lease,before)
+        with patch.object(bridge_module,'read_json',return_value={'status':'ready','port':2,'heartbeat':time.monotonic()}):
+            with self.assertRaisesRegex(Blocked,'native_binding_stale'):obj.inspect()
 
 if __name__=='__main__':unittest.main()
