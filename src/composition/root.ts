@@ -20,6 +20,9 @@ import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import { PhysicalDesktopProvider, type PhysicalBackendFactory } from "../desktop-provider/physical-provider.js";
 import { PhysicalTaskExecutor } from '../desktop-provider/physical-task-executor.js';
 import { LocalWorkspaceTaskExecutor } from '../desktop-provider/local-workspace-task-executor.js';
+import { LocalWorkspaceChromeProvider } from '../desktop-provider/local-workspace-chrome-provider.js';
+import { HiddenChromeTaskExecutor } from '../desktop-provider/hidden-chrome-task-executor.js';
+import type {HiddenChromeCreationAuthorization} from '../desktop-provider/hidden-chrome-creation.js';
 import { registeredGuestApps } from '../runtime/desktop/app-catalog.js';
 import { ResourceInputControl } from "../desktop-provider/resource-input-control.js";
 import { LocalWorkspaceDesktopProvider, type LocalWorkspaceAppConfig,
@@ -71,6 +74,8 @@ export interface RootAssemblyOptions {
   physicalBackendFactory?: PhysicalBackendFactory;
   physicalInputPolicy?: PhysicalInputPolicy;
   localWorkspace?: LocalWorkspaceAppConfig;
+  /** Explicit installed Chrome; creation additionally requires a new local one-Key authorization. */
+  hiddenChrome?: {path:string;creationAuthorization?:HiddenChromeCreationAuthorization};
   localWorkspaceBackendFactory?: LocalWorkspaceBackendFactory;
   /** 装配完成后追加的插件（测试注入用）；任一失败即回收整个 Root。 */
   extraPlugins?: Plugin[];
@@ -98,11 +103,13 @@ export interface RootAssembly {
  *   Session 的独立卸载也必须等待使用该输入控制的任务收尾。
  */
 export async function createRootAssembly(options: RootAssemblyOptions): Promise<RootAssembly> {
+  if(options.hiddenChrome&&options.localWorkspace)throw new Error('conflicting-local-workspace-config');
   const rootDir = resolve(options.rootDir);
   const root = new Context();
   const controlBus = createControlBus();
   let controller: DesktopTaskController | undefined;
   let closing: Promise<void> | undefined;
+  let hiddenChrome: LocalWorkspaceChromeProvider | undefined;
   const dispose = () => {
     if (closing) return closing;
     controlBus.close();
@@ -134,6 +141,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
           resolve(rootDir, ".artifacts", "local-workspace", "provider"), resolve("."),
           options.localWorkspaceBackendFactory,
           options.localWorkspaceBackendFactory ? true : undefined);
+        hiddenChrome=options.hiddenChrome?new LocalWorkspaceChromeProvider(managedInput,resolve('.'),options.hiddenChrome.path,
+          resolve(rootDir,'.artifacts','live-01','dashboard')):undefined;
         const vmControl = options.vmControl
           ?? (process.env.AGENT_DESKTOP_VM_ID ? new HyperVVmControl(process.env.AGENT_DESKTOP_VM_ID) : undefined);
         ctx.provide("extensionRegistry", extensionRegistry);
@@ -146,7 +155,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         ctx.provide("physicalCompatibility", physicalCompatibility);
         ctx.provide("localWorkspaceCompatibility", localWorkspaceCompatibility);
         ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility, physicalCompatibility,
-          localWorkspaceCompatibility]));
+          hiddenChrome??localWorkspaceCompatibility]));
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
@@ -164,7 +173,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               finally {
                 try { await physicalCompatibility.close(); }
                 finally {
-                  try { await localWorkspaceCompatibility.close(); }
+                  try { try {await hiddenChrome?.close();} finally {await localWorkspaceCompatibility.close();} }
                   finally { await desktop.close(); }
                 }
               }
@@ -222,7 +231,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               }],
               [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
-              [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
+              hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
+                [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
             !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&

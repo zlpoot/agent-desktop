@@ -16,6 +16,7 @@
     "src/**/*.d.ts",
     "tests/**/*.ts",
     "testbench/p4/**/*.ts",
+    "testbench/live-01/**/*.ts",
     "testbench/oracle-bridge.ts",
     "measurement/**/*.ts",
     "scripts/migrate-workflow-targets.ts"

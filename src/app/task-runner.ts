@@ -260,6 +260,10 @@ export class DesktopTaskController implements TaskController {
     const store = this.workflowStore(resolve(this.rootDir, 'workflows.sqlite'));
     try {
       const prepared = prepareWorkflowExecution(store.get(request.id, request.version), request);
+      // A saved Hidden Chrome candidate cannot inherit this Task's one-Key
+      // permission or fall back to a generic browser during an explicit trial.
+      if(prepared.workflow.steps.some(step=>step.preferredMethods.includes('owned-chrome-cdp')))
+        throw new Error('Hidden Chrome 创建候选仅供查看；再次创建须使用新增授权的固定任务入口');
       if (prepared.workflow.environment === 'windows') {
         if (!target) throw new Error('desktop-target-required');
         target = this.requireDesktopSessions().assertTarget(target);

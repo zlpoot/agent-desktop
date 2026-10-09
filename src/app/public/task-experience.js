@@ -38,7 +38,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       if (wasBrowser) select.value = '';
     }
     const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
-    for (const item of environments) option(key(item), `${labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable && !(allowScenarios && item.scenarios?.length));
+    for (const item of environments) option(key(item), `${item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable && !(allowScenarios && item.scenarios?.length));
   }).catch(failure => { error = failure.message; option('unavailable', '桌面列表读取失败，请刷新', true); }).finally(changed);
   return {
     ready,

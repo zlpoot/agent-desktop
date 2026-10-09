@@ -22,8 +22,14 @@ export interface NodeMetric {
 export class SqliteTrace {
   private readonly db: DatabaseSync;
 
-  constructor(path: string) {
+  constructor(path: string, options?: { journalMode: 'wal' }) {
     this.db = new DatabaseSync(path);
+    // Opt-in for the timing-sensitive Hidden Chrome trace. Keep FULL durable
+    // commits and the existing transactions/schema; avoid rollback-journal
+    // creation/deletion and reader contention on every UI node.
+    if (options?.journalMode === 'wal') {
+      this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
         task_id TEXT PRIMARY KEY, goal TEXT NOT NULL, status TEXT NOT NULL,

@@ -1,0 +1,4 @@
+{
+  "physicalInputPolicy": { "windowManagement": false, "executors": [] },
+  "hiddenChrome": { "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" }
+}

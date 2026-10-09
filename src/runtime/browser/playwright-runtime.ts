@@ -58,6 +58,12 @@ export class PlaywrightRuntime implements RuntimeAdapter {
     return new PlaywrightRuntime(browser, context, page, options);
   }
 
+  /** Attach to a caller-owned, already authenticated page. Never launches a browser.
+   * The caller retains native identity, input authority, observation and cleanup gates. */
+  static attach(page: Page, options: PlaywrightRuntimeOptions = {}): PlaywrightRuntime {
+    return new PlaywrightRuntime(undefined, page.context(), page, options);
+  }
+
   async restore(observation: Observation): Promise<void> {
     if (!observation.url) throw new Error("保存的页面观察缺少网址");
     const url = new URL(observation.url);
