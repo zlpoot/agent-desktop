@@ -173,6 +173,7 @@ test("本机页面提交任务后显示结果，拒绝跨站和非 JSON 写入",
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(base);
+    await page.locator('#task-destination').selectOption('browser');
     await page.getByLabel("描述任务").fill("打开网易云播放稻香");
     await page.getByRole("button", { name: /发送任务/ }).click();
     await page.getByRole("heading", { name: "打开网易云播放稻香" }).waitFor();

@@ -67,7 +67,7 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(base);
     await page.route('**/api/workflows', route => route.fulfill({ status: 503, json: { error: '测试连接故障' } }), { times: 1 });
-    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click();
     await page.getByRole('button', { name: '重试读取流程', exact: true }).waitFor();
     assert.equal(await page.locator('.workflow-card').count(), 0);
     assert.match(await page.locator('.library-message').innerText(), /读取失败/);
@@ -104,7 +104,7 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     assert.deepEqual(submitted[0], { id: 'write-example', version: 1, ...executionBody, values: { value: '其他值' } });
     assert.deepEqual(submittedBudgets[0], { deepseek: { maxCalls: 3 } });
     assert.deepEqual(submittedTargets[0], desktopTarget);
-    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click();
     await page.locator('.workflow-card').click();
     await page.getByLabel('value', { exact: true }).fill('试运行参数');
     const trialButton = page.getByRole('button', { name: '试运行此候选版本', exact: true });
@@ -116,7 +116,7 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-1');
     assert.equal(submitted.length, 2); assert.equal(submitted[1].trial, true);
     assert.equal(submitted[1].version, 2); assert.deepEqual(submitted[1].values, { value: '试运行参数' });
-    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click();
     await page.getByRole('searchbox', { name: '搜索流程', exact: true }).fill('不存在');
     assert.equal(await page.locator('.workflow-card').count(), 0);
     await page.getByRole('button', { name: '清除流程筛选', exact: true }).click();
@@ -178,7 +178,7 @@ test('流程库固定版本只读预览、参数校验与证据回看/报告下�
     assert.equal(store.get('write-example', 2)?.status, 'candidate');
     assert.equal((await publish(publishBody)).status, 409, '旧回放计数不能发布');
     await page.reload();
-    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click();
     await page.locator('.workflow-card').click();
     await page.getByLabel('流程版本', { exact: true }).selectOption('2');
     await page.getByText('审核并发布此候选版本').click();

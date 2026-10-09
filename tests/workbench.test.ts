@@ -15,7 +15,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
     const run = (taskId: string, status: string) => ({ taskId, source: 'web-tasks.sqlite',
       goal: taskId === 'active' ? '整理当前文档' : '此前任务记录', status, plan: [], steps: [],
       error: taskId === 'active' ? '应用窗口未能启动' : undefined, recoveryRequired: taskId === 'active',
-      ...(taskId === 'active' ? { status: activeStatus, interactionKind } : {}),
+      ...(taskId === 'active' ? { status: activeStatus, interactionKind, desktopTarget: {providerId:'hyper-v', environmentId:'vm:test'} } : {}),
       completedActions: 0, completedStages: [], groundingStats: [], modelCalls: 0, modelNames: [], canPause: true });
     let active = true, controlUnavailable = false;
     const commands: string[] = [];
@@ -52,21 +52,22 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
       } } });
       if (data) return route.fulfill({ json: data });
       const file = path === '/' ? 'index.html' : path.slice(1);
-      if (!['index.html', 'app.js', 'app-management.js', 'workbench.js', 'task-experience.js', 'workflow-library.js', 'runtime-plugins.js', 'style.css', 'workbench.css'].includes(file)) return route.fulfill({ status: 404 });
+      if (!['index.html', 'app.js', 'app-management.js', 'workbench.js', 'task-experience.js', 'workflow-library.js', 'runtime-plugins.js', 'style.css', 'workbench.css', 'app-shell.js', 'app-shell.css'].includes(file)) return route.fulfill({ status: 404 });
       await route.fulfill({ body: readFileSync(resolve('src/app/public', file)),
         contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });
     });
     await page.goto('http://localhost:48999/');
     await page.waitForFunction(() => document.querySelector('#goal')?.textContent === '整理当前文档');
     await page.waitForFunction(() => (document.querySelector('#desktop-frame') as HTMLImageElement)?.naturalWidth === 2048);
-    assert.equal(await page.locator('#detail').isVisible(), false);
+    assert.equal(await page.locator('#detail').isVisible(), true);
     assert.equal(await page.locator('.workspace-home').isVisible(), true);
-    assert.equal(await page.locator('.desktop-panel').isVisible(), false);
-    assert.equal(await page.locator('#task-controls').isVisible(), false);
+    assert.equal(await page.locator('.desktop-panel').isVisible(), true);
+    assert.equal(await page.locator('#task-controls').isVisible(), true);
     assert.equal(await page.locator('.sidebar #run-list').count(), 0);
     assert.equal(await page.locator('#run-list').isVisible(), false);
-    assert.equal(await page.locator('#task-submit').isEnabled(), true, '旧 VM 控制状态不能禁止独立浏览器任务');
-    await page.getByRole('button', { name: /已暂停 · 整理当前文档/ }).click();
+    assert.equal(await page.locator('#task-submit').isDisabled(), true, '初次进入必须明确选择环境');
+    await page.getByRole('button', { name: '任务', exact: true }).click();
+    await page.locator('.run-card').filter({ hasText: '整理当前文档' }).click();
     await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Factive');
     await page.getByRole('button', { name: '工作台', exact: true }).click();
     await page.locator('#task-destination').selectOption('browser');
@@ -77,7 +78,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
     assert.equal(await page.locator('#task-goal').inputValue(), '未提交的草稿');
     assert.equal(await page.locator('#task-destination').inputValue(), 'browser');
     await page.locator('#task-destination').selectOption(JSON.stringify(['fixture', 'vm-one']));
-    await page.getByRole('button', { name: '桌面', exact: true }).click();
+    await page.getByRole('button', { name: '环境与应用', exact: true }).click();
     assert.equal(await page.locator('#task-form').isVisible(), false);
     assert.match(await page.getByRole('region', { name: '连接检查' }).innerText(), /Worker 已就绪/);
     await page.getByRole('button', { name: '刷新连接状态', exact: true }).click();
@@ -123,7 +124,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
     await page.waitForFunction(() => document.querySelector('#goal')?.textContent === '此前任务记录');
     await page.goForward();
     await page.waitForFunction(() => document.querySelector('#goal')?.textContent === '整理当前文档');
-    assert.equal(await page.locator('.desktop-panel').isVisible(), false);
+    assert.equal(await page.locator('.desktop-panel').isVisible(), true);
     assert.equal(await page.locator('#task-form').isVisible(), true);
     assert.equal(await page.locator('#run-list').isVisible(), false);
     await page.route('**/api/prompts', route => route.fulfill({ status: 503, json: { error: '测试读取失败' } }), { times: 1 });
@@ -162,7 +163,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
       await page.getByRole('button', { name: '设置', exact: true }).click();
       await page.waitForFunction(() => window.scrollY === 0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `设置溢出 ${width}`);
-      await page.getByRole('button', { name: '桌面', exact: true }).click();
+      await page.getByRole('button', { name: '环境与应用', exact: true }).click();
       await page.setViewportSize({ width, height: 900 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `横向溢出 ${width}`);
       assert.equal(await page.locator('#desktop-frame').evaluate(image => {

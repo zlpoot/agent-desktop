@@ -12,7 +12,7 @@ import { createFixtureDashboard } from '../src/composition/fixture-dashboard.js'
 import { createRootAssembly } from '../src/composition/root.js';
 import { ScenarioWorkspace } from './fixtures/local-workspace-scenario.js';
 
-for (const width of [601, 668, 700]) {
+for (const width of [390, 601, 668, 700, 900, 1366, 1440]) {
   test(`fixed scenario button reaches submit, HTTP and persisted Fake Task at ${width}px`, { timeout: 60000 }, async () => {
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
     const directory = mkdtempSync(join(tmpdir(), 'task-submit-chain-'));
@@ -79,6 +79,7 @@ for (const width of [601, 668, 700]) {
       const runs = await (await page.request.get(`${base}/api/runs`)).json();
       assert.equal(runs.runs.length, 1); assert.equal(runs.runs[0].taskId, issued.taskId);
       assert.equal(backend.acts, 1);
+      assert.match(await page.locator('.task-context').innerText(), /输入归属以所选环境的后台检查为准/);
     } finally {
       await browser.close(); await new Promise<void>(done => server.close(() => done())); await assembly.dispose();
       rmSync(directory, { recursive: true, force: true });
@@ -99,6 +100,7 @@ test('accepted button click with an invalid required goal does not deliver submi
     const page = await browser.newPage({ viewport: { width: 668, height: 598 } });
     const posts: string[] = []; page.on('request', request => { if (request.method() === 'POST') posts.push(request.url()); });
     await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.locator('#task-destination').selectOption('browser');
     await page.waitForFunction(() => !(document.querySelector('#task-submit') as HTMLButtonElement).disabled);
     assert.equal(await page.locator('#task-form').evaluate((form: HTMLFormElement) => form.checkValidity()), false);
     await page.locator('#task-form').evaluate((form: HTMLFormElement) => {
@@ -222,14 +224,14 @@ test('finite Task UI requires explicit scene, persists exact selection and refus
   try {
     const page = await browser.newPage(); const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 3);
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 4);
     await page.locator('#task-goal').fill('VM: arbitrary text must never select a scene');
-    assert.equal(await page.locator('#task-destination').inputValue(), 'browser');
+    assert.equal(await page.locator('#task-destination').inputValue(), '');
     const key = JSON.stringify([target.providerId, target.environmentId]);
     await page.locator('#task-destination').selectOption(key);
     assert.equal(await page.locator('#task-scenario').inputValue(), '');
     assert.equal(await page.locator('#task-submit').isDisabled(), true);
-    assert.equal(await page.locator('#task-goal').isDisabled(), true);
+    assert.equal(await page.locator('#task-goal').isDisabled(), false);
     assert.equal(await page.locator('#task-scenario option:disabled').count(), 3);
     assert.match(await page.locator('#task-scenario').textContent() || '', /不支持.*尚未验证.*不可用/);
     await page.locator('#task-scenario').selectOption(scene.id);
@@ -243,7 +245,8 @@ test('finite Task UI requires explicit scene, persists exact selection and refus
     await page.locator('#task-destination').selectOption(key);
     await page.locator('#task-scenario').selectOption(scene.id);
     await page.locator('#task-submit').click();
-    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Fscene-task');
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · scene-task');
+    assert.match(page.url(), /#\/live$/);
     assert.deepEqual(submitted, [{ desktopTarget: target, scenarioId: scene.id }]); assert.equal(generic, 0);
     await page.getByRole('button', { name: '以此任务新建草稿', exact: true }).click();
     assert.equal(await page.locator('#task-scenario').inputValue(), scene.id);
@@ -289,7 +292,7 @@ test('Task UI submits exact environment identity, preserves selection, and never
     const page = await browser.newPage(); const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 4);
+    await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 5);
     assert.equal(await page.locator('#task-destination option:disabled').count(), 1);
     const key = JSON.stringify(['synthetic', 'desktop-two']);
     await page.locator('#task-destination').selectOption(key);
@@ -298,14 +301,16 @@ test('Task UI submits exact environment identity, preserves selection, and never
     await page.waitForFunction(expected => (document.querySelector('#task-destination') as HTMLSelectElement)?.value === expected, key);
     assert.equal(await page.locator('#task-goal').inputValue(), 'VM: ordinary task text');
     await page.locator('#task-submit').click();
-    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-1');
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · task-1');
+    assert.match(page.url(), /#\/live$/);
     assert.deepEqual(submitted[0], { goal: 'VM: ordinary task text', target: { providerId: 'synthetic', environmentId: 'desktop-two' } });
     await page.getByRole('button', { name: '以此任务新建草稿', exact: true }).click();
     assert.equal(await page.locator('#task-destination').inputValue(), key);
     assert.equal(await page.locator('#task-goal').inputValue(), 'VM: ordinary task text');
     await page.locator('#task-destination').selectOption('browser');
     await page.locator('#task-submit').click();
-    await page.waitForURL('**/#/history?task=web-tasks.sqlite%2Ftask-2');
+    await page.waitForFunction(() => document.querySelector('#task-id')?.textContent === '任务 ID · task-1');
+    assert.match(page.url(), /#\/live$/);
     assert.deepEqual(submitted[1], { goal: 'VM: ordinary task text', target: undefined });
     await page.evaluate(() => sessionStorage.setItem('agent-desktop.task-draft.v2', JSON.stringify({ goal: 'retained draft', destination: '["synthetic","removed"]' })));
     await page.reload();
@@ -342,7 +347,7 @@ test('Browser Workflow UI executes its pinned version without a desktop target o
   try {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.getByRole('button', { name: '流程库', exact: true }).click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click();
     await page.locator('.workflow-card').click();
     assert.equal(await page.locator('#workflow-desktop-target').count(), 0);
     await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();
@@ -377,7 +382,7 @@ test('Windows Workflow UI cannot use finite scenario support as generic executio
   const { chromium } = await import('playwright'); const browser = await chromium.launch();
   try {
     const page = await browser.newPage(); await page.goto(`http://127.0.0.1:${address.port}`);
-    await page.getByRole('button', { name: '流程库', exact: true }).click(); await page.locator('.workflow-card').click();
+    await page.getByRole('button', { name: '工作流', exact: true }).click(); await page.locator('.workflow-card').click();
     await page.waitForFunction(() => (document.querySelector('#workflow-desktop-target') as HTMLSelectElement)?.options.length === 2);
     assert.equal(await page.locator('#workflow-desktop-target option').last().evaluate((option: HTMLOptionElement) => option.disabled), true);
     await page.getByRole('button', { name: '预览步骤（不执行）', exact: true }).click();

@@ -62,7 +62,7 @@ test("Desktop Session 与任务分离，Worker 心跳和画面通过网页 WebSo
     browser = await chromium.launch();
     const page = await browser.newPage();
     await page.goto(base);
-    await page.getByRole('button', { name: '桌面', exact: true }).click();
+    await page.getByRole('button', { name: '环境与应用', exact: true }).click();
     await page.locator("#desktop-frame").waitFor({ state: "visible", timeout: 5000 });
     await page.waitForFunction(() => (document.getElementById("desktop-frame") as HTMLImageElement).naturalWidth > 0);
     assert.equal(await page.locator("#desktop-frame").evaluate((image: HTMLImageElement) =>

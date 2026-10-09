@@ -30,7 +30,7 @@ previousEvidence.onclick = () => moveEvidence(-1);
 nextEvidence.onclick = () => moveEvidence(1);
 const view = { runs: [], selected: null, detail: null, activeStep: null,
   activeTab: "process", activeStepTab: "action", prompts: [] };
-const statusText = { running: "运行中", pause_requested: "请求暂停中", paused: "已暂停",
+const statusText = { queued: "排队中", preparing: "准备中", verifying: "正在验证", unknown: "结果未知", running: "运行中", pause_requested: "请求暂停中", paused: "已暂停",
   waiting_user: "等待人工", done: "已完成", failed: "失败", stopped: "已停止" };
 const actionText = { navigate: "打开网页", click: "点击", double_click: "双击", type: "输入", keypress: "按键", scroll: "滚动", wait: "等待", screenshot: "截图", ask_user: "询问用户", done: "结束" };
 const phaseText = { observe: "观察", decide: "决策", ground: "定位", resolve_action: "工具选择", risk_check: "风险检查", execute: "执行", verify: "动作验证", verify_task: "目标验证", recover: "重试", human_interrupt: "人工确认", finish: "结束" };
@@ -189,9 +189,9 @@ function renderDetail() {
         `${evidenceSourceText[item.source] || item.source}（${item.strength === "strong" ? "强" : item.strength === "weak" ? "弱" : "未知"}）`).join("、")}` : ""}` : "";
   byId("goal-criteria").textContent = criteriaText(run.completionCriteria);
   const reviewRecord = byId('manual-review-record');
-  reviewRecord.hidden = !run.humanReview;
+  reviewRecord.hidden = false;
   reviewRecord.textContent = run.humanReview
-    ? `人工验收：${run.humanReview.approved ? '确认完成' : '暂不确认'} · ${when(run.humanReview.reviewedAt)} · ${run.humanReview.note}` : '';
+    ? `人工验收：${run.humanReview.approved ? '确认完成' : '暂不确认'} · ${when(run.humanReview.reviewedAt)} · ${run.humanReview.note}` : '暂无可读取的系统内人工验收记录';
   byId("facet-state").textContent = facetSummaryLine(run.facets);
   const resume = byId("resume-controls");
   resume.hidden = !(run.source === "web-tasks.sqlite" && run.status === "waiting_user" && run.interactionKind !== 'app_onboarding');
@@ -596,22 +596,32 @@ byId("prompt-save").addEventListener("click", async () => {
   finally { button.disabled = false; }
 });
 
+let taskSubmitting = false;
 byId("task-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (taskSubmitting) return;
   const goal = byId("task-goal").value.trim();
   const submit = byId("task-submit");
+  let requestIssued = false, responseRead = false;
   byId("task-message").textContent = "正在提交任务……";
+  byId("task-message").dataset.state = 'loading';
   try {
     const options = taskExperience ? taskExperience.payload() : {};
     if (!options.scenarioId && !goal) { byId("task-goal").focus(); return; }
+    taskSubmitting = true;
     submit.disabled = true;
     taskExperience?.submitting(true);
+    requestIssued = true;
     const response = await fetch(options.scenarioId ? '/api/desktop/scenarios/tasks' : '/api/tasks', { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(options.scenarioId ? options : { goal, ...options,
         admin: byId("task-admin").checked }) });
     const result = await response.json();
+    responseRead = true;
     if (!response.ok) throw new Error(result.error || "提交失败");
+    if (typeof result.taskId !== 'string' || typeof result.source !== 'string') {
+      responseRead = false; throw new Error('未返回可核对的 Task ID');
+    }
     view.selected = `${result.source}/${result.taskId}`;
     workbench?.submitted(view.selected);
     view.activeStep = null;
@@ -620,12 +630,18 @@ byId("task-form").addEventListener("submit", async (event) => {
     byId("task-message").textContent = !options.scenarioId && byId("task-admin").checked
       ? `任务已提交：${result.taskId}。请在 Windows UAC 窗口确认管理员权限。`
       : `任务已提交：${result.taskId}`;
+    byId("task-message").dataset.state = 'success';
     byId("task-goal").value = "";
     taskExperience?.submitted();
-    workbench?.navigate('history', view.selected);
+    workbench?.navigate('live');
     await refresh();
-  } catch (error) { byId("task-message").textContent = String(error); }
-  finally { submit.disabled = false; taskExperience?.submitting(false); }
+  } catch (error) {
+    byId("task-message").dataset.state = requestIssued ? responseRead ? 'error' : 'unknown' : 'admission';
+    byId("task-message").textContent = requestIssued && !responseRead
+      ? `提交结果未知：${error.message || error}。请先查看任务记录核对，不要重复提交；页面不会自动重试。`
+      : String(error);
+  }
+  finally { taskSubmitting = false; submit.disabled = false; taskExperience?.submitting(false); }
 });
 
 byId("task-goal").addEventListener("keydown", (event) => {
