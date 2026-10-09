@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createDashboardServer } from '../src/app/server.js';
@@ -11,6 +11,111 @@ import { WorkflowStore } from '../src/workflows/store.js';
 import { createFixtureDashboard } from '../src/composition/fixture-dashboard.js';
 import { createRootAssembly } from '../src/composition/root.js';
 import { ScenarioWorkspace } from './fixtures/local-workspace-scenario.js';
+
+for (const width of [601, 668, 700]) {
+  test(`fixed scenario button reaches submit, HTTP and persisted Fake Task at ${width}px`, { timeout: 60000 }, async () => {
+    process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+    const directory = mkdtempSync(join(tmpdir(), 'task-submit-chain-'));
+    const backend = new ScenarioWorkspace();
+    const assembly = await createRootAssembly({ rootDir: directory, localWorkspace: { app: 'fixture' },
+      localWorkspaceBackendFactory: () => backend, model: { createModel() { assert.fail('no model'); } } });
+    const server = createDashboardServer(directory, assembly.controller);
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+    const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+    const base = `http://127.0.0.1:${address.port}`;
+    const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width, height: 598 } });
+      const posts: { path: string; body: unknown }[] = [];
+      page.on('request', request => {
+        if (request.method() === 'POST') posts.push({ path: new URL(request.url()).pathname, body: request.postDataJSON() });
+      });
+      await page.goto(base);
+      const desktopTarget = { providerId: 'windows-local-workspace', environmentId: 'local-workspace:fixture' };
+      const scenarioId = 'd0-fixture-text-click-v1';
+      await page.locator('#task-destination').selectOption(JSON.stringify(Object.values(desktopTarget)));
+      await page.locator('#task-scenario').selectOption(scenarioId);
+      await page.waitForFunction(() => !(document.querySelector('#task-submit') as HTMLButtonElement).disabled);
+      await page.locator('#task-form').evaluate((form: HTMLFormElement) => {
+        form.dataset.clicks = '0'; form.dataset.submits = '0';
+        form.addEventListener('click', event => {
+          if ((event.target as Element).closest('#task-submit')) {
+            form.dataset.clicks = String(Number(form.dataset.clicks) + 1);
+            form.dataset.trustedClick = String(event.isTrusted);
+          }
+        }, true);
+        form.addEventListener('submit', event => {
+          form.dataset.submits = String(Number(form.dataset.submits) + 1);
+          form.dataset.submitter = (event as SubmitEvent).submitter?.id;
+        }, true);
+      });
+      assert.deepEqual(await page.locator('#task-goal').evaluate((goal: HTMLTextAreaElement) => ({
+        required: goal.required, disabled: goal.disabled, willValidate: goal.willValidate, value: goal.value,
+      })), { required: true, disabled: true, willValidate: false, value: '' });
+      assert.equal(await page.locator('#task-form').evaluate((form: HTMLFormElement) => form.checkValidity()), true);
+      await page.locator('#task-submit').scrollIntoViewIfNeeded();
+      assert.equal(await page.locator('#task-submit').evaluate(button => {
+        const rect = button.getBoundingClientRect();
+        return document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('#task-submit') === button;
+      }), true, 'the sidebar must not intercept the submit button');
+      const responding = page.waitForResponse(response => response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === '/api/desktop/scenarios/tasks');
+      await page.locator('#task-submit').click(); // One click; never force or bypass validation.
+      const response = await responding;
+      assert.equal(response.status(), 202);
+      const issued = await response.json(); assert.equal(typeof issued.taskId, 'string');
+      assert.deepEqual(posts, [{ path: '/api/desktop/scenarios/tasks', body: { desktopTarget, scenarioId } }]);
+      assert.equal(await page.locator('#task-form').getAttribute('data-clicks'), '1');
+      assert.equal(await page.locator('#task-form').getAttribute('data-trusted-click'), 'true');
+      assert.equal(await page.locator('#task-form').getAttribute('data-submits'), '1');
+      assert.equal(await page.locator('#task-form').getAttribute('data-submitter'), 'task-submit');
+      assert.equal(existsSync(join(directory, 'web-tasks.sqlite')), true);
+      const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+      try {
+        const persisted = trace.load(issued.taskId)!; assert.ok(persisted);
+        assert.deepEqual(persisted.desktopTarget, desktopTarget); assert.equal(persisted.desktopScenario, scenarioId);
+      } finally { trace.close(); }
+      await page.waitForFunction(() => document.querySelector('#scenario-status')?.textContent?.includes('阶段：完成'));
+      const runs = await (await page.request.get(`${base}/api/runs`)).json();
+      assert.equal(runs.runs.length, 1); assert.equal(runs.runs[0].taskId, issued.taskId);
+      assert.equal(backend.acts, 1);
+    } finally {
+      await browser.close(); await new Promise<void>(done => server.close(() => done())); await assembly.dispose();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('accepted button click with an invalid required goal does not deliver submit or POST', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'task-html-validation-'));
+  const server = createDashboardServer(directory, {
+    submit() { assert.fail('invalid form must not submit'); }, resume() {}, pause() {}, continue() {},
+  });
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
+  const { chromium } = await import('playwright'); const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 668, height: 598 } });
+    const posts: string[] = []; page.on('request', request => { if (request.method() === 'POST') posts.push(request.url()); });
+    await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.waitForFunction(() => !(document.querySelector('#task-submit') as HTMLButtonElement).disabled);
+    assert.equal(await page.locator('#task-form').evaluate((form: HTMLFormElement) => form.checkValidity()), false);
+    await page.locator('#task-form').evaluate((form: HTMLFormElement) => {
+      form.dataset.clicks = '0'; form.dataset.submits = '0';
+      form.addEventListener('click', event => {
+        if ((event.target as Element).closest('#task-submit')) form.dataset.clicks = String(Number(form.dataset.clicks) + 1);
+      }, true);
+      form.addEventListener('invalid', event => { form.dataset.invalid = (event.target as Element).id; }, true);
+      form.addEventListener('submit', () => { form.dataset.submits = String(Number(form.dataset.submits) + 1); }, true);
+    });
+    await page.locator('#task-submit').click();
+    assert.equal(await page.locator('#task-form').getAttribute('data-clicks'), '1');
+    assert.equal(await page.locator('#task-form').getAttribute('data-invalid'), 'task-goal');
+    assert.equal(await page.locator('#task-form').getAttribute('data-submits'), '0');
+    assert.deepEqual(posts, []); assert.equal(existsSync(join(directory, 'web-tasks.sqlite')), false);
+  } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); rmSync(directory, { recursive: true, force: true }); }
+});
 
 test('finite Dashboard stops pending execution, shows UNKNOWN with confirmed cleanup and hides Resume', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
