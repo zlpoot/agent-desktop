@@ -27,6 +27,11 @@ class Monitor:
         hook = None
         try:
             api.assert_default()
+            # OpenInputDesktop reports the user's desktop, not this thread's.
+            # A restricted launcher can leave us on a separate inherited desktop.
+            # Reject that context; never move the monitor thread or widen access.
+            if api.name(api.u.GetThreadDesktop(api.k.GetCurrentThreadId())).lower() != "default":
+                raise RuntimeError("monitor_thread_not_default")
             hook = api.checked(api.u.SetWinEventHook(3, 3, None, event, 0, 0, 0), "foreground_hook")
             first_foreground = api.u.GetForegroundWindow()
             first_cursor = previous_cursor = None

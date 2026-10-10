@@ -24,6 +24,7 @@
 - Hidden Chrome / Local Workspace：启动装配读取 AGENT_DESKTOP_ENVIRONMENT_CONFIG；只接受现有 desktop-environment-config.ts schema，hiddenChrome 与 localWorkspace 不能同时配置。可核对 config/desktop-environments.hidden-chrome.example.json 和 docs/live-01-hidden-chrome.md；使用已安装 Chrome 的绝对路径，不能把 Browser Chromium 身份与之混同。不在页面安装应用，也不添加 creationAuthorization。
 - Hyper-V：现有入口需要 AGENT_DESKTOP_VM_ID、AGENT_DESKTOP_TOKEN，Worker 地址由 AGENT_DESKTOP_WORKER_URL 或原有记录提供。不要因为旧 Guest 在线记录就选择其它环境或推断输入权。本阶段不启动 VM；真实配置与动作须 Owner 另行授权。
 - Physical：physicalInputPolicy 仅表达许可，不补充能力证据；目前通用任务继续禁用。
+- Local Workspace 原生监测需要普通交互终端的 Default 线程桌面；受限启动器的隔离桌面不能据输入桌面为 Default 就宣称可监测。D2 的只读对照与本机启动修正见 [D2 启动上下文](v02-d2-local-workspace.md)，不通过提升权限、切换桌面或关闭监测绕过预检。
 - 读取失败可用“重新读取准备状态”或“刷新环境目录”重试；不把错误解释成“未配置”。场景不可用/不支持/未证保留各自原因。重读后旧选择不自动替换，须核对后明确选择。
 
 ## Windows Owner 手顺（6 步）

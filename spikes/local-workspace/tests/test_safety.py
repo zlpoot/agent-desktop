@@ -14,9 +14,68 @@ sys.path.insert(0, str(HERE))
 from host import Controller, make_server
 from policy import Blocked, png_rgb, validate_command, validate_target
 from storage import write_json
+from monitor import Monitor
 
 
 class SafetyTests(unittest.TestCase):
+    def monitor_api(self, desktop="Default", cursor_ok=True):
+        api = Mock()
+        api.assert_default = Mock()
+        api.name.return_value = desktop
+        api.u.SetWinEventHook.return_value = 1
+        api.u.PeekMessageW.return_value = 0
+        api.u.GetCursorPos.return_value = cursor_ok
+        def checked(value, label):
+            if not value:
+                raise OSError(5, label)
+            return value
+        api.checked.side_effect = checked
+        return api
+
+    def test_monitor_rejects_inherited_nondefault_thread_before_hook_or_cursor(self):
+        api = self.monitor_api(desktop="isolated-launcher-desktop")
+        # The active input desktop check succeeds, but is insufficient.
+        with patch("monitor.Api", return_value=api):
+            observer = Monitor()
+            try:
+                with self.assertRaisesRegex(RuntimeError, "default_monitor_unavailable"):
+                    observer.start()
+            finally:
+                result = observer.close()
+        self.assertEqual(result["error"], "monitor_thread_not_default")
+        self.assertEqual(result["samples"], 0)
+        api.assert_default.assert_called_once()
+        api.u.SetWinEventHook.assert_not_called()
+        api.u.GetCursorPos.assert_not_called()
+        api.u.SetThreadDesktop.assert_not_called()
+
+    def test_monitor_default_thread_still_requires_cursor_access_and_unhooks(self):
+        api = self.monitor_api(cursor_ok=False)
+        with patch("monitor.Api", return_value=api):
+            observer = Monitor()
+            try:
+                with self.assertRaisesRegex(RuntimeError, "default_monitor_unavailable"):
+                    observer.start()
+            finally:
+                result = observer.close()
+        self.assertEqual(result["error"], "[Errno 5] read_cursor")
+        self.assertEqual(result["samples"], 0)
+        api.u.UnhookWinEvent.assert_called_once_with(1)
+
+    def test_monitor_default_thread_requires_successful_sample_before_ready(self):
+        api = self.monitor_api()
+        with patch("monitor.Api", return_value=api):
+            observer = Monitor()
+            try:
+                observer.start()
+                self.assertTrue(observer.ready.is_set())
+            finally:
+                result = observer.close()
+        self.assertNotIn("error", result)
+        self.assertGreaterEqual(result["samples"], 1)
+        self.assertEqual(result["input_desktop"], "Default")
+        api.u.UnhookWinEvent.assert_called_once_with(1)
+
     def test_target_rejects_wrong_pid_desktop_session_and_unowned_process(self):
         expected = {"pid": 7, "desktop": "AgentD0_test", "session": 1}
         good = {**expected, "alive": True, "in_job": True}
