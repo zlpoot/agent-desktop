@@ -128,7 +128,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       name: "infrastructure",
       apply(ctx) {
         const extensionRegistry = options.extensionRegistry ?? createDefaultExtensionRegistry({ rootDir });
-        const modelProvider = options.model ?? configuredModelProvider();
+        const modelProvider = options.model ?? configuredModelProvider(rootDir);
         const traceStore = options.traceStore ?? ((path: string) => new SqliteTrace(path));
         const workflowStore = options.workflowStore ?? ((path: string) => new WorkflowStore(path));
         const workerClientFactory = options.workerClientFactory ?? GuestDesktopRuntime.connect;

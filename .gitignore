@@ -13,6 +13,7 @@ __pycache__/
 apps.local.json
 config/agent-desktop-apps.json
 config/task-budget.json
+config/model.local.json
 bin/
 obj/
 .validation/

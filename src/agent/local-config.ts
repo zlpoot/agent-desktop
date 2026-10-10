@@ -7,6 +7,7 @@ import { HybridVerifier } from "../verifier/hybrid-verifier.js";
 import { readPrompt } from "./prompt-store.js";
 import type { FacetRegistry } from "../contracts/facets.js";
 import type { ContributorRegistry } from "../contracts/verifier-contributor.js";
+import { resolveModelSettings } from './model-settings.js';
 
 /** Network capabilities require an explicit HTTP(S) endpoint before execution. */
 export function requiredEndpoint(name: 'COMPUTER_USE_BASE_URL' | 'JEV_BASE_URL'): string {
@@ -52,17 +53,15 @@ function requiredKey(): string {
 }
 
 export function configuredModel(options: Pick<ChatCompletionsOptions,
-  "allowedHosts" | "taskInstructions" | "environment" | "visualMode"> = {}): { model: ChatCompletionsModel; modelName: string } {
-  const apiKey = requiredKey();
-  const modelName = process.env.COMPUTER_USE_MODEL?.trim();
-  if (!modelName) throw new Error('Set COMPUTER_USE_MODEL before model execution');
-  if (modelName === "jev") {
-    throw new Error("jev 使用 /v1/systemone，请使用 configuredJev 和项目生成的候选动作");
-  }
-  return { modelName, model: new ChatCompletionsModel({
-    baseUrl: requiredEndpoint('COMPUTER_USE_BASE_URL'),
-    apiKey, model: modelName, ...options,
-  }) };
+  "allowedHosts" | "taskInstructions" | "environment" | "visualMode"> = {}, rootDir = process.cwd()): { model: ChatCompletionsModel; modelName: string } {
+  return modelFromSettings(resolveModelSettings(rootDir), options);
+}
+
+function modelFromSettings(settings: ReturnType<typeof resolveModelSettings>, options: Pick<ChatCompletionsOptions,
+  'allowedHosts' | 'taskInstructions' | 'environment' | 'visualMode'> = {}) {
+  if (settings.reasons.length) throw new Error(settings.reasons.join('；'));
+  const { endpoint: baseUrl, model: modelName, apiKey } = settings.effective;
+  return { modelName, model: new ChatCompletionsModel({ baseUrl, model: modelName, apiKey, ...options }) };
 }
 
 export function configuredJev(options: Pick<JevChoiceOptions,
@@ -72,11 +71,17 @@ export function configuredJev(options: Pick<JevChoiceOptions,
 }
 
 /** ModelProvider 适配器：把环境变量/本地配置封装为契约接口，供装配层注入核心。 */
-export function configuredModelProvider(): ModelProvider {
-  return {
-    createModel(options) {
-      const { model } = configuredModel(options);
-      return model;
-    },
-  };
+class LocalModelProvider implements ModelProvider {
+  constructor(private readonly rootDir: string, private readonly snapshot?: ReturnType<typeof resolveModelSettings>) {}
+  createModel(options?: Parameters<ModelProvider['createModel']>[0]) {
+    return modelFromSettings(this.snapshot ?? resolveModelSettings(this.rootDir), options).model;
+  }
+  snapshotForRun(): ModelProvider { return new LocalModelProvider(this.rootDir, resolveModelSettings(this.rootDir)); }
+}
+export function configuredModelProvider(rootDir = process.cwd()): ModelProvider {
+  return new LocalModelProvider(rootDir);
+}
+/** Freeze only the local provider; injected Fake/custom providers retain their contract. */
+export function snapshotModelProvider(provider: ModelProvider): ModelProvider {
+  return provider instanceof LocalModelProvider ? provider.snapshotForRun() : provider;
 }

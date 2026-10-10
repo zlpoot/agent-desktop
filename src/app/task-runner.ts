@@ -11,7 +11,7 @@ import type { EnvironmentAppServices, EnvironmentAppBinding } from '../contracts
 import { DatabaseSync } from "node:sqlite";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import type { ModelAdapter } from "../agent/model-adapter.js";
-import { configuredModelProvider } from "../agent/local-config.js";
+import { configuredModelProvider, snapshotModelProvider } from "../agent/local-config.js";
 import { StageWorkflowModel } from "../agent/stage-workflow-model.js";
 import { runTaskAgent } from "../agent/task-agent.js";
 import { createAgentLoop } from "../graph/graph.js";
@@ -156,7 +156,7 @@ export class DesktopTaskController implements TaskController {
   constructor(private readonly rootDir: string, private readonly options: DesktopTaskControllerOptions = {}) {
     this.tracePath = resolve(rootDir, "web-tasks.sqlite");
     this.registry = options.registry ?? new ExtensionRegistry();
-    this.modelProvider = options.modelProvider ?? configuredModelProvider();
+    this.modelProvider = options.modelProvider ?? configuredModelProvider(rootDir);
     this.traceStore = options.traceStore ?? ((path) => new SqliteTrace(path));
     this.workflowStore = options.workflowStore ?? ((path) => new WorkflowStore(path));
     if (options.environmentAppManagement === true && options.environmentApps) {
@@ -430,7 +430,8 @@ export class DesktopTaskController implements TaskController {
         if (!appRuntimeBinding) guest = await entry.executor.connectRuntime(entry.session, artifactDir);
         desktopApps = await entry.executor.appCatalog?.() ?? [];
       }
-      const model = this.modelProvider.createModel(explicit ? {
+      const modelProvider = snapshotModelProvider(this.modelProvider);
+      const model = modelProvider.createModel(explicit ? {
         environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
         visualMode: explicit.workflow.environment === 'windows',
       } : undefined);
@@ -612,7 +613,7 @@ export class DesktopTaskController implements TaskController {
           requireCapability(resolution);
         }
       }
-      const exploreModel = this.modelProvider.createModel({
+      const exploreModel = modelProvider.createModel({
         environment: environment === "browser" ? "browser" : "desktop",
         visualMode: environment === "windows" });
       if (environment === "windows" && !(guest && explicit &&

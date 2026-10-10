@@ -52,7 +52,7 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
       } } });
       if (data) return route.fulfill({ json: data });
       const file = path === '/' ? 'index.html' : path.slice(1);
-      if (!['index.html', 'app.js', 'app-management.js', 'environment-catalog.js', 'workbench.js', 'task-experience.js', 'workflow-library.js', 'runtime-plugins.js', 'style.css', 'workbench.css', 'app-shell.js', 'app-shell.css'].includes(file)) return route.fulfill({ status: 404 });
+      if (!['index.html', 'app.js', 'app-management.js', 'environment-catalog.js', 'workbench.js', 'task-experience.js', 'workflow-library.js', 'runtime-plugins.js', 'style.css', 'workbench.css', 'app-shell.js', 'app-shell.css', 'model-settings.js'].includes(file)) return route.fulfill({ status: 404 });
       await route.fulfill({ body: readFileSync(resolve('src/app/public', file)),
         contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });
     });

@@ -141,6 +141,7 @@ window.Workbench = (() => {
   const configNote = create('section', 'settings-config-note');
   configNote.append(create('h2', '', '任务运行配置'), create('p', '', '全局预算是新任务的默认值；工作台可为单次任务覆盖。执行位置在提交时选择。'));
   settings.append(configNote);
+  const modelPanel = window.createModelSettings(settings);
   const budgetPanel = create('section', 'settings-config-note');
   budgetPanel.append(create('h2', '', '全局模型预算'), create('p', '', '来源：本机预算 API；读取确认后可保存。分别限制 DeepSeek 与 JEV，已提交任务使用提交时的预算快照；不配置模型连接或开放额外能力。'));
   const budgetFields = {};
@@ -203,7 +204,7 @@ window.Workbench = (() => {
     finally { budgetSaving = false; saveBudget.disabled = !budgetLoaded; readBudget.disabled = false; for (const input of Object.values(budgetFields)) input.disabled = false; }
   };
   const plannedSettings = create('section', 'planned-settings settings-config-note'); plannedSettings.append(create('h2', '', '待接入设置 · 未保存'));
-  for (const [name, reason] of [['模型与 Provider', '模型连接与凭证编辑 API 未接通；任务中的模型名称不是本页配置证明。'], ['默认模式与环境', '工作台仍须明确选择；没有默认偏好保存接口。'], ['权限与文件隐私', '权限和文件策略由现有后台配置；本页不能修改或扩大许可。'], ['外观', '当前使用现有深色样式；主题写入接口未实现。']]) {
+  for (const [name, reason] of [['默认模式与环境', '工作台仍须明确选择；没有默认偏好保存接口。'], ['权限与文件隐私', '权限和文件策略由现有后台配置；本页不能修改或扩大许可。'], ['外观', '当前使用现有深色样式；主题写入接口未实现。']]) {
     const card = create('section', 'planned-setting'); const disabled = create('button', '', `保存${name}`); disabled.type = 'button'; disabled.disabled = true; disabled.title = reason;
     card.append(create('h3', '', name), create('p', '', `待后端接入 · ${reason}`), disabled); plannedSettings.append(card);
   }
@@ -276,14 +277,16 @@ window.Workbench = (() => {
     $('prompt-editor').hidden = next !== 'settings';
     configNote.hidden = next !== 'settings';
     budgetPanel.hidden = next !== 'settings';
+    modelPanel.hidden = next !== 'settings';
+    if (next !== 'settings') modelPanel.querySelector('input[type=password]').value = '';
     plannedSettings.hidden = next !== 'settings';
-    settingsIntro.textContent = next === 'plugins' ? '来源：当前 Host 装配；此页只读取插件、依赖与扩展状态。' : '本机可保存：默认预算与提示词。待接入项不生效、不伪保存；已有任务保留其预算快照。';
+    settingsIntro.textContent = next === 'plugins' ? '来源：当前 Host 装配；此页只读取插件、依赖与扩展状态。' : '本机可保存：普通模型配置、默认预算与提示词。模型生效来源单独展示；已有任务保留本次模型与预算。';
     promptTab.setAttribute('aria-current', next === 'settings' ? 'page' : 'false');
     pluginTab.setAttribute('aria-current', next === 'plugins' ? 'page' : 'false');
     historyList.hidden = next !== 'history';
     workspace.classList.toggle('history-view', next === 'history');
     shell.render(next);
-    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '环境与应用 / 环境', workflows: '工作流 / 版本与参数', apps: '环境与应用 / 已接入应用', plugins: '设置 / 插件与扩展', settings: '设置 / 预算与提示词' }[next];
+    title.textContent = { live: '工作台', history: '任务 / 记录与详情', desktop: '环境与应用 / 环境', workflows: '工作流 / 版本与参数', apps: '环境与应用 / 已接入应用', plugins: '设置 / 插件与扩展', settings: '设置 / 模型、预算与提示词' }[next];
     if (next === 'plugins') void runtimePlugins.load();
     if (next === 'workflows') void workflowLibrary.load();
     if (next === 'settings') $('prompt-editor').open = true;
