@@ -52,7 +52,7 @@ export interface TaskController {
   submitScenario?(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, budget?: BudgetOverride): string;
   desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
   submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
-  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget }): string;
+  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser' }): string;
   resume(taskId: string, response: { approved?: boolean; answer?: string }): void;
   pause(taskId: string): void;
   continue(taskId: string): void;
@@ -239,12 +239,14 @@ export class DesktopTaskController implements TaskController {
     } finally { db.close(); trace.close(); }
   }
 
-  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget } = {}): string {
+  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser' } = {}): string {
     this.assertOpen();
+    if (options.destination !== undefined && options.destination !== 'browser') throw new Error('invalid-task-destination');
+    if (options.destination === 'browser' && options.desktopTarget !== undefined) throw new Error('desktop-target-destination-conflict');
     const budget = parseBudgetOverride(options.budget);
     const target = options.desktopTarget !== undefined ? this.requireDesktopSessions().assertTarget(options.desktopTarget) : undefined;
     const route = routeTask(goal, { ...options, desktopTarget: target }, this.registry);
-    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget, target);
+    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget, target, options.destination);
     // Legacy specialized desktop executors cannot bypass explicit Session binding.
     // Binding them to new Provider routes is outside P5-A.
     if (route.request.environment === 'windows') throw new Error('desktop-target-required');
@@ -434,7 +436,7 @@ export class DesktopTaskController implements TaskController {
       const model = modelProvider.createModel(explicit ? {
         environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
         visualMode: explicit.workflow.environment === 'windows',
-      } : undefined);
+      } : route.environment === 'browser' ? { environment: 'browser', visualMode: false } : undefined);
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
       let plan = queued.plan;
@@ -483,6 +485,7 @@ export class DesktopTaskController implements TaskController {
             durationMs: performance.now() - started, actor: "model", operator: "任务规划",
             modelName: model.name, ...planned.usage });
           ({ environment, windowHandle, plan, completionCriteria, verificationContract } = planned.task);
+          if (route.environment === 'browser' && environment !== 'browser') throw new Error('browser-plan-environment-mismatch');
           if (managedApp) {
             if (environment !== 'windows' || planned.task.appId || windowHandle !== undefined && windowHandle !== discovered[0].handle) {
               throw new Error('app-onboarding-planned-target-mismatch');

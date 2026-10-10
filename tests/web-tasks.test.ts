@@ -23,9 +23,10 @@ test('任务提交明确执行位置，保留要求并拒绝冲突', async () =>
   const dir = mkdtempSync(join(tmpdir(), 'task-destination-'));
   const goals: string[] = [];
   const targets: unknown[] = [];
+  const destinations: unknown[] = [];
   const target = { providerId: 'fixture', environmentId: 'env' };
   const controller: TaskController = {
-    submit(goal, options) { goals.push(goal); targets.push(options?.desktopTarget); return 'test'; }, resume() {}, pause() {}, continue() {},
+    submit(goal, options) { goals.push(goal); targets.push(options?.desktopTarget); destinations.push(options?.destination); return 'test'; }, resume() {}, pause() {}, continue() {},
   };
   const server = createDashboardServer(dir, controller);
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
@@ -49,6 +50,7 @@ test('任务提交明确执行位置，保留要求并拒绝冲突', async () =>
     assert.equal((await post({ goal: 'VM: 普通文本', destination: 'browser' })).status, 202);
     assert.equal(goals[3], 'VM: 普通文本');
     assert.deepEqual(targets.slice(2), [target, undefined]);
+    assert.deepEqual(destinations, [undefined, 'browser', undefined, 'browser']);
     for (const body of [{ goal: '测试', destination: 'desktop' }, { goal: '测试', destination: 'browser', desktopTarget: target },
       { goal: '测试', destination: ['desktop'] }]) assert.equal((await post(body)).status, 400);
     assert.equal((await post({ goal: '字'.repeat(1500), destination: 'guest', desktopTarget: target })).status, 202);
@@ -126,6 +128,7 @@ test("选曲只选择准确单曲，避免把翻唱当成指定歌手原曲", as
 
 test("本机页面提交任务后显示结果，拒绝跨站和非 JSON 写入", async () => {
   const dir = mkdtempSync(join(tmpdir(), "computer-use-web-task-"));
+  const { configureSyntheticModel } = await import('./fixtures/model-settings.js'); configureSyntheticModel(dir);
   const tracePath = join(dir, "web-tasks.sqlite");
   let submittedAdmin: boolean | undefined;
   const controller: TaskController = {

@@ -9,10 +9,15 @@ export type TaskRoute =
  * 主路由不再包含业务匹配：扩展通过注册表提供专用能力；
  * 没有命中时始终进入通用规划、探索或 Workflow 回放。
  */
-export function routeTask(goal: string, options: { admin?: boolean; desktopTarget?: import("../contracts/task-desktop.js").TaskDesktopTarget } = {},
+export function routeTask(goal: string, options: { admin?: boolean; desktopTarget?: import("../contracts/task-desktop.js").TaskDesktopTarget; destination?: 'browser' } = {},
   registry: ExtensionRegistry): TaskRoute {
   if (typeof goal !== "string" || !goal.trim() || goal.length > 4000) {
     throw new Error("任务目标为空或过长");
+  }
+  if (options.destination === 'browser') {
+    if (options.desktopTarget) throw new Error('desktop-target-destination-conflict');
+    if (options.admin) throw new Error('通用任务暂不支持管理员权限提升');
+    return { kind: 'generic', goal };
   }
   if (options.desktopTarget) {
     if (options.admin) throw new Error("显式桌面任务暂不支持管理员权限提升");

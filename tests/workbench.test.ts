@@ -38,6 +38,10 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
     });
     await page.route('http://localhost:48999/**', async route => {
       const path = new URL(route.request().url()).pathname;
+      if (path === '/api/settings/model') return route.fulfill({ json: { appliesTo: 'next-task-start', effective: {
+        endpoint: 'https://synthetic.invalid/v1', model: 'synthetic-model', keyConfigured: true, ready: true, reasons: [],
+        sources: { endpoint: 'private-file', model: 'private-file', apiKey: 'private-file' },
+      } } });
       if (path === '/api/desktop/control' && controlUnavailable) return route.fulfill({ status: 503 });
       const data = path === '/api/runs' ? { runs: [run('old', 'done'), run('active', 'paused')] }
         : path.startsWith('/api/runs/') ? run(path.split('/').at(-1)!, path.endsWith('active') ? 'paused' : 'done')

@@ -4,6 +4,7 @@
   "app-management-ui.test.ts",
   "task-app-onboarding-ui.test.ts",
   "desktop-selection-ui.test.ts",
+  "environment-entry-ui.test.ts",
   "browser-form-rebind.test.ts",
   "browser-resume.test.ts",
   "browser.test.ts",

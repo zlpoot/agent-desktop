@@ -157,6 +157,7 @@ test('达到任务内调用上限后在执行前安全暂停，不发送待执�
 
 test('网页设置全局预算并在单次任务提交中覆盖，空白字段继承全局值', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'task-budget-ui-'));
+  const { configureSyntheticModel } = await import('./fixtures/model-settings.js'); configureSyntheticModel(dir);
   let submitted: unknown;
   const controller: TaskController = { submit(_goal, options) { submitted = options?.budget; return 'budget-ui-task'; },
     resume() {}, pause() {}, continue() {} };

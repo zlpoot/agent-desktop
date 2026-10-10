@@ -74,7 +74,7 @@ window.createModelSettings = function (container) {
     } catch {
       loaded = false; message.dataset.state = 'error';
       message.textContent = '模型配置保存未确认；Key 输入已清空，请先重新读取核对，不自动重试。';
-    } finally { delete body.apiKey; busy = false; controls(); }
+    } finally { delete body.apiKey; busy = false; controls(); document.dispatchEvent(new Event('workbench:model-updated')); }
   };
   reload.onclick = load; controls(); void load();
   return panel;

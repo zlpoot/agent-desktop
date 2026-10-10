@@ -11,6 +11,7 @@ import { WorkflowStore } from '../src/workflows/store.js';
 import { createFixtureDashboard } from '../src/composition/fixture-dashboard.js';
 import { createRootAssembly } from '../src/composition/root.js';
 import { ScenarioWorkspace } from './fixtures/local-workspace-scenario.js';
+import { configureSyntheticModel } from './fixtures/model-settings.js';
 
 for (const width of [390, 601, 668, 700, 900, 1366, 1440]) {
   test(`fixed scenario button reaches submit, HTTP and persisted Fake Task at ${width}px`, { timeout: 60000 }, async () => {
@@ -90,6 +91,7 @@ for (const width of [390, 601, 668, 700, 900, 1366, 1440]) {
 test('accepted button click with an invalid required goal does not deliver submit or POST', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'task-html-validation-'));
+  configureSyntheticModel(directory);
   const server = createDashboardServer(directory, {
     submit() { assert.fail('invalid form must not submit'); }, resume() {}, pause() {}, continue() {},
   });
@@ -268,6 +270,7 @@ test('finite Task UI requires explicit scene, persists exact selection and refus
 test('Task UI submits exact environment identity, preserves selection, and never routes by VM text or global control', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'desktop-selection-ui-'));
+  configureSyntheticModel(directory);
   const submitted: { goal: string; target: unknown }[] = [];
   const environments = [
     { providerId: 'synthetic', environmentId: 'desktop-one', kind: 'physical' as const, executable: true },

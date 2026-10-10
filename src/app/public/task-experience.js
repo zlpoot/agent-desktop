@@ -7,9 +7,12 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
     node.value = value; node.textContent = label; node.disabled = disabled;
     if (!node.parentElement) select.append(node);
   };
-  if (includeBrowser) { if (explicitSelection) option('', '请选择执行环境'); option('browser', '浏览器'); }
+  if (includeBrowser) { if (explicitSelection) option('', '请选择执行环境'); option('browser', 'Browser · 通用任务（受控 Chromium）'); }
   else option('', '请选择执行桌面');
-  const ready = fetch('/api/desktop/environments').then(async response => {
+  let request = 0;
+  function load() {
+    const current = ++request; loaded = false; error = ''; changed();
+    return fetch('/api/desktop/environments').then(async response => {
     const data = await response.json();
     if (!response.ok || !Array.isArray(data.environments)) throw new Error('无法读取桌面选择');
     const keys = new Set();
@@ -29,6 +32,9 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
         }
       }
     }
+    if (current !== request) return;
+    const previous = select.value;
+    for (const node of [...select.options]) if (!['', 'browser'].includes(node.value)) node.remove();
     environments = data.environments; loaded = true;
     fixtureOnly = data.mode === 'synthetic-fixture';
     if (fixtureOnly) {
@@ -39,15 +45,32 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
     }
     const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
     for (const item of environments) option(key(item), `${item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable && !(allowScenarios && item.scenarios?.length));
-  }).catch(failure => { error = failure.message; option('unavailable', '桌面列表读取失败，请刷新', true); }).finally(changed);
+    if (previous && previous !== 'browser') {
+      if (![...select.options].some(node => node.value === previous)) option(previous, '此前选择的桌面不可用，请重新选择', true);
+      select.value = previous;
+    }
+  }).catch(failure => { if (current === request) { environments = []; error = failure.message; option('unavailable', '桌面列表读取失败，请刷新', true); } }).finally(() => { if (current === request) changed(); });
+  }
+  // Start after returning the selection object so callbacks can safely use it.
+  const ready = Promise.resolve().then(load);
   return {
     ready,
+    reload: load,
     restore(value) {
       if (![...select.options].some(item => item.value === value)) option(value, '此前选择的桌面不可用，请重新选择', true);
       select.value = value; changed();
     },
     selected: () => environments.find(item => key(item) === select.value),
     synthetic: () => fixtureOnly,
+    description() {
+      if (!loaded) return error ? '环境目录读取失败；不能判断桌面是否已配置。可重新读取。Browser 单独核对模型配置。' : '正在读取环境目录。';
+      const missing = [];
+      if (!environments.some(item => item.kind === 'physical')) missing.push('Physical 未发现；平台或配置未提供，不能判断为离线');
+      if (!environments.some(item => item.kind === 'virtual-machine')) missing.push('VM 未发现；请核对已配置的 Hyper-V Guest，不自动启动');
+      if (!environments.some(item => item.kind === 'local-workspace')) missing.push('Local Workspace / Hidden Chrome 未发现；请核对启动配置');
+      const item = this.selected();
+      return [item && !item.executable ? `普通任务未开放：${item.blockedReason || '执行器未提供'}。固定场景分别按自身状态选择。` : '', ...missing].filter(Boolean).join('；');
+    },
     problem(scenarioId) {
       if (includeBrowser && select.value === 'browser' && !fixtureOnly) return '';
       if (!loaded) return error || '正在读取执行桌面';
@@ -55,7 +78,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       if (!item) return '请选择可用的执行环境';
       if (allowScenarios && scenarioId) {
         const scene = item.scenarios?.find(scene => scene.id === scenarioId);
-        return scene?.availability === 'supported' ? '' : '此前选择的场景不可用，请重新选择。';
+        return scene?.availability === 'supported' ? '' : `此前选择的场景不可用，请重新选择。${scene ? `${scene.availability}：${scene.reason || '未声明支持'}` : '场景已不在目录中'}`;
       }
       if (allowScenarios && !item.executable && item.scenarios?.length) return '请选择一个已支持的固定场景；不会自动选择。';
       if (!item.executable) return item.kind === 'local-workspace'
@@ -116,6 +139,12 @@ window.createTaskExperience = function () {
   app.title = '任务中的应用发现与确认复用后台接入流程；这里不生成绑定或启动应用。';
   const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
   const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
+  const modelStatus = el('p', '正在读取模型配置…'); modelStatus.id = 'task-model-status';
+  const directoryStatus = el('p', ''); directoryStatus.id = 'task-environment-status';
+  const settingsLink = el('a', '到设置配置模型'); settingsLink.href = '#/settings';
+  const helpLink = el('a', '执行环境配置与操作说明'); helpLink.href = '/environment-help'; helpLink.target = '_blank'; helpLink.rel = 'noopener';
+  const refreshEntry = el('button', '重新读取准备状态'); refreshEntry.type = 'button';
+  readiness.append(modelStatus, directoryStatus, settingsLink, document.createTextNode(' · '), helpLink, refreshEntry);
   form.before(readiness);
   $('task-goal').maxLength = 2000;
   const advanced = el('details', '', 'task-options'); advanced.append(el('summary', '完成条件、操作限制与单次预算（可选）'));
@@ -245,6 +274,7 @@ window.createTaskExperience = function () {
   let evidenceUrl = '';
   evidenceImage.onerror = () => { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '截图文件不可读取，请查看执行记录中的文字证据。'; };
   let busy = false, currentRun = null, budgetReady = false, globalBudget = null;
+  let modelProblem = '正在读取模型配置。', modelRequest = 0;
   const storageKey = 'agent-desktop.task-draft.v2';
   let draftDestination, draftScenario, renderedDestination;
   try {
@@ -264,6 +294,7 @@ window.createTaskExperience = function () {
     const catalog = item?.scenarios || [];
     const renderKey = JSON.stringify([target.value, catalog]);
     if (renderedDestination !== renderKey) {
+      const retainedScenario = renderedDestination && JSON.parse(renderedDestination)[0] === target.value ? scenario.value : '';
       renderedDestination = renderKey;
       scenario.replaceChildren();
       const placeholder = el('option', item?.executable ? '通用任务' : '请选择固定场景'); placeholder.value = ''; scenario.append(placeholder);
@@ -272,11 +303,12 @@ window.createTaskExperience = function () {
         const choice = el('option', `${scene.label} · ${labels[scene.availability]}${scene.reason ? ` · ${scene.reason}` : ''}`);
         choice.value = scene.id; choice.disabled = scene.availability !== 'supported'; scenario.append(choice);
       }
-      if (target.value === draftDestination && draftScenario && item) {
-        if (![...scenario.options].some(choice => choice.value === draftScenario)) {
-          const missing = el('option', '此前选择的场景不可用，请重新选择'); missing.value = draftScenario; missing.disabled = true; scenario.append(missing);
+      const requestedScenario = target.value === draftDestination && draftScenario ? draftScenario : retainedScenario;
+      if (requestedScenario && item) {
+        if (![...scenario.options].some(choice => choice.value === requestedScenario)) {
+          const missing = el('option', '此前选择的场景不可用，请重新选择'); missing.value = requestedScenario; missing.disabled = true; scenario.append(missing);
         }
-        scenario.value = draftScenario; draftScenario = undefined;
+        scenario.value = requestedScenario; draftScenario = undefined;
       }
     }
     scenarioLabel.hidden = !catalog.length && !scenario.value;
@@ -287,12 +319,16 @@ window.createTaskExperience = function () {
     for (const radio of radios) {radio.checked = radio.value === modeField.value;radio.disabled = finite;}
     modeDescription.textContent = finite ? '当前明确选择了固定规则计划；四种模式不参与该计划执行。' : mode[2];
     const problem = selection.problem(scenario.value) || modeProblem;
-    const blocked = !!problem;
+    const admissionProblem = problem || (!finite && target.value === 'browser' ? modelProblem : '');
+    const blocked = !!admissionProblem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
-    readiness.dataset.state = problem || !budgetReady ? 'blocked' : 'ready';
-    heading.textContent = problem ? '尚不可提交' : !budgetReady ? '任务预算服务未就绪' : finite ? '可提交固定规则计划 · 后台重新预检' : '可提交通用任务 · 后台检查模型与环境';
+    refreshEntry.disabled = busy;
+    directoryStatus.textContent = selection.description();
+    modelStatus.hidden = finite || target.value !== 'browser'; settingsLink.hidden = modelStatus.hidden;
+    readiness.dataset.state = admissionProblem || !budgetReady ? 'blocked' : 'ready';
+    heading.textContent = admissionProblem ? '尚不可提交' : !budgetReady ? '任务预算服务未就绪' : finite ? '可提交固定规则计划 · 后台重新预检' : '可提交通用任务 · 后台检查模型与环境';
     hint.textContent = (selection.synthetic() ? '合成体验：无真实桌面输入、应用启动或模型调用；NOT HUMAN VERIFIED。' : '') +
-      (problem || (!budgetReady ? '任务预算服务暂不可用。' : finite ? '仅执行所选固定场景，自由任务文本、完成条件与管理员开关不参与执行。支持状态不代表当前窗口已就绪；执行时重新检查目标、能力与输入租约。' : target.value === 'browser' ? '在浏览器中执行任务。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。'));
+      (admissionProblem || (!budgetReady ? '任务预算服务暂不可用。' : finite ? '仅执行所选固定场景，自由任务文本、完成条件与管理员开关不参与执行。支持状态不代表当前窗口已就绪；执行时重新检查目标、能力与输入租约。Hidden Chrome 只读场景不创建 Key；创建候选须独立一次性授权，已消费授权不可复用。' : target.value === 'browser' ? '通用 Browser Task 使用受控 Chromium，与 Hidden Workspace Chrome 固定场景分别执行。配置完整不代表模型连通或浏览器启动通过；执行时后台检查。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。'));
     const label = target.value ? target.selectedOptions[0]?.textContent || '' : '';
     const budgetText = globalBudget ? [['deepseek', 'DeepSeek'], ['jev', 'JEV']].map(([key, name]) =>
       `${name} ${fields[key + 'Calls'].value || globalBudget[key].maxCalls} 次 / ${fields[key + 'Tokens'].value || globalBudget[key].maxTokens} Token`).join('；') : '预算服务未就绪';
@@ -306,6 +342,31 @@ window.createTaskExperience = function () {
     .then(result => { globalBudget = result.budget; budgetReady = !!globalBudget; update(); }).catch(() => { budgetReady = false; update(); });
   }
   void loadBudget();
+  async function loadModel() {
+    const current = ++modelRequest; modelProblem = '正在读取模型配置。';
+    modelStatus.textContent = modelProblem; update();
+    try {
+      const response = await fetch('/api/settings/model'); const data = await response.json();
+      if (current !== modelRequest) return;
+      const state = data.effective;
+      const sources = { environment: '环境变量', 'private-file': '本机私有配置', 'env-local': '.env.local', none: '未配置' };
+      if (!response.ok || !state || typeof state.endpoint !== 'string' || typeof state.model !== 'string' ||
+          typeof state.keyConfigured !== 'boolean' || typeof state.ready !== 'boolean' || !Array.isArray(state.reasons) ||
+          !state.sources || !['endpoint', 'model', 'apiKey'].every(key => Object.hasOwn(sources, state.sources[key])) ||
+          data.appliesTo !== 'next-task-start') throw Error('invalid-model-status');
+      modelProblem = state.ready ? '' : `模型配置不完整：${state.reasons.join('；')}。请到设置保存，再重新读取。`;
+      modelStatus.textContent = `API 地址 ${state.endpoint || '未配置'}（${sources[state.sources.endpoint]}）；模型 ${state.model || '未配置'}（${sources[state.sources.model]}）；Key ${state.keyConfigured ? '已配置' : '未配置'}（${sources[state.sources.apiKey]}）。` +
+        (Object.values(state.sources).includes('environment') ? ' 环境变量正在覆盖对应本机保存值。' : '') +
+        (state.ready ? ' 配置完整；模型连通与浏览器启动尚未验证。新任务开始执行时读取。' : ' 配置不完整。');
+    } catch {
+      if (current !== modelRequest) return;
+      modelProblem = '模型配置读取失败 / UNKNOWN；请重新读取或到设置核对。'; modelStatus.textContent = modelProblem;
+    }
+    if (current === modelRequest) { clearAdmissionMessage(); update(); }
+  }
+  void loadModel();
+  document.addEventListener('workbench:model-updated', loadModel);
+  refreshEntry.onclick = () => { if (!busy) { void selection.reload(); void loadModel(); void loadBudget(); } };
   document.addEventListener('workbench:budget-updated', loadBudget);
   form.addEventListener('input', () => { clearAdmissionMessage(); save(); update(); });
   target.addEventListener('change', () => { clearAdmissionMessage(); draftScenario = undefined; update(); save(); });
@@ -315,6 +376,7 @@ window.createTaskExperience = function () {
     fields.goal.value = currentRun.goal;
     draftDestination = currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : 'browser';
     draftScenario = currentRun.desktopScenario; renderedDestination = undefined;
+    void selection.reload(); void loadModel();
     selection.restore(currentRun.desktopTarget ? JSON.stringify([currentRun.desktopTarget.providerId, currentRun.desktopTarget.environmentId]) : currentRun.desktopTargetRequired ? 'legacy-desktop-target-required' : 'browser');
     fields.criteria.value = ''; fields.constraints.value = ''; save();
     window.Workbench.navigate('live'); window.Workbench.editDraft(); update(); fields.goal.focus();
