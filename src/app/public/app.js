@@ -2,10 +2,11 @@ const byId = (id) => document.getElementById(id);
 const workbench = window.Workbench;
 const taskExperience = workbench && window.createTaskExperience();
 let selectionRequest = 0;
+let runListReadFailed = false;
 const taskLoadFeedback = node('section', 'task-load-feedback panel'); taskLoadFeedback.hidden = true;
 const taskLoadMessage = node('p', 'operation-feedback'); taskLoadMessage.setAttribute('role', 'status');
 const taskLoadRetry = node('button', '', '重试读取任务'); taskLoadRetry.type = 'button';
-taskLoadRetry.onclick = () => { void (view.runs.some(run => key(run) === view.selected) ? loadSelected() : refresh()); };
+taskLoadRetry.onclick = () => { void (workbench?.mode === 'history' && view.selected || view.runs.some(run => key(run) === view.selected) ? loadSelected() : refresh()); };
 taskLoadFeedback.append(taskLoadMessage, taskLoadRetry); byId('detail').before(taskLoadFeedback);
 let reportUrl;
 const evidenceTools = document.createElement('div');
@@ -88,6 +89,7 @@ async function refresh() {
     const response = await fetch("/api/runs");
     if (!response.ok) throw new Error("无法读取执行记录");
     view.runs = (await response.json()).runs;
+    runListReadFailed = false;
     if (workbench?.mode === 'history' && workbench.routeTask) view.selected = workbench.routeTask;
     else if (!view.selected || !view.runs.some((run) => key(run) === view.selected)) view.selected = view.runs[0] ? key(view.runs[0]) : null;
     if (workbench?.mode === 'live') {
@@ -98,7 +100,14 @@ async function refresh() {
     if (view.selected) await loadSelected();
     else { selectionRequest++; taskLoadFeedback.hidden = true; view.detail = null; byId("empty").hidden = false; byId("detail").hidden = true; workbench?.sync(null); }
     byId("last-update").textContent = `最近更新 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`;
-  } catch (error) { byId("last-update").textContent = String(error); }
+  } catch (error) {
+    runListReadFailed = true;
+    byId("last-update").textContent = `任务列表读取失败（UNKNOWN）：${error.message || error}`;
+    // A durable Task link must remain readable independently of the list.
+    if (workbench?.mode === 'history' && workbench.routeTask) view.selected = workbench.routeTask;
+    else if (workbench?.mode === 'live' && workbench.submittedKey) view.selected = workbench.submittedKey;
+    if (view.selected) await loadSelected();
+  }
 }
 
 function renderRuns() {
@@ -126,7 +135,11 @@ function renderRuns() {
 }
 
 async function loadSelected() {
-  const run = view.runs.find((item) => key(item) === view.selected);
+  const selected = view.selected;
+  const separator = selected?.indexOf('/') ?? -1;
+  const run = view.runs.find((item) => key(item) === selected) ||
+    (runListReadFailed && workbench?.mode === 'history' && separator > 0 && separator < selected.length - 1
+      ? { source: selected.slice(0, separator), taskId: selected.slice(separator + 1) } : null);
   if (!run) {
     selectionRequest++; view.detail = null; byId('detail').hidden = true; workbench?.sync(null);
     const pending = workbench?.mode === 'live' && view.selected && view.selected === workbench.submittedKey;
@@ -140,17 +153,19 @@ async function loadSelected() {
   const request = ++selectionRequest;
   if (!view.detail || key(view.detail) !== key(run)) {
     view.detail = null; workbench?.sync(null); byId('detail').hidden = true;
+    byId('empty').hidden = true;
     taskLoadFeedback.hidden = false; taskLoadRetry.hidden = true;
     taskLoadMessage.dataset.state = 'loading'; taskLoadMessage.textContent = '正在读取任务详情…';
   }
   try {
     const response = await fetch(`/api/runs/${encodeURIComponent(run.source)}/${encodeURIComponent(run.taskId)}`);
-    if (!response.ok) throw new Error(`读取失败（HTTP ${response.status}）`);
+    if (!response.ok) throw Object.assign(new Error(`读取失败（HTTP ${response.status}）`), { notFound: response.status === 404 });
     const sameRun = view.detail && key(view.detail) === view.selected;
     const scroll = sameRun ? Object.fromEntries(["flow-chart", "step-list", "step-detail", "evidence-detail"]
       .map((id) => [id, (byId(id) || document.querySelector(`.${id}`))?.scrollTop || 0])) : null;
     const result = await response.json();
     if (request !== selectionRequest || key(run) !== view.selected) return;
+    if (key(result) !== key(run)) throw new Error('任务详情身份不匹配');
     taskLoadFeedback.hidden = true;
     view.detail = result;
     renderDetail();
@@ -163,7 +178,8 @@ async function loadSelected() {
   } catch (error) {
     if (request !== selectionRequest || key(run) !== view.selected) return;
     view.detail = null; workbench?.sync(null); byId('detail').hidden = true;
-    taskLoadFeedback.hidden = false; taskLoadRetry.hidden = false;
+    byId('empty').hidden = !error.notFound;
+    taskLoadFeedback.hidden = error.notFound === true; taskLoadRetry.hidden = false;
     taskLoadMessage.dataset.state = 'error'; taskLoadMessage.textContent = `任务详情暂不可用：${error.message || error}。可重试，系统也会自动刷新。`;
   }
 }
