@@ -8,6 +8,7 @@ import type { TraceStore } from "../contracts/stores.js";
 import type { NodeMetric } from "../trace/sqlite-trace.js";
 import type { RuntimeAdapter } from "../runtime/runtime-adapter.js";
 import { applyAcceptance, deterministicChecks, type AcceptanceVerifier } from "../verifier/hybrid-verifier.js";
+import { isReadonlyBrowserContract, readonlyBrowserAcceptance } from '../verifier/readonly-browser-verifier.js';
 import { verifyAction, verifyGoal } from "../verifier/verifier.js";
 import type { ObservationFacetProvider } from "../contracts/facets.js";
 import type { DomainEvaluator } from "../verification/domain-evaluator.js";
@@ -272,11 +273,15 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
   }
 
   async function acceptance(state: ComputerState, scope: 'task' | 'stage') {
-    if (!acceptanceVerifier) return undefined;
+    const readonlyBrowser = !acceptanceVerifier && scope==='task'
+      && isReadonlyBrowserContract(state.goal,state.verificationContract);
+    if (!acceptanceVerifier && !readonlyBrowser) return undefined;
     const startedAt = new Date().toISOString();
     const start = performance.now();
     const goal = scope === 'stage' ? `${state.stage!.goal}\n成功条件：${state.stage!.successCondition}` : state.goal;
-    const report = await acceptanceVerifier.evaluate(goal, state.completionCriteria, state.observation,
+    const report = readonlyBrowser
+      ? readonlyBrowserAcceptance(goal,state.completionCriteria,state.observation,state.verificationContract!)
+      : await acceptanceVerifier!.evaluate(goal, state.completionCriteria, state.observation,
       scope,scope==='task'?state.verificationContract:undefined,
       scope==='task'?state.baselineChecks:undefined);
     trace.save(`acceptance_${scope}`, {...state, acceptanceReport: report});
@@ -940,7 +945,10 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       try {
         // A final done action can use the frozen, source-bound task contract
         // directly. Do not make a decisive deterministic result depend on JEV.
-        const frozenFinal = state.stage.isFinal && !!state.verificationContract && !!acceptanceVerifier;
+        const readonlyBrowserFinal = !acceptanceVerifier && state.lastAction?.kind==='done'
+          && isReadonlyBrowserContract(state.goal,state.verificationContract);
+        const frozenFinal = state.stage.isFinal && !!state.verificationContract
+          && (!!acceptanceVerifier || readonlyBrowserFinal);
         const precheckedFinal = frozenFinal || (state.stage.isFinal && state.lastAction?.kind === 'done' &&
           !!state.verificationContract?.successConditions.structuredStates?.length)
           ? await complete(state) : undefined;
@@ -967,7 +975,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           : frozenFinal && precheckedFinal?.report
           ? {ok:precheckedFinal.result.ok, confidence:precheckedFinal.result.ok ? 1 : 0,
             evidence:precheckedFinal.result.message,
-            source:precheckedFinal.report.auxiliary ? 'jev' as const : 'uia' as const}
+            source:precheckedFinal.report.auxiliary ? 'jev' as const : readonlyBrowserFinal ? 'dom' as const : 'uia' as const}
           : await model.verifyStage(state.stage, state.observation);
         const lastStageVerification = { ok: result.ok, confidence: result.confidence,
           evidence: result.evidence, source: result.source };

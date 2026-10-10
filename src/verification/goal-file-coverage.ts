@@ -1,5 +1,19 @@
 import {win32} from 'node:path';
 
+const remoteUrls = /\bhttps?:\/\/[^\s<>"'，。；、;,）)]+/gi;
+
+/** Explicit prohibitions are not output requests; a later positive request still counts. */
+function outputClause(goal:string):string|undefined {
+  const verbs=/保存|另存(?:为)?|写入|生成|导出|创建|下载|\b(?:save|write|create|export|download)\b/gi;
+  for(const match of goal.matchAll(verbs)) {
+    const prefix=goal.slice(0,match.index).split(/[。；;\n，]/).at(-1)??'';
+    const prohibited=/(?:禁止|不得|不要|不可|无需|不必|不|勿)(?:[^，。；;\n]*、)?(?:文件或站点|文件|站点|进行|执行)?\s*$/.test(prefix)
+      || /\b(?:do not|don't|never|must not)\s+(?:[a-z]+\s*[,/]\s*)*(?:or\s+)?$/i.test(prefix);
+    if(!prohibited)return goal.slice(match.index!+match[0].length);
+  }
+  return undefined;
+}
+
 /**
  * A narrow, deterministic audit of file names explicitly present in the original task goal.
  * The goal is saved before planning, while declaredPaths come from the planned action/Workflow.
@@ -8,9 +22,9 @@ import {win32} from 'node:path';
 
 /** Terminal basenames (lowercased) explicitly named after an output verb in the goal. */
 export function explicitGoalFileNames(goal:string):string[] {
-  const output=/保存|另存(?:为)?|写入|生成|导出|创建|下载|\b(?:save|write|create|export|download)\b/i.exec(goal);
-  if(!output)return [];
-  const clause=goal.slice(output.index+output[0].length);
+  const output=outputClause(goal);
+  if(output===undefined)return [];
+  const clause=output.replace(remoteUrls,'');
   return [...new Set([...clause.matchAll(/(?<![\p{L}\p{N}_])[\p{L}\p{N}_-]+\.(?:txt|csv|pdf|docx?|xlsx?|png|jpe?g|json|md|html?|xml|zip)\b/giu)]
     .map(match=>match[0].toLowerCase()))];
 }
@@ -47,12 +61,12 @@ import('./file-evidence.js').DesktopFileExpectation[] {
 
 export function auditGoalFileCoverage(goal:string,declaredPaths:readonly string[]):
   {covered:boolean;reason?:string;requiredNames:string[]} {
-  const output=/保存|另存(?:为)?|写入|生成|导出|创建|下载|\b(?:save|write|create|export|download)\b/i.exec(goal);
-  if(!output)return {covered:true,requiredNames:[]};
-  const clause=goal.slice(output.index+output[0].length);
+  const output=outputClause(goal);
+  if(output===undefined)return {covered:true,requiredNames:[]};
+  const clause=output.replace(remoteUrls,'');
   const names=explicitGoalFileNames(goal);
   if(!names.length) {
-    return /文件|文档|\b(?:file|document)\b/i.test(clause)&&!declaredPaths.length
+    return /文件|文档|\b(?:file|document)\b|https?:\/\//i.test(output)&&!declaredPaths.length
       ?{covered:false,reason:'original_file_goal_has_no_file_contract',requiredNames:[]}
       :{covered:true,requiredNames:[]};
   }
