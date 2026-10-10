@@ -289,7 +289,10 @@ export class ChatCompletionsModel implements ModelAdapter {
     const body = await this.request("/chat/completions", { method: "POST", body: JSON.stringify({
       model: this.options.model,
       messages: [{ role: "system", content: readPrompt("task-planner") },
-        { role: "user", content: JSON.stringify({ goal, runtimeContext: runtimeContext(), observation: { windows: visible.map((window) => ({
+        { role: "user", content: JSON.stringify({ goal, runtimeContext: runtimeContext(),
+          executionEnvironment:this.options.environment,
+          availableEvidence:this.options.environment==='browser'?['browser','dom']:undefined,
+          observation: { windows: visible.map((window) => ({
           handle: window.handle, title: window.title, windowClass: window.windowClass,
           processPath: window.processPath, foreground: window.foreground,
         })), registeredApps: apps.map((app) => ({ id: app.id, name: app.name })) }, recentHistory: [], constraints: {
@@ -359,11 +362,14 @@ export class ChatCompletionsModel implements ModelAdapter {
     const content = JSON.stringify({ goal: state.goal, runtimeContext: runtimeContext(), recentHistory: state.recentHistory?.slice(-8), target: state.taskContract?.target,
       constraint: state.taskContract?.constraint,
       completionCriteria: state.completionCriteria,
+      evidenceSources:state.verificationContract?.evidenceSources,
+      environment:state.taskContract?.environment??this.options.environment,
       completedStages: state.completedStages?.map(({ goal, evidence }) => ({ goal, evidence })) ?? [],
       previousStage: state.stage?.goal, failure: state.error, diagnosis: state.diagnosis,
       pageText: observation?.pageText?.slice(0, 6000),
       accessibility: observation?.accessibility?.slice(0, 6000),
-      windowTitle: observation?.windowTitle });
+      url:observation?.url,dom:observation?.dom?.slice(0,6000),
+      capture:observation?.capture,windowTitle: observation?.windowTitle });
     const userContent = observation?.screenshot
       ? [{ type: "text", text: content },
         { type: "image_url", image_url: { url: (await this.image(observation.screenshot)).url } }]

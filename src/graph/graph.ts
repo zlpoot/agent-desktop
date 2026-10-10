@@ -8,6 +8,8 @@ import type { TraceStore } from "../contracts/stores.js";
 import type { NodeMetric } from "../trace/sqlite-trace.js";
 import type { RuntimeAdapter } from "../runtime/runtime-adapter.js";
 import { applyAcceptance, deterministicChecks, type AcceptanceVerifier } from "../verifier/hybrid-verifier.js";
+import { isReadonlyBrowserContract, readonlyBrowserAcceptance } from '../verifier/readonly-browser-verifier.js';
+import { readonlyBrowserStagePlan } from '../agent/readonly-browser-plan.js';
 import { verifyAction, verifyGoal } from "../verifier/verifier.js";
 import type { ObservationFacetProvider } from "../contracts/facets.js";
 import type { DomainEvaluator } from "../verification/domain-evaluator.js";
@@ -246,7 +248,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
     return update;
   }
 
-  function timed<T>(node: string, actor: NodeMetric["actor"], operator: string,
+  function timed<T>(node: string, actor: NodeMetric["actor"]|((state:ComputerState)=>NodeMetric["actor"]), operator: string,
     handler: (state: ComputerState) => Promise<T>): (state: ComputerState) => Promise<T> {
     return async (state) => {
       const startedAt = new Date().toISOString();
@@ -259,7 +261,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         const decision = node === "decide" ? model.takeDecisionMetadata?.() : undefined;
         const runtimeMetric = node === "observe" || node === "ground"
           ? runtime.takeOperationMetric?.() : undefined;
-        const actualActor = decision?.actor ?? runtimeMetric?.actor ?? actor;
+        const actualActor = decision?.actor ?? runtimeMetric?.actor ?? (typeof actor==='function'?actor(state):actor);
         const executed = node === "execute" && outcome && typeof outcome === "object"
           ? (outcome as Partial<ComputerState>).lastResult : undefined;
         trace.recordNodeMetric(state.taskId, { step: node === "decide" ? state.step + 1 : state.step,
@@ -272,11 +274,15 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
   }
 
   async function acceptance(state: ComputerState, scope: 'task' | 'stage') {
-    if (!acceptanceVerifier) return undefined;
+    const readonlyBrowser = !acceptanceVerifier && scope==='task'
+      && isReadonlyBrowserContract(state.goal,state.verificationContract);
+    if (!acceptanceVerifier && !readonlyBrowser) return undefined;
     const startedAt = new Date().toISOString();
     const start = performance.now();
     const goal = scope === 'stage' ? `${state.stage!.goal}\n成功条件：${state.stage!.successCondition}` : state.goal;
-    const report = await acceptanceVerifier.evaluate(goal, state.completionCriteria, state.observation,
+    const report = readonlyBrowser
+      ? readonlyBrowserAcceptance(goal,state.completionCriteria,state.observation,state.verificationContract!)
+      : await acceptanceVerifier!.evaluate(goal, state.completionCriteria, state.observation,
       scope,scope==='task'?state.verificationContract:undefined,
       scope==='task'?state.baselineChecks:undefined);
     trace.save(`acceptance_${scope}`, {...state, acceptanceReport: report});
@@ -890,7 +896,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         resumeReconcile: true, focusRecoveryCount: 0,
         summary: "继续前重新观察当前状态" }), goto: "observe" });
     }), { ends: ["observe"] })
-    .addNode("stage_plan", timed("stage_plan", "model", "阶段规划", async (state) => {
+    .addNode("stage_plan", timed("stage_plan", state=>readonlyBrowserStagePlan(state)?'rule':'model', "阶段规划", async (state) => {
       if (pauseRequested?.(state.taskId)) return save("stage_plan", state, {
         status: "paused", summary: "已在阶段边界暂停" });
       if (!model.planStage || !state.taskContract) {
@@ -900,7 +906,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       if (version > 12) return save("stage_plan", state,
         { status: "failed", error: "阶段规划次数已达到上限" });
       try {
-        const next = await model.planStage(state);
+        const next = readonlyBrowserStagePlan(state)??await model.planStage(state);
         const stageEvidenceContract=freezeStageEvidence(`${state.taskId}:${version}`,next.goal,next.successCondition,
           state.taskContract.target,next.verification);
         shadow({kind:'stage-contract',taskId:state.taskId,step:state.step,stageContract:stageEvidenceContract});
@@ -940,7 +946,10 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       try {
         // A final done action can use the frozen, source-bound task contract
         // directly. Do not make a decisive deterministic result depend on JEV.
-        const frozenFinal = state.stage.isFinal && !!state.verificationContract && !!acceptanceVerifier;
+        const readonlyBrowserFinal = !acceptanceVerifier && state.lastAction?.kind==='done'
+          && isReadonlyBrowserContract(state.goal,state.verificationContract);
+        const frozenFinal = state.stage.isFinal && !!state.verificationContract
+          && (!!acceptanceVerifier || readonlyBrowserFinal);
         const precheckedFinal = frozenFinal || (state.stage.isFinal && state.lastAction?.kind === 'done' &&
           !!state.verificationContract?.successConditions.structuredStates?.length)
           ? await complete(state) : undefined;
@@ -967,7 +976,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           : frozenFinal && precheckedFinal?.report
           ? {ok:precheckedFinal.result.ok, confidence:precheckedFinal.result.ok ? 1 : 0,
             evidence:precheckedFinal.result.message,
-            source:precheckedFinal.report.auxiliary ? 'jev' as const : 'uia' as const}
+            source:precheckedFinal.report.auxiliary ? 'jev' as const : readonlyBrowserFinal ? 'dom' as const : 'uia' as const}
           : await model.verifyStage(state.stage, state.observation);
         const lastStageVerification = { ok: result.ok, confidence: result.confidence,
           evidence: result.evidence, source: result.source };
