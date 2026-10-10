@@ -1,6 +1,7 @@
 import type { WindowInfo } from "../runtime/desktop/desktop-runtime.js";
 import type { RegisteredApp } from "../runtime/desktop/app-catalog.js";
 import type { CompletionCriteria } from "../verifier/verifier.js";
+import { readonlyBrowserContract } from './readonly-browser-plan.js';
 
 export interface PlannedTask {
   environment: "browser" | "windows";
@@ -30,7 +31,8 @@ function record(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function parseVerificationContract(value: unknown, goal: string, override?: CompletionCriteria): PlannedVerificationContract {
+function parseVerificationContract(value: unknown, goal: string, override?: CompletionCriteria,
+  environment?:'browser'|'windows'): PlannedVerificationContract {
   const contract = record(value, "任务验证契约");
   if (typeof contract.goal !== "string" || !contract.goal.trim() ||
       goal.trim() && contract.goal.trim() !== goal.trim()) throw new Error("任务验证契约的 Goal 必须等于原始目标");
@@ -83,7 +85,7 @@ function parseVerificationContract(value: unknown, goal: string, override?: Comp
     const fixed = structuredClone(override);
     const fixedSources: Record<string, PlannedEvidenceSource> = {};
     for (const key of Object.keys(fixed)) fixedSources[key] =
-      key.startsWith('pageText') ? 'uia' : (sources[key]?.[0] ?? "api");
+      key.startsWith('pageText') ? (environment==='browser'?'dom':'uia') : (sources[key]?.[0] ?? "api");
     return { goal: goal.trim() || contract.goal.trim(), successConditions: fixed,
       evidenceSources: fixedSources, verifierStrategy: "rules_then_jev" };
   }
@@ -105,11 +107,16 @@ export function parseTaskPlan(content: string, windows: readonly WindowInfo[], g
       item.plan.some((step) => typeof step !== "string" || !step.trim() || step.length > 120)) {
     throw new Error("任务规划器给出的步骤概要无效");
   }
-  const contract = parseVerificationContract(item.verificationContract, goal, criteriaOverride);
+  const proposed = parseVerificationContract(item.verificationContract, goal, criteriaOverride,item.environment);
+  const contract = item.environment==='browser'&&!criteriaOverride
+    ? readonlyBrowserContract(goal)??proposed : proposed;
   const criteria = contract.successConditions;
   if(criteria.structuredStates?.length&&contract.evidenceSources.structuredStates!==
     (item.environment==='browser'?'dom':'uia'))
     throw new Error('结构化完成条件的证据来源与执行环境不符');
+  if(item.environment==='browser'&&Object.values(contract.evidenceSources).some(source=>
+    source==='window'||source==='uia'))
+    throw new Error('Browser 完成条件要求当前页面 runtime 无法提供的 window/UIA 证据');
   if (!Object.keys(criteria).length) throw new Error("规划器未提供可由工程检查的完成条件");
   if (item.environment === "windows") {
     const selectedWindow = Number.isInteger(item.windowHandle) &&
@@ -127,6 +134,7 @@ export function parseTaskPlan(content: string, windows: readonly WindowInfo[], g
       : { appId: item.appId as string }),
       plan: item.plan as string[], completionCriteria: criteria, verificationContract: contract };
   }
-  return { environment: "browser", plan: item.plan as string[], completionCriteria: criteria,
+  return { environment: "browser", plan: contract===proposed?item.plan as string[]:
+    ['只读打开指定网页并读取、报告标题及正文唯一标记'], completionCriteria: criteria,
     verificationContract: contract };
 }

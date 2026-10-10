@@ -6,6 +6,7 @@ import { instantiateWorkflow, selectWorkflow } from "../workflows/matcher.js";
 import { WorkflowReplayModel } from "../workflows/replay-model.js";
 import { workflowDigest, WorkflowRecoveryError } from "../workflows/recovery.js";
 import type { ModelAdapter, TokenUsage } from "./model-adapter.js";
+import { assertReadonlyBrowserAction } from './readonly-browser-plan.js';
 
 /** 阶段目标确定后才检索流程；阶段切换和恢复时重新构造回放器。 */
 export class StageWorkflowModel implements ModelAdapter {
@@ -70,6 +71,7 @@ export class StageWorkflowModel implements ModelAdapter {
     if (allowed && !allowed.includes(action.kind)) {
       throw new Error(`当前任务契约不允许 ${action.kind} 动作`);
     }
+    assertReadonlyBrowserAction(state,action);
     if (action.kind === "scroll" &&
         (state.taskContract?.requireTargetedScroll ?? this.legacyPolicy?.requireTargetedScroll) &&
         !action.target) {
