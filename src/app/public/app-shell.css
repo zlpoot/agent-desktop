@@ -75,6 +75,8 @@
 .environment-card { padding:18px; min-width:0; }.environment-card h2 { font-size:18px; }.environment-card h3 { font-size:13px; margin-top:18px; }.environment-card p,.environment-card li { font-size:12px; line-height:1.8; overflow-wrap:anywhere; color:var(--ui-muted); }
 .environment-identity { white-space:pre-wrap; }.environment-scenarios { padding-left:18px; }.capability-legend { font-size:12px; line-height:1.8; color:var(--ui-muted); }
 .workspace-settings { padding:20px; }.settings-nav { display:flex; flex-wrap:wrap; gap:10px; }.settings-nav [aria-current=page] { border-color:var(--ui-accent); }
+.model-settings form { display:grid; gap:12px; max-width:720px; }.model-settings label { display:grid; gap:6px; min-width:0; }
+.model-settings input,.model-settings select { width:100%; min-width:0; box-sizing:border-box; padding:10px; border:1px solid var(--ui-line); border-radius:8px; background:var(--ui-bg); color:var(--ui-text); }
 .settings-config-note { margin-top:20px; }.settings-config-note > .operation-feedback { display:block; margin-top:12px; }
 .planned-settings { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }.planned-settings > h2 { grid-column:1/-1; }.planned-setting { padding:14px; border:1px solid var(--ui-line); border-radius:8px; min-width:0; }.planned-setting h3 { font-size:14px; }
 .apps-phases { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }.apps-phases > div { border:1px solid var(--ui-line); border-radius:8px; padding:12px; min-width:0; }.apps-phases h3 { font-size:13px; margin:0; }.apps-phases p { font-size:12px; line-height:1.8; color:var(--ui-muted); }

@@ -19,6 +19,7 @@ import type { AssemblySnapshot } from '../composition/inspection.js';
 import { compactObservationFacets } from '../contracts/facets.js';
 import { globalTaskBudget, parseBudgetOverride, readTaskBudget, saveGlobalTaskBudget } from '../runtime/model-budget.js';
 import type { DashboardPreflightView } from '../composition/dashboard-preflight.js';
+import { readModelSettings, saveModelSettings } from '../agent/model-settings.js';
 
 /** 输入控制的页面操作面；具体实现为 DesktopControl。 */
 export interface DesktopControlView {
@@ -383,6 +384,25 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
           '/app-management.js', '/dashboard-preflight.js'].includes(url.pathname);
       if (!permitted) return json(response, 403, { error: `preflight-${preflight.mode}-operation-disabled` });
     }
+    if (url.pathname === '/api/settings/model') {
+      if (!['127.0.0.1', 'localhost'].includes((request.headers.host ?? '').split(':')[0]) ||
+          !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? '') ||
+          !sameOrigin(request) || request.headers['sec-fetch-site'] === 'cross-site') {
+        return json(response, 403, { error: '仅接受本机同源模型设置请求' });
+      }
+      if (request.method === 'GET') {
+        try { return json(response, 200, readModelSettings(rootDir)); }
+        catch { return json(response, 503, { error: '本机模型配置无法读取；请检查私有文件' }); }
+      }
+      if (request.method !== 'PUT') return json(response, 405, { error: '仅支持 GET/PUT' });
+      if (!request.headers.origin) return json(response, 403, { error: '模型设置写入需要本机页面 Origin' });
+      if (!request.headers['content-type']?.startsWith('application/json')) return json(response, 415, { error: '请使用 JSON' });
+      void bodyJson(request, 8192).then(body => {
+        try { return json(response, 200, saveModelSettings(rootDir, body)); }
+        catch { return json(response, 400, { error: '模型配置未确认保存；请检查字段或私有文件后重新读取' }); }
+      }).catch(() => json(response, 400, { error: '模型设置请求无效或过长' }));
+      return;
+    }
     const parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     if (url.pathname === '/api/desktop/apps') {
       if (request.method !== 'POST') return json(response, 405, { error: 'app-management-private-post-only' });
@@ -651,6 +671,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         "/style.css": ["style.css", "text/css; charset=utf-8"],
         "/workbench.js": ["workbench.js", "text/javascript; charset=utf-8"],
         "/app-shell.js": ["app-shell.js", "text/javascript; charset=utf-8"],
+        "/model-settings.js": ["model-settings.js", "text/javascript; charset=utf-8"],
         "/app-shell.css": ["app-shell.css", "text/css; charset=utf-8"],
         "/task-experience.js": ["task-experience.js", "text/javascript; charset=utf-8"],
         "/workbench.css": ["workbench.css", "text/css; charset=utf-8"],

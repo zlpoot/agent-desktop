@@ -132,7 +132,7 @@ test('D settings show actual scope, fail closed on read/save errors, keep drafts
       ? route.fulfill({ status: 503, json: { error: 'synthetic budget unavailable' } }) : route.continue());
     await page.goto(`${f.base}/#/settings`); await page.locator('#global-budget-message').getByText(/预算读取失败/).waitFor();
     const save = page.getByRole('button', { name: '保存全局预算', exact: true }); assert.equal(await save.isDisabled(), true);
-    assert.equal(await page.locator('.planned-setting button:disabled').count(), 4);
+    assert.equal(await page.locator('.planned-setting button:disabled').count(), 3);
     assert.match(await page.locator('.planned-settings').innerText(), /待后端接入.*权限.*不能修改或扩大许可/s);
     unavailable = false; await page.getByRole('button', { name: '重新读取全局预算', exact: true }).click();
     await page.locator('#global-budget-message').getByText(/已读取本机生效/).waitFor();

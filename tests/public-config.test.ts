@@ -21,7 +21,7 @@ test('public defaults and an absent configuration start without auxiliary model 
     }
     assert.equal(calls, 0);
     assert.throws(() => requiredEndpoint('COMPUTER_USE_BASE_URL'), /Set COMPUTER_USE_BASE_URL/);
-    assert.throws(() => configuredModel(), /COMPUTER_USE_API_KEY/);
+    assert.throws(() => configuredModel({}, dir), /COMPUTER_USE_API_KEY/);
   } finally {
     globalThis.fetch = originalFetch;
     rmSync(dir, { recursive: true, force: true });
