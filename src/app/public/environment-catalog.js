@@ -10,13 +10,23 @@ window.createEnvironmentCatalog = (root, openApps) => {
   const toolbar = el('div', '', 'catalog-toolbar'); toolbar.append(search, filter, refresh);
   const status = el('p', '打开环境页后读取目录，不启动应用或获取输入权。', 'operation-feedback'); status.setAttribute('role', 'status');
   const cards = el('div', '', 'environment-cards');
+  const browser = el('section', '', 'panel'); browser.append(el('h2', 'Browser · 通用任务（受控 Chromium）'),
+    el('p', '已有通用 Browser Task 入口。到工作台选择 Browser，核对模型地址、名称、Key 配置及来源，再明确提交。配置完整不代表模型连通或浏览器启动通过。'));
+  const workbench = el('a', '到工作台选择任务'); workbench.href = '#/live';
+  const settings = el('a', '到设置配置模型'); settings.href = '#/settings';
+  const help = el('a', '执行环境配置与操作说明'); help.href = '/environment-help'; help.target = '_blank'; help.rel = 'noopener';
+  browser.append(workbench, document.createTextNode(' · '), settings, document.createTextNode(' · '), help);
+  const missing = el('p', '桌面目录尚未读取；不能判断配置是否存在。'); missing.id = 'environment-missing-status';
   const legend = el('details', '', 'capability-legend'); legend.append(el('summary', '能力声明与当前就绪的区别'));
   for (const [state, explanation] of [['supported', '仅在声明范围内支持，不证明当前目标或输入权就绪。'], ['unsupported', '未实现，增加授权不能获得该能力。'], ['not-proven', '证据不足，不能按支持处理。'], ['forbidden', '策略禁止，即使有实现也不允许调用。']]) legend.append(el('p', `${state} · ${states[state]}：${explanation}`));
   root.classList.add('environment-catalog'); root.setAttribute('aria-label', '执行环境目录');
-  root.append(el('h1', '环境与应用'), el('p', '同一目录组织三类环境；通用任务准入、有限场景、连接、应用与输入许可分别核对。'), toolbar, status, legend, cards);
-  let environments = [], sessions = [], sessionError = '', request = 0;
+  root.append(el('h1', '环境与应用'), el('p', '同一目录组织三类环境；通用任务准入、有限场景、连接、应用与输入许可分别核对。'), browser, toolbar, status, missing, legend, cards);
+  let environments = [], sessions = [], sessionError = '', request = 0, directoryLoaded = false;
   function render() {
     cards.replaceChildren();
+    if (!directoryLoaded) return;
+    missing.textContent = Object.entries(kinds).filter(([kind]) => !environments.some(item => item.kind === kind))
+      .map(([kind, name]) => `${name}：目录未发现；${kind === 'virtual-machine' ? '核对 Hyper-V Guest 配置与记录' : kind === 'local-workspace' ? '核对 AGENT_DESKTOP_ENVIRONMENT_CONFIG 中已配置的 Hidden Chrome 或固定应用' : '核对平台与配置'}，不据此判断离线或已就绪。`).join(' ');
     const visible = environments.filter(item => (filter.value === 'all' || filter.value === item.kind) && `${item.providerId} ${item.environmentId}`.toLowerCase().includes(search.value.toLowerCase()));
     if (!visible.length) cards.append(el('p', environments.length ? '没有匹配环境，请调整搜索或类型。' : '目录中没有已注册环境；没有自动创建或连接。'));
     for (const item of visible) {
@@ -40,6 +50,7 @@ window.createEnvironmentCatalog = (root, openApps) => {
       const scenes = el('ul', '', 'environment-scenarios');
       for (const scene of item.scenarios || []) scenes.append(el('li', `${scene.label} · ${states[scene.availability] || '状态未知'} (${scene.availability})${scene.reason ? ' · ' + scene.reason : ''}`));
       card.append(el('h3', '有限场景声明'), scenes);
+      if (item.environmentId === 'local-workspace:chrome') card.append(el('p', '普通 Browser 与本环境不同：这里只运行明确选择的固定场景。只读场景不创建 Key；创建候选须独立一次性授权，已绑定或消费的授权不可复用。'));
       if (!item.scenarios?.length) card.append(el('p', '未记录有限场景；不代表任意应用可操作。'));
       card.append(el('p', 'Provider 基础能力明细：目录未提供；不得把通用准入当作 supported 声明。应用发现、历史启动验证与业务能力仍需分别核对。'));
       const apps = el('button', '查看此环境的应用'); apps.type = 'button'; apps.onclick = () => openApps({ providerId: item.providerId, environmentId: item.environmentId }); card.append(apps);
@@ -47,26 +58,27 @@ window.createEnvironmentCatalog = (root, openApps) => {
     }
   }
   async function load() {
-    const current = ++request; environments = []; sessions = []; sessionError = ''; cards.replaceChildren();
+    const current = ++request; environments = []; sessions = []; sessionError = ''; directoryLoaded = false; cards.replaceChildren();
     status.textContent = '正在读取环境目录与已记录 Session…'; status.dataset.state = 'loading'; refresh.disabled = true;
+    missing.textContent = '正在读取目录；不能判断未发现、未配置或不可用。';
     try {
       const [directory, connections] = await Promise.allSettled([
-        fetch('/api/desktop/environments').then(async response => { const data = await response.json(); if (!response.ok || !Array.isArray(data.environments)) throw new Error(data.error || '目录读取失败'); return data.environments; }),
+        fetch('/api/desktop/environments').then(async response => { const data = await response.json(); if (!response.ok || !Array.isArray(data.environments)) throw new Error(data.error || '目录读取失败'); return data; }),
         fetch('/api/desktop/sessions').then(async response => { const data = await response.json(); if (!response.ok || !Array.isArray(data.sessions)) throw new Error('Session 读取失败'); return data.sessions; }),
       ]);
       if (current !== request) return;
       if (directory.status === 'rejected') throw directory.reason;
       const seen = new Set();
-      for (const item of directory.value) {
+      for (const item of directory.value.environments) {
         const key = JSON.stringify([item.providerId, item.environmentId]);
         if (typeof item.providerId !== 'string' || !item.providerId || typeof item.environmentId !== 'string' || !item.environmentId || typeof item.executable !== 'boolean' || seen.has(key)) throw new Error('环境目录身份或准入数据无效');
         seen.add(key);
       }
-      environments = directory.value;
+      environments = directory.value.environments; directoryLoaded = true; browser.hidden = directory.value.mode === 'synthetic-fixture';
       if (connections.status === 'fulfilled') sessions = connections.value;
       else sessionError = 'Session 读取失败，请刷新核对；不据此判断其它环境离线。';
       status.dataset.state = 'success'; status.textContent = `${environments.length} 个已注册环境；仅目录查询。${sessionError}`; render();
-    } catch (error) { if (current === request) { status.dataset.state = 'error'; status.textContent = `环境目录读取失败：${error.message || error}。请刷新重试。`; } }
+    } catch (error) { if (current === request) { missing.textContent = '桌面配置与支持状态 UNKNOWN；读取失败不等于未配置或离线。Browser 单独在工作台核对。'; status.dataset.state = 'error'; status.textContent = `环境目录读取失败：${error.message || error}。请刷新重试。`; } }
     finally { if (current === request) refresh.disabled = false; }
   }
   search.oninput = filter.onchange = render; refresh.onclick = load;

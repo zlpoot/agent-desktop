@@ -7,10 +7,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { createDashboardServer } from '../src/app/server.js';
 import { initialState } from '../src/graph/state.js';
 import { SqliteTrace } from '../src/trace/sqlite-trace.js';
+import { configureSyntheticModel } from './fixtures/model-settings.js';
 
 test('UI-01 shell keeps five routes, explicit admission, drafts, evidence and controls truthful', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'ui-v01-shell-'));
+  configureSyntheticModel(directory);
   const target = { providerId: 'synthetic', environmentId: 'local-workspace:chrome' };
   const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
   const state = { ...initialState('recorded', 'synthetic recorded observation'), taskBindingVersion: 1 as const, desktopTarget: target, step: 1 };
@@ -129,6 +131,7 @@ test('UI-01 shell keeps five routes, explicit admission, drafts, evidence and co
 test('UI-01 prevents concurrent POST and reports lost acknowledgement without automatic retry', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'ui-v01-unknown-'));
+  configureSyntheticModel(directory);
   const server = createDashboardServer(directory, { submit() { assert.fail('request is intercepted'); }, resume() {}, pause() {}, continue() {} });
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
   const address = server.address(); if (!address || typeof address === 'string') throw new Error('port');
@@ -155,6 +158,7 @@ test('UI-01 prevents concurrent POST and reports lost acknowledgement without au
 test('UI-01 keeps acknowledged Browser B selected over paused Guest A, including a delayed list and reload', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const directory = mkdtempSync(join(tmpdir(), 'ui-v01-submitted-'));
+  configureSyntheticModel(directory);
   const routes = new DatabaseSync(join(directory, 'web-task-routes.sqlite'));
   routes.exec('CREATE TABLE generic_routes (task_id TEXT PRIMARY KEY, environment TEXT, window_handle INTEGER, created_at TEXT NOT NULL)');
   for (const [id, environment] of [['guest-A', 'windows'], ['browser-B', 'browser']]) {

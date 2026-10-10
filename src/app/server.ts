@@ -429,6 +429,9 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
         .catch(error => json(response, 503, { error: String(error) }));
       return;
     }
+    if (request.method === 'GET' && url.pathname === '/environment-help') {
+      return send(response, 200, readFileSync(new URL('../../docs/v02-b-environment-entry.md', import.meta.url)), 'text/plain; charset=utf-8');
+    }
     if (request.method === 'PUT' && url.pathname === '/api/settings/task-budget') {
       if (!sameOrigin(request) || request.headers['sec-fetch-site'] === 'cross-site') return json(response, 403, { error: '只接受本机页面修改预算' });
       if (!request.headers['content-type']?.startsWith('application/json')) return json(response, 415, { error: '请使用 JSON' });
@@ -600,7 +603,8 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             }
             if (goal.length > 4000) throw new Error("任务要求最多 4000 字");
             const taskId = controller.submit(goal, { admin: body.admin === true,
-              budget: parseBudgetOverride(body.budget), ...(target ? { desktopTarget: target } : {}) });
+              budget: parseBudgetOverride(body.budget), ...(target ? { desktopTarget: target } : {}),
+              ...(['host', 'browser'].includes(body.destination as string) ? { destination: 'browser' as const } : {}) });
             return json(response, 202, { taskId, source: "web-tasks.sqlite" });
           }
           if (parts[3] === "pause") {

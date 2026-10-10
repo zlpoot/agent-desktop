@@ -24,4 +24,8 @@ test("仅已验收操作命中专用能力，其他应用需求进入通用主�
     { kind: "generic", goal: "VM: 打开网易云播放稻香" });
   assert.throws(() => routeTask("打开网易云播放稻香", { admin: true }, registry), /仅适用于/);
   assert.throws(() => routeTask("查看异环当前画面", { admin: true }, registry), /通用任务暂不支持/);
+  assert.deepEqual(routeTask('打开网易云播放稻香', { destination: 'browser' }, registry),
+    { kind: 'generic', goal: '打开网易云播放稻香' });
+  assert.throws(() => routeTask('普通 Browser goal', { destination: 'browser', admin: true }, registry), /通用任务暂不支持/);
+  assert.throws(() => routeTask('普通 Browser goal', { destination: 'browser', desktopTarget: { providerId: 'fixture', environmentId: 'env' } }, registry), /desktop-target-destination-conflict/);
 });
