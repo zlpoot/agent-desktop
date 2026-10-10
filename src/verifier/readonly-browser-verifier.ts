@@ -3,6 +3,7 @@ import type { PlannedVerificationContract } from '../agent/task-planner.js';
 import { deterministicChecks, normalizeEvidence, type AcceptanceReport } from './hybrid-verifier.js';
 import type { CompletionCriteria } from './verifier.js';
 import { auditTaskContractCoverage } from '../verification/task-contract-coverage.js';
+import { matchesReadonlyBrowserContract } from '../agent/readonly-browser-plan.js';
 
 /** Conservative serialized-DOM title read; markup inside raw text is not a title element. */
 function domTitle(dom?:string):string|undefined {
@@ -16,9 +17,7 @@ function domTitle(dom?:string):string|undefined {
 
 /** Narrow read-only identity check: URL, DOM title and body marker, frozen before execution. */
 export function isReadonlyBrowserContract(goal:string, contract?:PlannedVerificationContract):boolean {
-  const criteria=contract?.successConditions;
-  return /只读|\bread[ -]?only\b/i.test(goal) && /标题|\btitle\b/i.test(goal)
-    && !!criteria?.urlIncludes && !!criteria.domIncludes && !!criteria.pageTextIncludes;
+  return matchesReadonlyBrowserContract(goal,contract,contract?.successConditions);
 }
 
 /** No model fallback: missing, partial or mismatched provenance must remain UNKNOWN. */
@@ -27,14 +26,12 @@ export function readonlyBrowserAcceptance(goal:string, criteria:CompletionCriter
   const report:AcceptanceReport={mode:'assist',verdict:'unknown',
     observationId:normalizeEvidence(observation).observationId,checks:[],
     reason:'evidence_unavailable',message:'只读网页缺少同次采集的完整 URL / DOM 证据'};
-  if(contract.goal!==goal || JSON.stringify(contract.successConditions)!==JSON.stringify(criteria)
-    || contract.verifierStrategy!=='rules_then_jev'
-    || Object.keys(criteria??{}).some(key=>!['urlIncludes','domIncludes','pageTextIncludes'].includes(key)))
+  if(!matchesReadonlyBrowserContract(goal,contract,criteria))
     return {...report,reason:'unsupported_condition',message:'只读网页完成条件与冻结契约不一致或不受支持'};
   if(!auditTaskContractCoverage(goal,criteria).covered)
     return {...report,reason:'unsupported_condition',message:'原始目标仍缺少文件或持久结果契约，禁止以只读页面条件放行'};
-  // A planner can freeze either literal title text or a complete <title> element.
-  // Keep the original DOM substring check and reject all other markup forms.
+  // Eligibility already requires the exact title element derived from the full goal.
+  // Keep the frozen DOM substring check and the independent head/title comparison.
   const frozenTitle=criteria?.domIncludes;
   const expectedTitle=frozenTitle?.match(/^<title>([^<>]+)<\/title>$/i)?.[1]
     ?? (frozenTitle && !/[<>]/.test(frozenTitle)?frozenTitle:undefined);

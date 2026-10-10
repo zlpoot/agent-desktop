@@ -9,7 +9,7 @@ import {createAgentLoop} from '../src/graph/graph.js';
 import {initialState} from '../src/graph/state.js';
 import {SqliteTrace} from '../src/trace/sqlite-trace.js';
 import {auditTaskContractCoverage} from '../src/verification/task-contract-coverage.js';
-import {readonlyBrowserAcceptance} from '../src/verifier/readonly-browser-verifier.js';
+import {isReadonlyBrowserContract,readonlyBrowserAcceptance} from '../src/verifier/readonly-browser-verifier.js';
 import type {Observation} from '../src/actions/schema.js';
 import type {CompletionCriteria} from '../src/verifier/verifier.js';
 import type {PlannedVerificationContract} from '../src/agent/task-planner.js';
@@ -17,8 +17,10 @@ import type {PlannedVerificationContract} from '../src/agent/task-planner.js';
 const url='http://example.test/readonly.html';
 const title='Synthetic Readonly Title';
 const marker='SYNTHETIC-READ-OK-42';
-const goal=`只读打开 ${url}，读取网页标题 ${title} 和标记 ${marker}。不点击、输入、下载或登录。`;
-const criteria:CompletionCriteria={urlIncludes:url,domIncludes:title,pageTextIncludes:marker};
+const goal=`仅打开 ${url}，读取网页标题和页面唯一标记 ${marker}，并报告观察结果。只读，不访问其他地址，不点击、输入、下载或登录。
+完成条件：最终 URL 为 ${url}，网页标题为 ${title}，页面正文含唯一标记 ${marker}。以实际页面 DOM 和最终 URL 独立核验。
+操作限制：仅允许导航到 ${url} 并读取观察。禁止其他地址、第三方站点、账号登录、点击、输入、下载、文件或站点写入及 Native/VM 输入。`;
+const criteria:CompletionCriteria={urlIncludes:url,domIncludes:`<title>${title}</title>`,pageTextIncludes:marker};
 const contract:PlannedVerificationContract={goal,successConditions:criteria,
   evidenceSources:{urlIncludes:'browser',domIncludes:'dom',pageTextIncludes:'dom'},
   verifierStrategy:'rules_then_jev'};
@@ -33,18 +35,23 @@ function observed():Observation {
 test('readonly identity uses current source-bound rules without any fetch',t=>{
   const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
   const result=readonlyBrowserAcceptance(goal,criteria,observed(),contract);
+  assert.equal(isReadonlyBrowserContract(goal,contract),true);
   assert.equal(result.verdict,'pass');
   assert.equal(result.auxiliary,undefined);
   assert.equal(result.checks.length,5);
   assert.equal(fetchMock.mock.calls.length,0);
 });
 
-test('a frozen complete title element accepts the same exact DOM title without changing criteria',t=>{
+test('only the exact title condition from the complete original goal qualifies without changing criteria',t=>{
   const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
   const wrapped={...criteria,domIncludes:`<title>${title}</title>`};
   const frozen={...contract,successConditions:wrapped};
   assert.equal(readonlyBrowserAcceptance(goal,wrapped,observed(),frozen).verdict,'pass');
   assert.equal(frozen.successConditions.domIncludes,`<title>${title}</title>`);
+  const plain={...criteria,domIncludes:title};
+  const plainContract={...contract,successConditions:plain};
+  assert.equal(isReadonlyBrowserContract(goal,plainContract),false);
+  assert.equal(readonlyBrowserAcceptance(goal,plain,observed(),plainContract).verdict,'unknown');
   const wrong=observed();
   wrong.dom=`<html><head><title>Wrong</title></head><body><template><title>${title}</title></template>${marker}</body></html>`;
   assert.equal(readonlyBrowserAcceptance(goal,wrapped,wrong,frozen).verdict,'fail');
@@ -77,6 +84,7 @@ test('wrong URL, title (despite matching H1), or marker never passes',()=>{
 });
 
 test('missing, partial, foreign or unsupported evidence remains UNKNOWN',()=>{
+  assert.equal(readonlyBrowserAcceptance(goal,undefined,observed(),contract).verdict,'unknown');
   const cases:Array<(o:Observation)=>void>=[
     o=>{delete o.capture;},
     o=>{delete o.url;},
@@ -120,7 +128,7 @@ class ReadonlyRuntime extends FakeRuntime {
 
 test('production graph closes a frozen readonly final stage despite browser chrome absent from screenshots',async t=>{
   const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
-  for(const variant of ['pass','wrapped-title','partial','wrong-title','coverage-blocked','non-final'] as const){
+  for(const variant of ['pass','plain-title','partial','wrong-title','coverage-blocked','non-final'] as const){
     const dir=mkdtempSync(join(tmpdir(),'readonly-browser-'));
     const trace=new SqliteTrace(join(dir,'trace.sqlite'));
     const model=new ReadonlyModel([{kind:'navigate',url},{kind:'done',summary:'observed'}]);
@@ -130,7 +138,7 @@ test('production graph closes a frozen readonly final stage despite browser chro
       if(variant==='wrong-title')o.dom=o.dom!.replace(`<title>${title}</title>`,'<title>Wrong</title>');
     });
     try {
-      const frozenCriteria=variant==='wrapped-title'?{...criteria,domIncludes:`<title>${title}</title>`}:criteria;
+      const frozenCriteria=variant==='plain-title'?{...criteria,domIncludes:title}:criteria;
       const frozenContract={...contract,successConditions:frozenCriteria};
       const coverage=auditTaskContractCoverage(goal,frozenCriteria);
       assert.equal(coverage.covered,true);
@@ -142,7 +150,7 @@ test('production graph closes a frozen readonly final stage despite browser chro
       const result=await createAgentLoop({model,runtime,trace,maxSteps:4}).invoke(state);
       assert.equal(runtime.executed.length,1);
       assert.equal(runtime.executed[0].kind,'navigate');
-      if(variant==='pass'||variant==='wrapped-title'){
+      if(variant==='pass'){
         assert.equal(result.status,'done');
         assert.equal(result.goalVerification?.ok,true);
         assert.equal(result.acceptanceReport?.verdict,'pass');
@@ -152,7 +160,8 @@ test('production graph closes a frozen readonly final stage despite browser chro
       }else{
         assert.notEqual(result.status,'done',variant);
         assert.notEqual(result.goalVerification?.ok,true,variant);
-        if(variant!=='non-final')assert.equal(model.visualChecks,2,'failed rule check must not fall back to a visual pass');
+        assert.equal(model.visualChecks,variant==='non-final'||variant==='plain-title'?3:2,
+          'unsupported contracts retain the original stage verifier; eligible rules do not fall back');
       }
     }finally{
       trace.close();
@@ -163,4 +172,30 @@ test('production graph closes a frozen readonly final stage despite browser chro
     }
   }
   assert.equal(fetchMock.mock.calls.length,0);
+});
+
+test('an additional product price requirement cannot pass the readonly identity shortcut',async t=>{
+  const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
+  const priceGoal=`${goal} 另外核对商品价格为 42 元。`;
+  const incompleteContract={...contract,goal:priceGoal};
+  assert.equal(isReadonlyBrowserContract(priceGoal,incompleteContract),false);
+  assert.equal(readonlyBrowserAcceptance(priceGoal,criteria,observed(),incompleteContract).verdict,'unknown');
+  const dir=mkdtempSync(join(tmpdir(),'readonly-browser-')),trace=new SqliteTrace(join(dir,'trace.sqlite'));
+  const model=new ReadonlyModel([{kind:'navigate',url},{kind:'done',summary:'only title and marker observed'}]);
+  try{
+    const result=await createAgentLoop({model,runtime:new ReadonlyRuntime(),trace,maxSteps:4}).invoke({
+      ...initialState('readonly-price',priceGoal,undefined,criteria),verificationContract:incompleteContract,
+      contractCoverage:auditTaskContractCoverage(priceGoal,criteria),
+      taskContract:{target:priceGoal,constraint:'只读',stageActionLimit:4,taskActionLimit:4}});
+    assert.notEqual(result.status,'done');
+    assert.notEqual(result.goalVerification?.ok,true);
+    assert.equal(result.acceptanceReport,undefined);
+    assert.equal(model.visualChecks,3,'unsupported goal stays on the existing verification path');
+    assert.equal(fetchMock.mock.calls.length,0);
+  }finally{
+    trace.close();
+    const target=resolve(dir);
+    if(dirname(target)!==resolve(tmpdir())||!basename(target).startsWith('readonly-browser-'))throw Error('Unexpected temp path');
+    rmSync(target,{recursive:true,force:true});
+  }
 });

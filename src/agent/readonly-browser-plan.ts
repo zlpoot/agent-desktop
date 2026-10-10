@@ -29,13 +29,19 @@ function sameCriteria(actual:CompletionCriteria|undefined,expected:CompletionCri
     && (['urlIncludes','domIncludes','pageTextIncludes'] as const).every(key=>actual[key]===expected[key]);
 }
 
-function matchesFrozen(state:Readonly<ComputerState>):boolean {
-  const expected=readonlyBrowserContract(state.goal),frozen=state.verificationContract;
+/** Exact eligibility shared by first-stage planning, action fencing and final acceptance. */
+export function matchesReadonlyBrowserContract(goal:string,frozen:PlannedVerificationContract|undefined,
+  criteria:CompletionCriteria|undefined):boolean {
+  const expected=readonlyBrowserContract(goal);
   return !!expected&&!!frozen&&frozen.goal===expected.goal&&frozen.verifierStrategy===expected.verifierStrategy
-    &&sameCriteria(state.completionCriteria,expected.successConditions)
+    &&sameCriteria(criteria,expected.successConditions)
     &&sameCriteria(frozen.successConditions,expected.successConditions)
     &&Object.keys(frozen.evidenceSources).length===3
     &&Object.keys(expected.evidenceSources).every(key=>frozen.evidenceSources[key]===expected.evidenceSources[key]);
+}
+
+function matchesFrozen(state:Readonly<ComputerState>):boolean {
+  return matchesReadonlyBrowserContract(state.goal,state.verificationContract,state.completionCriteria);
 }
 
 /** The canonical request permits no other target or input, even if a decision model proposes one. */
