@@ -39,6 +39,28 @@ test('readonly identity uses current source-bound rules without any fetch',t=>{
   assert.equal(fetchMock.mock.calls.length,0);
 });
 
+test('a frozen complete title element accepts the same exact DOM title without changing criteria',t=>{
+  const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
+  const wrapped={...criteria,domIncludes:`<title>${title}</title>`};
+  const frozen={...contract,successConditions:wrapped};
+  assert.equal(readonlyBrowserAcceptance(goal,wrapped,observed(),frozen).verdict,'pass');
+  assert.equal(frozen.successConditions.domIncludes,`<title>${title}</title>`);
+  const wrong=observed();
+  wrong.dom=`<html><head><title>Wrong</title></head><body><template><title>${title}</title></template>${marker}</body></html>`;
+  assert.equal(readonlyBrowserAcceptance(goal,wrapped,wrong,frozen).verdict,'fail');
+  assert.equal(fetchMock.mock.calls.length,0);
+});
+
+test('partial, ambiguous or unrelated title markup remains unsupported',()=>{
+  for(const domIncludes of [`<title>${title}`,`<title>${title}</title><title>Wrong</title>`,
+    `<h1>${title}</h1>`,`<title><b>${title}</b></title>`,`<title></title>`]){
+    const unsupported={...criteria,domIncludes};
+    const report=readonlyBrowserAcceptance(goal,unsupported,observed(),{...contract,successConditions:unsupported});
+    assert.equal(report.verdict,'unknown');
+    assert.equal(report.reason,'unsupported_condition');
+  }
+});
+
 test('wrong URL, title (despite matching H1), or marker never passes',()=>{
   const cases:Array<[string,(o:Observation)=>void]>=[
     ['different URL',o=>{o.url='http://example.test/other.html';}],
@@ -98,7 +120,7 @@ class ReadonlyRuntime extends FakeRuntime {
 
 test('production graph closes a frozen readonly final stage despite browser chrome absent from screenshots',async t=>{
   const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
-  for(const variant of ['pass','partial','wrong-title','coverage-blocked','non-final'] as const){
+  for(const variant of ['pass','wrapped-title','partial','wrong-title','coverage-blocked','non-final'] as const){
     const dir=mkdtempSync(join(tmpdir(),'readonly-browser-'));
     const trace=new SqliteTrace(join(dir,'trace.sqlite'));
     const model=new ReadonlyModel([{kind:'navigate',url},{kind:'done',summary:'observed'}]);
@@ -108,17 +130,19 @@ test('production graph closes a frozen readonly final stage despite browser chro
       if(variant==='wrong-title')o.dom=o.dom!.replace(`<title>${title}</title>`,'<title>Wrong</title>');
     });
     try {
-      const coverage=auditTaskContractCoverage(goal,criteria);
+      const frozenCriteria=variant==='wrapped-title'?{...criteria,domIncludes:`<title>${title}</title>`}:criteria;
+      const frozenContract={...contract,successConditions:frozenCriteria};
+      const coverage=auditTaskContractCoverage(goal,frozenCriteria);
       assert.equal(coverage.covered,true);
-      const state={...initialState(`readonly-${variant}`,goal,undefined,criteria),
-        verificationContract:contract,contractCoverage:variant==='coverage-blocked'
+      const state={...initialState(`readonly-${variant}`,goal,undefined,frozenCriteria),
+        verificationContract:frozenContract,contractCoverage:variant==='coverage-blocked'
           ?{...coverage,covered:false,reason:'test-missing-proof',reviewRequired:true}:coverage,
         // Generic production Task contracts do not have an environment field.
         taskContract:{target:goal,constraint:'只读',stageActionLimit:4,taskActionLimit:4}};
       const result=await createAgentLoop({model,runtime,trace,maxSteps:4}).invoke(state);
       assert.equal(runtime.executed.length,1);
       assert.equal(runtime.executed[0].kind,'navigate');
-      if(variant==='pass'){
+      if(variant==='pass'||variant==='wrapped-title'){
         assert.equal(result.status,'done');
         assert.equal(result.goalVerification?.ok,true);
         assert.equal(result.acceptanceReport?.verdict,'pass');

@@ -33,6 +33,13 @@ export function readonlyBrowserAcceptance(goal:string, criteria:CompletionCriter
     return {...report,reason:'unsupported_condition',message:'只读网页完成条件与冻结契约不一致或不受支持'};
   if(!auditTaskContractCoverage(goal,criteria).covered)
     return {...report,reason:'unsupported_condition',message:'原始目标仍缺少文件或持久结果契约，禁止以只读页面条件放行'};
+  // A planner can freeze either literal title text or a complete <title> element.
+  // Keep the original DOM substring check and reject all other markup forms.
+  const frozenTitle=criteria?.domIncludes;
+  const expectedTitle=frozenTitle?.match(/^<title>([^<>]+)<\/title>$/i)?.[1]
+    ?? (frozenTitle && !/[<>]/.test(frozenTitle)?frozenTitle:undefined);
+  if(expectedTitle===undefined)
+    return {...report,reason:'unsupported_condition',message:'只读网页标题条件须为纯标题文字或完整 title 元素'};
   const capture=observation?.capture;
   if(!capture || !capture.epoch || capture.object!==`page:${capture.epoch}` || capture.clock!=='collector'
     || !Number.isInteger(capture.sequence) || capture.sequence<1
@@ -53,7 +60,7 @@ export function readonlyBrowserAcceptance(goal:string, criteria:CompletionCriter
     message:'最终 URL 必须与冻结的完整地址一致'});
   // domIncludes alone can match a body heading while <title> is wrong.
   const title=domTitle(observation?.dom);
-  checks.push({criterion:'browserTitle',verdict:title===undefined?'unknown':title===criteria?.domIncludes?'pass':'fail',
+  checks.push({criterion:'browserTitle',verdict:title===undefined?'unknown':title===expectedTitle?'pass':'fail',
     ...(title===undefined?{reason:'evidence_unavailable' as const}:{}),message:'DOM <title> 必须与冻结的网页标题一致'});
   const verdict=checks.some(check=>check.verdict==='fail')?'fail'
     : checks.length>0 && checks.every(check=>check.verdict==='pass')?'pass':'unknown';
