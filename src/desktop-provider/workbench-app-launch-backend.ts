@@ -50,7 +50,12 @@ export function createWorkbenchAppLaunchBackend(options: {
       const until = Date.now() + 8000;
       while (Date.now() < until) {
         const values = await instances(profile);
-        if (values.length) return values;
+        if (values.length) {
+          // Window fitting is part of the explicit start, never a status/preview
+          // poll. Keep the original capture bounds and never move another APP.
+          await client.call('fit', { profile, token: owned });
+          return instances(profile);
+        }
         await new Promise(done => setTimeout(done, 50));
       }
       throw new AppLaunchError('unknown', 'workbench-original-window-unavailable');

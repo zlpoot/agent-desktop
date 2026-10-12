@@ -12,7 +12,7 @@ interface WorkbenchAppView {
   revision: number;
   registered: readonly WorkbenchRegisteredApp[];
   candidates: readonly WorkbenchAppCandidate[];
-  readiness: { controlledLaunch: boolean; discovery: boolean; preview?: boolean };
+  readiness: { controlledLaunch: boolean; discovery: boolean; preview?: boolean; stop?: boolean };
   report?: { status: 'complete' | 'incomplete' | 'unavailable' };
   confirmation?: WorkbenchAppConfirmation;
   configuredAppList?: boolean;
@@ -20,7 +20,7 @@ interface WorkbenchAppView {
 }
 type WorkbenchAppChoice = { app: WorkbenchRegisteredApp; candidate?: never }
   | { candidate: WorkbenchAppCandidate; app?: never };
-type WorkbenchAppAction = 'list' | 'path' | 'scan' | 'prepare' | 'confirm' | 'verify';
+type WorkbenchAppAction = 'list' | 'path' | 'scan' | 'prepare' | 'confirm' | 'verify' | 'stop';
 interface WorkbenchAppActionFields {
   path?: string;
   displayName?: string;
@@ -59,6 +59,10 @@ window.createWorkbenchAppLauncher = (root, select) => {
   }
   const open = button('打开应用', requestOpenSelectedApp);
   open.id = 'task-app-open';
+  const stop = button('关闭应用', () => {
+    const app = choices.get(select.value)?.app;
+    if (app) void act('stop', { appBindingId: app.appBindingId, expectedRevision: app.revision });
+  }); stop.id = 'task-app-stop';
   const addApp = button('添加 APP', () => { form.hidden = !form.hidden; }); addApp.id = 'task-app-add';
   const form = node('section'); form.hidden = true;
   const path = node('input'); path.id = 'task-app-path'; path.placeholder = 'C:\\Apps\\Example.exe';
@@ -67,8 +71,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
   const nameLabel = node('label', '应用名称（可修改）'); nameLabel.htmlFor = name.id;
   path.oninput = () => { name.value = path.value.trim().split(/[\\/]/).at(-1)?.replace(/\.exe$/i, '') || ''; };
   const save = button('检查并保存', () => act('path', { path: path.value.trim(), displayName: name.value.trim(), save: true }));
-  form.append(pathLabel, path, nameLabel, name, save, node('p', '保存不启动。打开后仅确认原进程的单个可见主窗口；Hidden Desktop 兼容性以实际结果为准，资源最多保留 60 秒。'));
-  const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, addApp, scan, refresh);
+  form.append(pathLabel, path, nameLabel, name, save, node('p', '保存不启动。打开后确认原进程的单个主窗口；较大的受控窗口会缩小以显示预览。可立即关闭，资源最多保留 60 秒；兼容性以实际结果为准。'));
+  const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, stop, addApp, scan, refresh);
   root.classList.add('workbench-app-launcher'); root.append(actions, form, identity, confirmation, status, preview);
   let scope: WorkbenchAppTarget | undefined, state: WorkbenchAppView | undefined;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
@@ -115,6 +119,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
     const chosen = choices.get(select.value), value = chosen?.app || chosen?.candidate?.candidate;
     select.disabled = busy || !choices.size;
     open.disabled = busy || !!state?.confirmation || !chosen || !state?.readiness.controlledLaunch;
+    const live = chosen?.app && state?.liveStatus?.[chosen.app.appBindingId];
+    stop.disabled = busy || !chosen?.app || !state?.readiness.stop || !live || !['window-confirmed', 'unknown'].includes(live.state);
     scan.disabled = busy || !state?.readiness.discovery;
     refresh.disabled = busy || !scope;
     addApp.disabled = save.disabled = busy || !state?.readiness.controlledLaunch || !state?.readiness.discovery;
@@ -147,7 +153,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     const openedId = extra.appBindingId || snapshot.confirmation?.appBindingId;
     let received = false;
     let preferred: string | undefined;
-    busy = true; render(); status.textContent = action === 'list' ? '正在核对窗口状态…' : action === 'path' ? '正在检查并保存配置…' : action === 'scan' ? '正在发现本环境的应用…' : action === 'prepare' ? '正在核对应用身份…' : '正在打开应用…';
+    busy = true; render(); status.textContent = action === 'list' ? '正在核对窗口状态…' : action === 'stop' ? '正在关闭本次受控应用…' : action === 'path' ? '正在检查并保存配置…' : action === 'scan' ? '正在发现本环境的应用…' : action === 'prepare' ? '正在核对应用身份…' : '正在打开应用…';
     try {
       const result = await post({ action, desktopTarget: snapshot.desktopTarget, sessionId: snapshot.sessionId,
         revision: snapshot.revision, requestId: crypto.randomUUID(), ...extra });
@@ -161,6 +167,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
         preferred = app ? `app:${app.appBindingId}` : '';
         form.hidden = true; status.textContent = '配置已保存，尚未打开。选择应用后点击“打开应用”。';
       } else if (action === 'list') showLiveStatus();
+      else if (action === 'stop') status.textContent = '关闭已处理，正在核对退出状态…';
       else if (action === 'prepare') status.textContent = '请核对下方应用身份，再点击“确认并打开”。';
       else {
         const app = state.registered.find(item => item.appBindingId === openedId), last = app?.verifications.at(-1);
@@ -172,13 +179,13 @@ window.createWorkbenchAppLauncher = (root, select) => {
       }
     } catch (error) { if (current === version) {
       state!.confirmation = undefined;
-      if (['list', 'verify', 'confirm'].includes(action)) state!.liveStatus = undefined;
+      if (['list', 'verify', 'confirm', 'stop'].includes(action)) state!.liveStatus = undefined;
       clearPreview('预览已停止，请刷新核对窗口状态。');
-      status.textContent = `${['list', 'verify', 'confirm'].includes(action) ? '结果未知或打开被拒绝' : '操作被拒绝'}：${(error as Error).message}。请刷新核对，不会自动重试。`;
+      status.textContent = `${action === 'stop' ? '关闭结果未知或被拒绝' : ['list', 'verify', 'confirm'].includes(action) ? '结果未知或打开被拒绝' : '操作被拒绝'}：${(error as Error).message}。请刷新核对，不会自动重试。`;
     } }
     finally { if (current === version) {
       busy = false; render(preferred ?? select.value);
-      if (received && ['verify', 'confirm'].includes(action)) showLiveStatus();
+      if (received && ['verify', 'confirm', 'stop'].includes(action)) showLiveStatus();
       scheduleStatus();
       if (received && ['list', 'verify', 'confirm'].includes(action)) void loadPreview();
     } }

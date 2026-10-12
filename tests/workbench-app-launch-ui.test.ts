@@ -221,6 +221,55 @@ test('late App directory responses cannot restore a previous environment or leav
   } finally { release(); await browser.close(); await f.close(); }
 });
 
+test('close button stops only the selected owned APP, clears late frames, preserves imports and reports lost cleanup replies', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const dir = mkdtempSync(join(tmpdir(), 'app-stop-ui-')), client = new FakeWorkbenchClient();
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { throw Error('no-model'); } } });
+  const server = createDashboardServer(dir, root.controller);
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const { chromium } = await import('playwright'), browser = await chromium.launch();
+  let release = () => {};
+  try {
+    const page = await browser.newPage(), status = page.locator('#task-app-status'), app = page.locator('#task-application');
+    const stop = page.getByRole('button', { name: '关闭应用', exact: true }), preview = page.locator('#task-app-preview img');
+    await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+    await page.locator('#task-destination').selectOption(target(scope.providerId, scope.environmentId));
+    await status.getByText('尚无已确认应用', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '添加 APP', exact: true }).click();
+    await page.locator('#task-app-path').fill('C:\\Synthetic\\Editor.exe');
+    await page.getByRole('button', { name: '检查并保存', exact: true }).click();
+    await status.getByText('配置已保存', { exact: false }).waitFor();
+    assert.equal(await stop.isDisabled(), true); assert.equal(client.stops, 0);
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('窗口已确认', { exact: false }).waitFor(); await preview.waitFor({ state: 'visible' });
+    assert.equal(await stop.isEnabled(), true);
+    const held = new Promise<void>(done => { release = done; }), count = client.previews;
+    client.beforePreview = () => held; await assertEventually(() => client.previews > count);
+    await stop.click(); await status.getByText('workbench-operator-closed', { exact: false }).waitFor();
+    assert.equal(await preview.getAttribute('src'), null); assert.equal(client.stops, 1); assert.equal(client.starts, 1);
+    client.beforePreview = undefined; release();
+    assert.equal(await stop.isDisabled(), true);
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('窗口已确认', { exact: false }).waitFor(); assert.equal(client.starts, 2);
+    await page.route('**/api/desktop/apps', async route => {
+      if (route.request().postDataJSON().action === 'stop') { await route.fetch(); return route.abort('failed'); }
+      return route.continue();
+    });
+    await stop.click(); await status.getByText('关闭结果未知或被拒绝', { exact: false }).waitFor();
+    assert.equal(client.stops, 2); assert.equal(client.starts, 2); assert.equal(await preview.getAttribute('src'), null);
+    assert.doesNotMatch(await status.innerText(), /应用已打开|已退出/);
+    await page.unroute('**/api/desktop/apps'); await page.reload();
+    await app.getByRole('option', { name: /Editor/ }).waitFor({ state: 'attached' });
+    await app.selectOption({ label: await app.getByRole('option', { name: /Editor/ }).innerText() });
+    await status.getByText('workbench-operator-closed', { exact: false }).waitFor();
+    assert.equal(client.starts, 2); assert.equal(client.stops, 2); assert.equal(await preview.getAttribute('src'), null);
+  } finally {
+    release(); await browser.close(); await new Promise<void>(done => server.close(() => done()));
+    await root.dispose(); rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 async function assertEventually(check: () => boolean) {
   const until = Date.now() + 3000;
   while (!check() && Date.now() < until) await new Promise(done => setTimeout(done, 20));

@@ -11,6 +11,35 @@ import { createRootAssembly } from '../src/composition/root.js';
 import { WorkbenchApps, NativeWorkbenchAppClient, workbenchAppConfig, loadWorkbenchAppConfig } from '../src/desktop-provider/workbench-apps.js';
 import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
 
+test('explicit stop is scoped, revision fenced and idempotent; retains saved configuration and launch history', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-stop-')), client = new FakeWorkbenchClient();
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { throw Error('no-model'); } } });
+  const target = { providerId: scope.providerId, environmentId: scope.environmentId };
+  let view: any = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+  const body = (action: string, fields = {}) => ({ action, desktopTarget: target, sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), ...fields });
+  const act = async (action: string, fields = {}) => view = await root.controller.manageApps(body(action, fields));
+  try {
+    for (const path of ['C:\\Synthetic\\Editor.exe', 'D:\\Synthetic\\Viewer.exe']) await act('path', { path, save: true });
+    const [a, b] = view.registered;
+    await act('verify', { appBindingId: a.appBindingId, expectedRevision: a.revision, allowLaunch: true });
+    const current = view.registered.find((app: any) => app.appBindingId === a.appBindingId);
+    await assert.rejects(root.controller.manageApps(body('stop', { appBindingId: b.appBindingId, expectedRevision: b.revision })), /original-profile-required/);
+    await assert.rejects(root.controller.manageApps(body('stop', { appBindingId: a.appBindingId, expectedRevision: current.revision - 1 })), /profile-conflict/);
+    await assert.rejects(root.controller.manageApps({ ...body('stop', { appBindingId: a.appBindingId, expectedRevision: current.revision }), desktopTarget: { ...target, environmentId: 'other' } }), /session-target-mismatch/);
+    assert.equal(client.stops, 0); assert.equal(client.active, true);
+    const stop = body('stop', { appBindingId: a.appBindingId, expectedRevision: current.revision });
+    view = await root.controller.manageApps(stop); await root.controller.manageApps(stop);
+    assert.equal(client.stops, 1); assert.equal(client.starts, 1); assert.equal(client.active, false);
+    assert.equal(view.liveStatus[a.appBindingId].reason, 'workbench-operator-closed');
+    assert.equal(view.registered.length, 2); assert.deepEqual(view.registered.find((app: any) => app.appBindingId === a.appBindingId).verifications, current.verifications);
+    await act('verify', { appBindingId: a.appBindingId, expectedRevision: current.revision, allowLaunch: true });
+    assert.equal(client.starts, 2); client.stopFailure = true;
+    await assert.rejects(act('stop', { appBindingId: a.appBindingId, expectedRevision: view.registered.find((app: any) => app.appBindingId === a.appBindingId).revision }), /cleanup-unconfirmed/);
+    assert.equal(client.stops, 2); assert.equal(client.starts, 2);
+  } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('ordinary Root wires configured App service and App-only environment without task/model/input', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-wiring-')), client = new FakeWorkbenchClient(); let models = 0;
   const provider = new WorkbenchApps(config, scope.installationScopeId, client, true);

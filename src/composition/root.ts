@@ -194,7 +194,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const store = new SqliteEnvironmentAppStore(resolve(rootDir, 'environment-apps.sqlite'));
         try {
           const services = composeEnvironmentApps(store, [...options.environmentApps ?? [],
-            ...(options.workbenchApps ? [{ scope: options.workbenchApps.scope, discovery: options.workbenchApps.discovery, launchBackend: options.workbenchApps.launchBackend, liveStatus: options.workbenchApps.liveStatus, preview: options.workbenchApps.preview }] : [])]);
+            ...(options.workbenchApps ? [{ scope: options.workbenchApps.scope, discovery: options.workbenchApps.discovery, launchBackend: options.workbenchApps.launchBackend, liveStatus: options.workbenchApps.liveStatus, preview: options.workbenchApps.preview, stop: options.workbenchApps.stop }] : [])]);
           ctx.provide('environmentApps', services);
           return async () => { try { await services.close(); } finally { store.close(); } };
         }

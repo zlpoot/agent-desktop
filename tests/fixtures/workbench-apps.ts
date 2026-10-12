@@ -9,6 +9,7 @@ export class FakeWorkbenchClient implements WorkbenchAppClient {
   ended = false; unknown = false; activeProfile?: EnvironmentAppBinding;
   conflict = false;
   windowFailure?: string;
+  stops = 0; stopFailure = false; operatorClosed = false;
   previews = 0; beforePreview?: () => Promise<void>;
   context = { scope, sessionId: 'fake-session', instanceId: 'fake-instance', windowsSessionId: 1, desktop: 'WinSta0\\AgentD0_App_fake' };
   identity = { productId: 'win32-binary:' + config.sha256, fingerprint: config.sha256, version: config.version };
@@ -27,15 +28,22 @@ export class FakeWorkbenchClient implements WorkbenchAppClient {
     }
     if (method === 'inspect' && path.endsWith('Missing.exe')) throw new AppLaunchError('stale', 'app-installation-path-unavailable');
     if (method === 'start' && this.conflict) throw new AppLaunchError('unavailable', 'workbench-existing-user-instance');
+    if (method === 'stop') {
+      if (this.active && (this.activeProfile?.appBindingId !== profile.appBindingId || this.activeProfile?.profileDigest !== profile.profileDigest)) throw Error('workbench-stop-original-profile-required');
+      this.stops++;
+      if (this.stopFailure) throw Error('workbench-cleanup-unconfirmed');
+      if (this.active) { this.active = false; this.ended = this.operatorClosed = true; }
+      return { cleaned: true } as T;
+    }
     if (method === 'instances' && this.active && this.windowFailure) throw new AppLaunchError('unavailable', this.windowFailure);
     if ((method === 'close' || method === 'cleanup') && this.active && this.windowFailure) this.ended = true;
     const result = method === 'inspect' ? { scope, launchSpec: fields.spec, identity }
       : method === 'catalog' ? { displayName: fields.path ? fields.path.split('\\').at(-1).replace(/\.exe$/i, '') : '网易云音乐', aliases: [], launchSpec: { kind: 'exe', executable: fields.path ?? config.path, args: [] },
         source: 'explicit-operator-config', version: identity.version, publisher: 'Synthetic Publisher', contentFingerprint: fingerprint }
       : method === 'reserve' ? this.context : method === 'current' ? { ...this.context, ...(this.changed ? { instanceId: 'changed' } : {}) }
-      : method === 'start' ? (this.starts++, this.active = true, this.activeProfile = profile, 'private-owned-app')
+      : method === 'start' ? (this.starts++, this.active = true, this.ended = this.operatorClosed = false, this.activeProfile = profile, 'private-owned-app')
       : method === 'status' ? { state: this.unknown ? 'unknown' : this.ended ? 'exited' : this.active && this.activeProfile?.appBindingId === profile.appBindingId ? 'window-confirmed' : 'saved',
-        checkedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString(), reason: this.ended ? this.windowFailure ? 'workbench-owned-resources-cleaned' : 'workbench-resource-expired' : undefined }
+        checkedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60000).toISOString(), reason: this.ended ? this.operatorClosed ? 'workbench-operator-closed' : this.windowFailure ? 'workbench-owned-resources-cleaned' : 'workbench-resource-expired' : undefined }
       : method === 'instances' ? this.active ? [{ ...this.context, targetToken: 'private-owned-app', identity: profile.identity,
         executable: profile.launchSpec.kind === 'package' ? '' : profile.launchSpec.executable, args: [],
         processOwnedByInstallation: true, windowOwnedByProcess: true, sameUser: true, permissionsCompatible: true }] : []

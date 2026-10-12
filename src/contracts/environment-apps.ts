@@ -106,6 +106,8 @@ export interface EnvironmentAppService {
   readonly liveStatus?: (app: EnvironmentAppBinding) => Promise<AppLiveStatus>;
   /** Read-only pixels from the same currently confirmed owned window; no input grant. */
   readonly preview?: (app: EnvironmentAppBinding) => Promise<AppWindowPreview>;
+  /** Explicit operator cleanup of this profile's currently owned execution only. */
+  readonly stop?: (app: EnvironmentAppBinding) => Promise<void>;
 }
 export interface AppWindowPreview {
   readonly png: string;

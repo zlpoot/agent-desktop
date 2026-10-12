@@ -75,6 +75,9 @@ class OwnedApp:
             raise ValueError('workbench-installation-scope-mismatch')
         self.config, self.scope = config, scope
         self.api = Api()
+        # PrintWindow draws physical pixels. Query/fit geometry on the same DPI
+        # basis so high-DPI windows are not cropped into virtualized bounds.
+        self.api.capture_dpi()
         self.api.u.GetAncestor.argtypes, self.api.u.GetAncestor.restype = [W.HWND, W.UINT], W.HWND
         self.api.u.GetWindow.argtypes, self.api.u.GetWindow.restype = [W.HWND, W.UINT], W.HWND
         self.api.u.GetWindowLongW.argtypes, self.api.u.GetWindowLongW.restype = [W.HWND, C.c_int], W.LONG
@@ -170,6 +173,40 @@ class OwnedApp:
         if self.process and self.api.k.GetProcessId(self.process) != self.pid:
             raise ValueError('workbench-original-process-changed')
         return self.context
+
+    def stop(self, profile):
+        if self.profile:
+            if self.profile['appBindingId'] != profile['appBindingId'] or self.profile['profileDigest'] != profile['profileDigest']:
+                raise ValueError('workbench-stop-original-profile-required')
+            self.close(reason='workbench-operator-closed')
+        elif self.blocked:
+            raise ValueError('workbench-cleanup-unconfirmed')
+        # No original owned execution is a no-op, never a path/PID-based kill.
+        return {'cleaned': True}
+
+    def fit(self, profile, token):
+        if not self.token or token != self.token:
+            raise ValueError('workbench-owned-token-required')
+        if len(self.instances(profile)) != 1 or not self.hwnd:
+            raise ValueError('workbench-original-window-unavailable')
+        hwnd = self.hwnd
+        rect = W.RECT()
+        self.api.checked(self.api.u.GetWindowRect(hwnd, C.byref(rect)), 'workbench-window-bounds')
+        width, height = rect.right - rect.left, rect.bottom - rect.top
+        if width <= 0 or height <= 0:
+            raise ValueError('workbench-original-window-geometry-unavailable')
+        if width > 2048 or height > 2048:
+            self.api.join_job_view(self.name + '_job')
+            self.api.size_owned_window(hwnd, {'pid': self.pid, 'desktop': self.name,
+                                            'session': self.context['windowsSessionId']},
+                                       min(width, 1600), min(height, 1000), desktop=self.desktop)
+            if len(self.instances(profile)) != 1 or self.hwnd != hwnd:
+                raise ValueError('workbench-original-window-changed')
+            self.api.checked(self.api.u.GetWindowRect(hwnd, C.byref(rect)), 'workbench-window-bounds')
+            if not (0 < rect.right - rect.left <= 2048 and 0 < rect.bottom - rect.top <= 2048):
+                raise ValueError('workbench-window-fit-unconfirmed')
+        self.current()
+        return {'fitted': True}
 
     def preview(self, profile):
         # instances rechecks the original profile, binary, PID, Job, user, session,
@@ -426,12 +463,14 @@ def main():
                 value = json.loads(line); method, fields = value['method'], value.get('fields', {})
                 if method == 'init' and worker is None:
                     worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry']); result = {'initialized': True, 'previewDirectory': getattr(worker, 'preview_id', None)}
-                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'preview', 'cleanup', 'close'):
+                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'preview', 'fit', 'stop', 'cleanup', 'close'):
                     with worker.lock:
                         if method == 'inspect': result = worker.inspect(fields['spec'])
                         elif method == 'catalog': result = worker.catalog(fields.get('path'))
                         elif method in ('reserve', 'current'): result = getattr(worker, method)()
                         elif method in ('start', 'instances', 'status', 'preview'): result = getattr(worker, method)(fields['profile'])
+                        elif method == 'fit': result = worker.fit(fields['profile'], fields['token'])
+                        elif method == 'stop': result = worker.stop(fields['profile'])
                         elif method == 'cleanup':
                             if fields['token'] != worker.token: raise ValueError('workbench-owned-token-required')
                             result = worker.close()

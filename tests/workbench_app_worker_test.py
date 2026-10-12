@@ -345,6 +345,57 @@ class CaptureDesktopIdentityTests(unittest.TestCase):
             with self.assertRaisesRegex(worker.Blocked, reason): api.guard(10, {**expected, **changed}, desktop=9)
 
 
+class StopAndFitTests(unittest.TestCase):
+    def test_stop_only_closes_original_profile_and_never_finds_or_kills_user_processes(self):
+        owner = ManualWorkerTests().owner(); profile = dict(owner.profile)
+        for changed in ({'appBindingId': 'other'}, {'profileDigest': 'other'}):
+            with self.assertRaisesRegex(ValueError, 'stop-original-profile-required'): owner.stop({**profile, **changed})
+        owner.close.assert_not_called()
+        self.assertEqual(owner.stop(profile), {'cleaned': True})
+        owner.close.assert_called_once_with(reason='workbench-operator-closed')
+        self.assertEqual(owner.status(profile)['reason'], 'workbench-operator-closed')
+        self.assertEqual(owner.stop(profile), {'cleaned': True}); self.assertEqual(owner.close.call_count, 1)
+        owner.blocked = True
+        with self.assertRaisesRegex(ValueError, 'cleanup-unconfirmed'): owner.stop(profile)
+
+    def test_stop_cleanup_failure_cannot_report_closed(self):
+        owner = ManualWorkerTests().owner()
+        owner.close.side_effect = worker.NativeDiagnostic('workbench-cleanup-unconfirmed')
+        with self.assertRaisesRegex(ValueError, 'cleanup-unconfirmed'): owner.stop(owner.profile)
+        owner.api.launch.assert_not_called()
+
+    def fit_owner(self, width=2575, height=1407):
+        import ctypes as C
+        owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.token = 'original-token'; owner.hwnd = 10; owner.pid = 42; owner.name = 'original-desktop'
+        owner.desktop = 9; owner.context = {'windowsSessionId': 1}; owner.current = Mock()
+        owner.instances = Mock(return_value=[{'original': True}]); owner.api = Mock()
+        owner.api.checked.side_effect = lambda value, label: value
+        size = [width, height]
+        def bounds(hwnd, pointer):
+            rect = C.cast(pointer, C.POINTER(worker.W.RECT)).contents
+            rect.left = rect.top = 0; rect.right, rect.bottom = size
+            return True
+        def fit(hwnd, expected, width, height, desktop=None): size[:] = [width, height]
+        owner.api.u.GetWindowRect.side_effect = bounds; owner.api.size_owned_window.side_effect = fit
+        return owner, size
+
+    def test_oversize_fits_only_original_window_at_explicit_start_and_rechecks(self):
+        owner, size = self.fit_owner()
+        self.assertEqual(owner.fit({}, 'original-token'), {'fitted': True})
+        owner.api.size_owned_window.assert_called_once_with(10, {'pid': 42, 'desktop': 'original-desktop', 'session': 1}, 1600, 1000, desktop=9)
+        self.assertEqual(size, [1600, 1000]); self.assertEqual(owner.instances.call_count, 2)
+        owner, size = self.fit_owner(1067, 752); owner.fit({}, 'original-token')
+        owner.api.size_owned_window.assert_not_called()
+        owner, size = self.fit_owner()
+        with self.assertRaisesRegex(ValueError, 'owned-token-required'): owner.fit({}, 'wrong-token')
+        owner.instances.assert_not_called(); owner.api.size_owned_window.assert_not_called()
+        owner, size = self.fit_owner(); owner.instances.side_effect = [[{}], []]
+        with self.assertRaisesRegex(ValueError, 'window-changed'): owner.fit({}, 'original-token')
+        owner, size = self.fit_owner(); owner.api.size_owned_window.side_effect = None
+        with self.assertRaisesRegex(ValueError, 'fit-unconfirmed'): owner.fit({}, 'original-token')
+
+
 class CleanupAckTests(unittest.TestCase):
     def owner(self):
         owner=worker.OwnedApp.__new__(worker.OwnedApp)

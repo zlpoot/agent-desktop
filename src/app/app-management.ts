@@ -16,6 +16,7 @@ const fields: Record<string, readonly string[]> = {
   confirm: ['confirmationId', 'digest', 'allowLaunch'], verify: ['appBindingId', 'expectedRevision', 'allowLaunch'],
   revoke: ['appBindingId', 'expectedRevision'], cancel: [], close: [],
   preview: ['appBindingId', 'expectedRevision'],
+  stop: ['appBindingId', 'expectedRevision'],
 };
 /** Private Dashboard operator port. Uses the very same P7-C services as Task onboarding.
  * Sessions and receipts are ephemeral; no Task continuation or runtime target is returned. */
@@ -63,7 +64,7 @@ export class AppManagement {
     return { sessionId: session.id, revision: session.revision, desktopTarget: session.target, scope: session.scope,
       registered, candidates: session.candidates, report: session.report, confirmation: session.display, liveStatus,
       readiness: { discovery: typeof (service.discovery as ReadonlyAppDiscovery)?.candidate === 'function',
-        controlledLaunch: !!service.onboarding, preview: !!service.preview, taskCompatibility: option.executable, blockedReason: option.blockedReason,
+        controlledLaunch: !!service.onboarding, preview: !!service.preview, stop: !!service.stop, taskCompatibility: option.executable, blockedReason: option.blockedReason,
         scenarios: option.scenarios ?? [], businessCapable: false,
         businessReason: 'not-proven: launch verification is not P6 action evidence; Tasks still require a trusted runtime bridge and independent capability/risk/budget/input/result gates' } };
   }
@@ -198,6 +199,17 @@ export class AppManagement {
         }
         await this.current(session); session.display = undefined;
       } finally { session.active.delete(operationId); }
+    } else if (action === 'stop') {
+      if (!service.stop) throw new Error('app-stop-unavailable');
+      textValue(body.appBindingId);
+      // Cleanup must remain possible when availability is unknown. This grants
+      // no launch permission, restores no trust and does not erase any history.
+      const app = service.registry.get(body.appBindingId as string);
+      if (!app || app.revision !== body.expectedRevision || !sameAppScope(app.scope, session.scope)) throw new Error('app-stop-profile-conflict');
+      await service.stop(app);
+      await this.current(session);
+      const current = service.registry.get(app.appBindingId);
+      if (!current || current.revision !== app.revision || current.profileDigest !== app.profileDigest) throw new Error('app-stop-profile-changed');
     } else if (action === 'revoke') {
       textValue(body.appBindingId);
       if (service.onboarding) service.onboarding.revoke({ appBindingId: body.appBindingId as string,

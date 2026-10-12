@@ -130,8 +130,9 @@ class Api:
     def capture_dpi(self):
         self.checked(self.u.SetThreadDpiAwarenessContext(-4), "capture_thread_dpi")
 
-    def size_owned_window(self, hwnd, expected, width, height):
-        self.guard(hwnd, expected)
+    def size_owned_window(self, hwnd, expected, width, height, desktop=None):
+        if desktop is None: self.guard(hwnd, expected)
+        else: self.guard(hwnd, expected, desktop=desktop)
         if not (400 <= width <= 2048 and 300 <= height <= 2048):
             raise Blocked("owned_window_size_budget")
         self.u.ShowWindow(hwnd, 4)  # Restore/show without activation (SW_SHOWNOACTIVATE).
