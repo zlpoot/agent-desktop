@@ -49,6 +49,8 @@ npm run demo:browser
 
 `node scripts/check-dashboard.mjs` 会在临时本机端口启动控制台、检查只读路由并停止进程，可验证无模型/Guest 配置的启动。
 
+工作台应用打开组件源码为 `src/app/public/workbench-app-launcher.ts`，独立浏览器类型配置为 `tsconfig.workbench-app.json`，纳入 `npm run check`。普通 Dashboard 和合成网页服务创建时，使用既有 TypeScript CLI 编译该组件，以 `/workbench-app-launcher.js` 提供；编译结果缓存在当前进程，临时输出仅写入忽略目录 `.artifacts/frontend/` 并在读取后清理。其他页面 JS、原生 worker 及协议保持原样，无须额外手动构建。
+
 ## 控制台与配置
 
 ```powershell

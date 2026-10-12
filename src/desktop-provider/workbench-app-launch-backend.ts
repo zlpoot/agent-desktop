@@ -1,0 +1,75 @@
+import type { AppLaunchSpec, EnvironmentAppBinding, EnvironmentAppScope } from '../contracts/environment-apps.js';
+import type { AppInstallationCheck, AppInstanceEvidence, AppLaunchExecution, AppRuntimeContext, ManagedAppLaunchBackend } from '../contracts/app-launch.js';
+import { AppLaunchError } from '../environment-apps/launcher.js';
+import type { WorkbenchAppClient } from './workbench-app-native-client.js';
+
+/** Keeps configured-App admission and original-resource checks at each native boundary. */
+export function createWorkbenchAppLaunchBackend(options: {
+  scope: EnvironmentAppScope;
+  spec: AppLaunchSpec;
+  client: WorkbenchAppClient;
+  isClosed(): boolean;
+  close(): Promise<void>;
+}): ManagedAppLaunchBackend {
+  const { scope, spec, client, isClosed, close } = options;
+
+  async function inspectInstalledApp(value: AppLaunchSpec, signal: AbortSignal): Promise<AppInstallationCheck> {
+    if (isClosed() || signal.aborted || JSON.stringify(value) !== JSON.stringify(spec)) {
+      throw new AppLaunchError('unavailable', 'workbench-configured-app-only');
+    }
+    const checked = await client.call<AppInstallationCheck>('inspect', { spec: value });
+    if (signal.aborted || isClosed()) throw new AppLaunchError('unavailable', 'workbench-app-cancelled');
+    return checked;
+  }
+
+  async function reserveExecution(signal: AbortSignal): Promise<AppLaunchExecution> {
+    if (isClosed() || signal.aborted) throw Error('workbench-app-cancelled');
+    const context = await client.call<AppRuntimeContext>('reserve');
+    let owned: string | undefined;
+
+    async function assertCurrent() {
+      if (isClosed() || signal.aborted) throw Error('workbench-app-cancelled');
+      const actual = await client.call<AppRuntimeContext>('current');
+      if (JSON.stringify(actual) !== JSON.stringify(context)) throw Error('workbench-original-context-changed');
+    }
+    async function instances(profile: EnvironmentAppBinding) {
+      await assertCurrent();
+      const values = await client.call<AppInstanceEvidence[]>('instances', { profile });
+      await assertCurrent();
+      return values;
+    }
+    async function startOwnedApp(profile: EnvironmentAppBinding) {
+      await assertCurrent();
+      owned = await client.call<string>('start', { profile });
+      await assertCurrent();
+      return owned;
+    }
+    async function observeOwnedApp(profile: EnvironmentAppBinding, token?: string) {
+      if (token !== owned) throw Error('workbench-owned-token-required');
+      const until = Date.now() + 8000;
+      while (Date.now() < until) {
+        const values = await instances(profile);
+        if (values.length) return values;
+        await new Promise(done => setTimeout(done, 50));
+      }
+      throw new AppLaunchError('unknown', 'workbench-original-window-unavailable');
+    }
+    async function cleanupOwnedApp(token: string) {
+      if (!owned || token !== owned) throw Error('workbench-owned-token-required');
+      await client.call('cleanup', { token });
+    }
+    async function closeExecution(keep?: boolean) {
+      try { if (!keep || signal.aborted) await client.call('close'); }
+      catch (error) {
+        console.error('Workbench close diagnostic:', JSON.stringify({
+          exception: error instanceof Error ? error.name : 'unknown',
+          code: error instanceof Error && /^[a-z][a-z0-9-]{1,100}$/.test(error.message) ? error.message : 'workbench-close-failed',
+        }));
+        throw error;
+      }
+    }
+    return { context, assertCurrent, inspect: value => inspectInstalledApp(value, signal), instances,
+      start: startOwnedApp, observe: observeOwnedApp, cleanupOwned: cleanupOwnedApp, close: closeExecution };
+  }
+  return { scope, inspect: inspectInstalledApp, open: reserveExecution, close };
+}

@@ -20,6 +20,7 @@ import { compactObservationFacets } from '../contracts/facets.js';
 import { globalTaskBudget, parseBudgetOverride, readTaskBudget, saveGlobalTaskBudget } from '../runtime/model-budget.js';
 import type { DashboardPreflightView } from '../composition/dashboard-preflight.js';
 import { readModelSettings, saveModelSettings } from '../agent/model-settings.js';
+import { workbenchAppLauncherAsset } from './workbench-app-launcher-asset.js';
 
 /** 输入控制的页面操作面；具体实现为 DesktopControl。 */
 export interface DesktopControlView {
@@ -366,6 +367,7 @@ function sameOrigin(request: IncomingMessage): boolean {
 export function createDashboardServer(rootDir = process.cwd(), controller?: TaskController,
   desktop?: DesktopProvider, vmControl?: VmControl, control?: DesktopControlView,
   inspectRuntime?: () => AssemblySnapshot, preflight?: DashboardPreflightView, fixtureOnly = false): Server {
+  const appLauncher = preflight ? undefined : workbenchAppLauncherAsset();
   return createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (fixtureOnly && request.method !== 'GET' && !(request.method === 'POST' &&
@@ -668,6 +670,9 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
       if (parts[0] === "api" && parts[1] === "screenshots" && parts.length === 5) {
         const image = readScreenshot(rootDir, parts[2], parts[3], Number(parts[4]));
         return image ? send(response, 200, image, "image/png") : json(response, 404, { error: "未找到截图" });
+      }
+      if (url.pathname === '/workbench-app-launcher.js' && appLauncher) {
+        return send(response, 200, appLauncher, 'text/javascript; charset=utf-8');
       }
       const files: Record<string, [string, string]> = {
         "/": [preflight ? "preflight.html" : "index.html", "text/html; charset=utf-8"],

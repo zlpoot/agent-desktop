@@ -11,6 +11,7 @@
       "node"
     ]
   },
+  "exclude": ["src/app/public/workbench-app-launcher.ts"],
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",

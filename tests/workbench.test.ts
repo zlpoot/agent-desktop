@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
+import { workbenchAppLauncherAsset } from '../src/app/workbench-app-launcher-asset.js';
 
 test('工作台隔离当前任务与历史记录，保持控制归属及响应式布局', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
@@ -56,6 +57,9 @@ test('工作台隔离当前任务与历史记录，保持控制归属及响应�
       } } });
       if (data) return route.fulfill({ json: data });
       const file = path === '/' ? 'index.html' : path.slice(1);
+      if (file === 'workbench-app-launcher.js') return route.fulfill({
+        body: workbenchAppLauncherAsset(), contentType: 'text/javascript',
+      });
       if (!['index.html', 'app.js', 'app-management.js', 'environment-catalog.js', 'workbench.js', 'task-experience.js', 'workflow-library.js', 'runtime-plugins.js', 'style.css', 'workbench.css', 'app-shell.js', 'app-shell.css', 'model-settings.js'].includes(file)) return route.fulfill({ status: 404 });
       await route.fulfill({ body: readFileSync(resolve('src/app/public', file)),
         contentType: file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'text/html' });

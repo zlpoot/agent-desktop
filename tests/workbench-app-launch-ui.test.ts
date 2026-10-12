@@ -10,6 +10,7 @@ import { createRootAssembly } from '../src/composition/root.js';
 import { createDashboardServer } from '../src/app/server.js';
 import { WorkbenchApps } from '../src/desktop-provider/workbench-apps.js';
 import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
+import { Script } from 'node:vm';
 
 const target = (providerId: string, environmentId: string) => JSON.stringify([providerId, environmentId]);
 
@@ -22,13 +23,19 @@ test('normal startup lists its configured App immediately in the main workbench'
     model: { createModel() { models++; throw Error('no-model'); } } });
   const server = createDashboardServer(dir, root.controller);
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const { chromium } = await import('playwright'), browser = await chromium.launch();
   try {
+    const asset = await fetch(`${base}/workbench-app-launcher.js`);
+    assert.equal(asset.status, 200);
+    assert.match(asset.headers.get('content-type')!, /^text\/javascript/);
+    assert.equal(asset.headers.get('x-content-type-options'), 'nosniff');
+    new Script(await asset.text());
     const page = await browser.newPage();
     page.on('request', request => {
       if (request.method() === 'POST') assert.equal(new URL(request.url()).pathname, '/api/desktop/apps');
     });
-    await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+    await page.goto(base);
     const environment = page.locator('#task-destination'), app = page.locator('#task-application');
     await page.waitForFunction(() => Array.from((document.querySelector('#task-destination') as HTMLSelectElement).options)
       .some(option => option.value.includes('workbench-apps')));
