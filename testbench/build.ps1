@@ -10,6 +10,6 @@ $wpf = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\WPF'
 $coreRef = '/reference:' + (Join-Path $wpf 'PresentationCore.dll')
 $frameworkRef = '/reference:' + (Join-Path $wpf 'PresentationFramework.dll')
 $baseRef = '/reference:' + (Join-Path $wpf 'WindowsBase.dll')
-& $compiler /nologo /codepage:65001 /target:winexe "/out:$Output" $baseRef /reference:System.Xaml.dll /reference:System.Web.Extensions.dll $coreRef $frameworkRef (Join-Path $root 'Program.cs') (Join-Path $root 'Shopping.cs')
+& $compiler /nologo /codepage:65001 /target:winexe "/out:$Output" $baseRef /reference:System.Xaml.dll /reference:System.Web.Extensions.dll $coreRef $frameworkRef (Join-Path $root 'Program.cs') (Join-Path $root 'Shopping.cs') (Join-Path $root 'TaskChannel.cs') (Join-Path $root 'RegistryFence.cs')
 if ($LASTEXITCODE -ne 0) { throw "TestBench 编译失败，退出码 $LASTEXITCODE" }
 Write-Output $Output

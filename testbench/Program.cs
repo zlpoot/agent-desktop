@@ -101,9 +101,10 @@ namespace WindowsAgentTestBench
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = Brushes.White;
             BuildShell();
+            new BenchTaskChannel(this);
             if (startView == "customer") ShowCustomerDetail();
             else ShowHome();
-            Loaded += (s, e) => Task.Run(() => Serve(serverStop.Token));
+            if (!String.IsNullOrEmpty(pipeName)) Loaded += (s, e) => Task.Run(() => Serve(serverStop.Token));
             Closed += (s, e) => serverStop.Cancel();
         }
 
@@ -422,7 +423,7 @@ namespace WindowsAgentTestBench
             var pipe = arg("pipe");
             var secret = arg("secret");
             var customer = arg("customer");
-            if (pipe == "" || secret == "") { MessageBox.Show("请使用 run.ps1 启动 TestBench。", "启动错误"); return; }
+            if (!args.Contains("--task-channel") && (pipe == "" || secret == "")) { MessageBox.Show("请使用 run.ps1 启动 TestBench。", "启动错误"); return; }
             var scenario = arg("scenario");
             if (scenario == "shopping") new Application().Run(new ShoppingWindow(mode, seed, pipe, secret));
             else new Application().Run(new BenchWindow(mode, seed, pipe, secret, customer,
