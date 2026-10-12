@@ -16,11 +16,15 @@ interface WorkbenchAppView {
   report?: { status: 'complete' | 'incomplete' | 'unavailable' };
   confirmation?: WorkbenchAppConfirmation;
   configuredAppList?: boolean;
+  liveStatus?: Record<string, import('../../contracts/environment-apps.js').AppLiveStatus>;
 }
 type WorkbenchAppChoice = { app: WorkbenchRegisteredApp; candidate?: never }
   | { candidate: WorkbenchAppCandidate; app?: never };
-type WorkbenchAppAction = 'scan' | 'prepare' | 'confirm' | 'verify';
+type WorkbenchAppAction = 'list' | 'path' | 'scan' | 'prepare' | 'confirm' | 'verify';
 interface WorkbenchAppActionFields {
+  path?: string;
+  displayName?: string;
+  save?: true;
   appBindingId?: string;
   expectedRevision?: number;
   candidateId?: string;
@@ -51,9 +55,19 @@ window.createWorkbenchAppLauncher = (root, select) => {
   }
   const open = button('打开应用', requestOpenSelectedApp);
   open.id = 'task-app-open';
-  const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, scan, refresh);
-  root.classList.add('workbench-app-launcher'); root.append(actions, identity, confirmation, status);
+  const addApp = button('添加 APP', () => { form.hidden = !form.hidden; }); addApp.id = 'task-app-add';
+  const form = node('section'); form.hidden = true;
+  const path = node('input'); path.id = 'task-app-path'; path.placeholder = 'C:\\Apps\\Example.exe';
+  const pathLabel = node('label', '所选环境中的 .exe 绝对路径'); pathLabel.htmlFor = path.id;
+  const name = node('input'); name.id = 'task-app-name'; name.maxLength = 128;
+  const nameLabel = node('label', '应用名称（可修改）'); nameLabel.htmlFor = name.id;
+  path.oninput = () => { name.value = path.value.trim().split(/[\\/]/).at(-1)?.replace(/\.exe$/i, '') || ''; };
+  const save = button('检查并保存', () => act('path', { path: path.value.trim(), displayName: name.value.trim(), save: true }));
+  form.append(pathLabel, path, nameLabel, name, save, node('p', '保存不启动。打开后仅确认原进程的单个可见主窗口；Hidden Desktop 兼容性以实际结果为准，资源最多保留 60 秒。'));
+  const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, addApp, scan, refresh);
+  root.classList.add('workbench-app-launcher'); root.append(actions, form, identity, confirmation, status);
   let scope: WorkbenchAppTarget | undefined, state: WorkbenchAppView | undefined;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let busy = false, version = 0, choices = new Map<string, WorkbenchAppChoice>();
   const key = (value: WorkbenchAppTarget | undefined) => value ? JSON.stringify([value.providerId, value.environmentId]) : '';
   const confirmed = (app: WorkbenchRegisteredApp) => app.validity === 'current' && ['confirmed', 'verified'].includes(app.trust) &&
@@ -77,13 +91,14 @@ window.createWorkbenchAppLauncher = (root, select) => {
     return result;
   }
   function reset() {
-    version++; const old = state; state = undefined; busy = false; select.value = ''; end(old); render();
+    if (pollTimer) clearTimeout(pollTimer);
+    version++; const old = state; state = undefined; busy = false; select.value = ''; form.hidden = true; path.value = name.value = ''; end(old); render();
   }
   function render(previous = select.value) {
     choices = new Map(); select.replaceChildren(node('option', '请选择应用')); (select.firstChild as HTMLOptionElement).value = '';
     const registered = (state?.registered || []).filter(confirmed);
     const add = (value: string, label: string, choice: WorkbenchAppChoice) => { const option = node('option', label); option.value = value; select.append(option); choices.set(value, choice); };
-    for (const app of registered) add(`app:${app.appBindingId}`, `${app.displayName} · ${app.identity?.version || '版本未知'}（已确认）`, { app });
+    for (const app of registered) add(`app:${app.appBindingId}`, `${app.displayName} · ${app.identity?.version || '版本未知'}（配置已保存）`, { app });
     for (const candidate of state?.candidates || []) {
       if (registered.some(app => app.installationId === candidate.candidate.installationId && app.identity?.fingerprint === candidate.contentFingerprint &&
           (!candidate.version || app.identity!.version === candidate.version) && JSON.stringify(app.launchSpec) === JSON.stringify(candidate.candidate.launchSpec))) continue;
@@ -95,6 +110,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
     open.disabled = busy || !!state?.confirmation || !chosen || !state?.readiness.controlledLaunch;
     scan.disabled = busy || !state?.readiness.discovery;
     refresh.disabled = busy || !scope;
+    addApp.disabled = save.disabled = busy || !state?.readiness.controlledLaunch || !state?.readiness.discovery;
+    path.disabled = name.disabled = busy;
     identity.textContent = value ? `${value.displayName}\n环境：${scope!.providerId} / ${scope!.environmentId}\n${launchText(value.launchSpec)}` : '';
     confirmation.replaceChildren();
     if (state?.confirmation) {
@@ -112,42 +129,79 @@ window.createWorkbenchAppLauncher = (root, select) => {
       if (current !== version) { end(result); return; }
       state = checked(result, selected);
       status.textContent = !state.readiness.controlledLaunch ? '本环境尚未配置受控启动，请到“环境与应用”检查配置。'
-        : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '尚无已确认应用。点击“发现应用”，选择后核对并打开。';
+        : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '尚无已确认应用。点击“添加 APP”粘贴本环境中的路径并保存。';
     } catch (error) { if (current === version) status.textContent = `App 列表不可用：${(error as Error).message}。可刷新重试或到“环境与应用”检查配置。`; }
     finally { if (current === version) { busy = false; render(); } }
-    // An explicit operator-pinned App list can be read immediately; no system-wide scan or launch.
-    if (current === version && state?.configuredAppList === true && state.readiness.discovery && !state.registered.some(confirmed)) await act('scan');
   }
   async function act(action: WorkbenchAppAction, extra: WorkbenchAppActionFields = {}) {
     if (!state || busy) return;
     const current = version, snapshot = state, selected = scope;
     const openedId = extra.appBindingId || snapshot.confirmation?.appBindingId;
+    let received = false;
     let preferred: string | undefined;
-    busy = true; render(); status.textContent = action === 'scan' ? '正在发现本环境的应用…' : action === 'prepare' ? '正在核对应用身份…' : '正在打开应用…';
+    busy = true; render(); status.textContent = action === 'list' ? '正在核对窗口状态…' : action === 'path' ? '正在检查并保存配置…' : action === 'scan' ? '正在发现本环境的应用…' : action === 'prepare' ? '正在核对应用身份…' : '正在打开应用…';
     try {
       const result = await post({ action, desktopTarget: snapshot.desktopTarget, sessionId: snapshot.sessionId,
         revision: snapshot.revision, requestId: crypto.randomUUID(), ...extra });
       if (current !== version) return;
       state = checked(result, selected);
+      received = true;
       if (action === 'scan') {
         preferred = ''; status.textContent = `${state.candidates.length} 个应用候选。请明确选择；${state.report?.status === 'complete' ? '选择不会自动打开应用。' : '发现不完整或不可用，不能据此判断未安装。'}`;
-      } else if (action === 'prepare') status.textContent = '请核对下方应用身份，再点击“确认并打开”。';
+      } else if (action === 'path') {
+        const app = state.registered.find(item => item.launchSpec.kind === 'exe' && item.launchSpec.executable.toLowerCase().replaceAll('/', '\\') === extra.path?.toLowerCase().replaceAll('/', '\\'));
+        preferred = app ? `app:${app.appBindingId}` : '';
+        form.hidden = true; status.textContent = '配置已保存，尚未打开。选择应用后点击“打开应用”。';
+      } else if (action === 'list') showLiveStatus();
+      else if (action === 'prepare') status.textContent = '请核对下方应用身份，再点击“确认并打开”。';
       else {
         const app = state.registered.find(item => item.appBindingId === openedId), last = app?.verifications.at(-1);
         const verified = last?.result === 'verified' && last.profileDigest === app!.profileDigest && last.profileRevision === app!.profileRevision &&
           last.processOwnershipVerified === true && last.windowOwnershipVerified === true;
         preferred = `app:${openedId}`;
-        status.textContent = verified ? `应用已打开：${app!.displayName}。`
+        status.textContent = verified ? `应用已打开：${app!.displayName}（窗口已确认）。`
           : `打开未完成：${last?.reason || app?.lastError || '窗口身份未获确认'}。不会自动重试。`;
       }
-    } catch (error) { if (current === version) { state!.confirmation = undefined; status.textContent = `操作被拒绝：${(error as Error).message}。请刷新核对，不会自动重试。`; } }
-    finally { if (current === version) { busy = false; render(preferred ?? select.value); } }
+    } catch (error) { if (current === version) {
+      state!.confirmation = undefined;
+      if (['list', 'verify', 'confirm'].includes(action)) state!.liveStatus = undefined;
+      status.textContent = `${['list', 'verify', 'confirm'].includes(action) ? '结果未知或打开被拒绝' : '操作被拒绝'}：${(error as Error).message}。请刷新核对，不会自动重试。`;
+    } }
+    finally { if (current === version) {
+      busy = false; render(preferred ?? select.value);
+      if (received && ['verify', 'confirm'].includes(action)) showLiveStatus();
+      scheduleStatus();
+    } }
+  }
+  function showLiveStatus() {
+    const app = choices.get(select.value)?.app;
+    if (!app || !state?.liveStatus) return;
+    const live = state.liveStatus[app.appBindingId];
+    if (!live || live.state === 'unknown' || !Number.isFinite(Date.parse(live.checkedAt)) || Date.now() - Date.parse(live.checkedAt) > 5000) {
+      status.textContent = `结果未知：${live?.reason || '当前窗口状态不可用'}。不会自动重试。`; return;
+    }
+    if (live.state === 'window-confirmed') {
+      if (live.expiresAt && Date.parse(live.expiresAt) <= Date.now()) { status.textContent = '资源期限已到，正在核对退出状态…'; return; }
+      status.textContent = `应用已打开：${app.displayName}（窗口已确认）。资源最迟于 ${live.expiresAt ? new Date(live.expiresAt).toLocaleTimeString() : '未知时间'} 回收（60 秒期限）。`;
+    } else if (live.state === 'exited') status.textContent = `已退出：${live.reason || '原进程已结束'}。`;
+    else {
+      const last = app.verifications.at(-1);
+      status.textContent = last?.result === 'unavailable' || last?.result === 'mismatch'
+        ? `打开失败/未知：${last.reason || app.lastError || '未确认'}。不会自动重试。`
+        : '配置已保存，尚未打开。';
+    }
+  }
+  function scheduleStatus() {
+    if (pollTimer) clearTimeout(pollTimer);
+    if (!state?.liveStatus || !choices.get(select.value)?.app) return;
+    pollTimer = setTimeout(() => { if (!busy) void act('list'); else scheduleStatus(); }, 2000);
   }
   select.onchange = () => {
     if (state) state.confirmation = undefined;
     render();
     status.textContent = !state?.readiness.controlledLaunch ? '本环境尚未配置受控启动，请到“环境与应用”检查配置。'
-      : select.value ? '已选择应用，请点击“打开应用”。' : '请选择应用。';
+      : select.value ? '配置已保存，尚未打开；请点击“打开应用”。' : '请选择应用。';
+    showLiveStatus(); scheduleStatus();
   };
   window.addEventListener('pagehide', () => { scope = undefined; reset(); });
   render();

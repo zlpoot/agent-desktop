@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createServer } from 'node:net';
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { createRootAssembly } from '../src/composition/root.js';
 import { WorkbenchApps, workbenchAppConfig, loadWorkbenchAppConfig } from '../src/desktop-provider/workbench-apps.js';
 import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
@@ -32,10 +36,81 @@ test('ordinary Root wires configured App service and App-only environment withou
   } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('configured App rejects wrappers, other versions, mutable authority and missing explicit files', () => {
+test('legacy seed accepts ordinary EXEs and probed versions; rejects wrappers, malformed paths and authority', () => {
+  assert.equal(workbenchAppConfig({ ...config, path: 'D:\\Synthetic\\Editor.exe', version: '2.0' }).version, '2.0');
   for (const invalid of [{ ...config, path: 'C:\\Windows\\cmd.exe' }, { ...config, path: '\\\\server\\cloudmusic.exe' },
-    { ...config, version: 'other' }, { ...config, sha256: 'not-a-pin' }, { ...config, allowLaunch: true }]) assert.throws(() => workbenchAppConfig(invalid));
+    { ...config, version: '' }, { ...config, sha256: 'not-a-pin' }, { ...config, allowLaunch: true }]) assert.throws(() => workbenchAppConfig(invalid));
   const dir = mkdtempSync(join(tmpdir(), 'workbench-config-'));
   try { assert.equal(loadWorkbenchAppConfig(dir), undefined); assert.throws(() => loadWorkbenchAppConfig(dir, join(dir, 'missing.json'))); }
   finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('manual imports persist two paths/names across Root restart without scan/start/model; polling cannot launch or consume receipts', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'manual-app-import-'));
+  let client = new FakeWorkbenchClient(), models = 0;
+  const assemble = () => createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { models++; throw Error('no-model'); } } });
+  let root = await assemble();
+  const target = { providerId: scope.providerId, environmentId: scope.environmentId };
+  let view: any;
+  const act = async (action: string, fields = {}) => view = await root.controller.manageApps({ action, desktopTarget: target,
+    sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), ...fields });
+  try {
+    view = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+    for (const [path, displayName] of [['C:\\Synthetic\\Editor.exe', '编辑器'], ['D:\\Synthetic\\Viewer.exe', '查看器']]) {
+      await act('path', { path, displayName, save: true });
+    }
+    assert.deepEqual(new Set(view.registered.map((app: any) => app.displayName)), new Set(['编辑器', '查看器']));
+    assert.equal(client.starts, 0); assert.ok(!client.calls.includes('reserve')); assert.equal(models, 0);
+    const oldSession = view.sessionId;
+    await root.dispose(); client = new FakeWorkbenchClient(); root = await assemble();
+    view = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+    assert.equal(view.registered.length, 2); assert.ok(Object.values(view.liveStatus).every((live: any) => live.state === 'saved'));
+    await assert.rejects(root.controller.manageApps({ action: 'list', desktopTarget: target, sessionId: oldSession, revision: 0, requestId: crypto.randomUUID() }), /session-target-mismatch/);
+    const app = view.registered[0];
+    await act('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true });
+    assert.equal(client.starts, 1); assert.equal(view.liveStatus[app.appBindingId].state, 'window-confirmed');
+    // Poll more than the operation-receipt limit, without launches or a lease extension.
+    for (let i = 0; i < 130; i++) await act('list');
+    assert.equal(client.starts, 1);
+    client.active = false; client.ended = true;
+    await act('list'); assert.equal(view.liveStatus[app.appBindingId].state, 'exited');
+    assert.equal(view.registered[0].verifications.at(-1).result, 'verified', 'audit is historical; live exit is separate');
+    client.unknown = true;
+    await act('list'); assert.equal(view.liveStatus[app.appBindingId].state, 'unknown'); assert.equal(client.starts, 1);
+    await assert.rejects(act('path', { path: 'C:\\Windows\\cmd.exe', displayName: 'shell', save: true }), /wrapper/);
+    assert.equal(client.starts, 1); assert.equal(models, 0);
+  } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('ordinary dashboard CLI needs neither APP JSON nor model keys; empty scoped list uses a synthetic identity only', { skip: process.platform !== 'win32', timeout: 30000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ordinary-app-start-'));
+  mkdirSync(join(dir, 'scripts'));
+  writeFileSync(join(dir, 'scripts/dashboard-app-identity.py'), `import json\nprint(json.dumps({'installationScopeId':'${scope.installationScopeId}'}))\n`.replaceAll('\\n', '\n'));
+  const listener = createServer(); await new Promise<void>(done => listener.listen(0, '127.0.0.1', done));
+  const port = (listener.address() as { port: number }).port; await new Promise<void>(done => listener.close(() => done()));
+  const environment = { ...process.env };
+  for (const key of Object.keys(environment)) if (/^(COMPUTER_USE_|AGENT_DESKTOP_|JEV_|NETEASE_APP_PATH$)/.test(key)) delete environment[key];
+  const child = spawn(process.execPath, ['--import', pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href,
+    resolve('src/app/start.ts'), '--port', String(port)], { cwd: dir, env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = ''; child.stdout.on('data', data => { output += data.toString(); }); child.stderr.on('data', data => { output += data.toString(); });
+  try {
+    const until = Date.now() + 15000;
+    while (!output.includes(`http://127.0.0.1:${port}`) && child.exitCode === null && Date.now() < until) await new Promise(done => setTimeout(done, 25));
+    assert.match(output, new RegExp(`http://127.0.0.1:${port}`), output);
+    const base = `http://127.0.0.1:${port}`;
+    assert.equal((await fetch(base)).status, 200);
+    const response = await fetch(`${base}/api/desktop/apps`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base },
+      body: JSON.stringify({ action: 'open', desktopTarget: { providerId: scope.providerId, environmentId: scope.environmentId } }) });
+    assert.equal(response.status, 200);
+    const view: any = await response.json(); assert.equal(view.registered.length, 0); assert.equal(view.readiness.controlledLaunch, true);
+    assert.equal(view.scope.installationScopeId, scope.installationScopeId);
+    assert.equal((await fetch(`${base}/workbench-app-launcher.js`)).status, 200);
+    assert.ok(!output.includes('Workbench native'), 'empty console must not initialize a native APP worker');
+  } finally {
+    if (child.exitCode === null) { child.kill(); await new Promise<void>(done => child.once('exit', () => done())); }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

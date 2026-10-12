@@ -124,3 +124,5 @@
 .workbench-app-panel p { white-space: pre-line; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
 .workbench-app-panel h3 { font-size: 14px; }
 #task-app-confirmation:not(:empty) { margin-top: 12px; padding: 12px; background: #172a36; border-radius: 8px; }
+.workbench-app-launcher label { display: block; margin: 12px 0 6px; font-size: 13px; }
+.workbench-app-launcher input { display: block; width: 100%; box-sizing: border-box; min-width: 0; margin-bottom: 10px; padding: 10px; background: #101c29; color: #e4edf5; border: 1px solid #3a4c5d; border-radius: 8px; font: inherit; }

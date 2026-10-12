@@ -1,21 +1,22 @@
 import type { AppLaunchSpec, EnvironmentAppBinding, EnvironmentAppScope } from '../contracts/environment-apps.js';
 import type { AppInstallationCheck, AppInstanceEvidence, AppLaunchExecution, AppRuntimeContext, ManagedAppLaunchBackend } from '../contracts/app-launch.js';
 import { AppLaunchError } from '../environment-apps/launcher.js';
+import { launchDefinition } from '../environment-apps/launcher.js';
 import type { WorkbenchAppClient } from './workbench-app-native-client.js';
 
 /** Keeps configured-App admission and original-resource checks at each native boundary. */
 export function createWorkbenchAppLaunchBackend(options: {
   scope: EnvironmentAppScope;
-  spec: AppLaunchSpec;
   client: WorkbenchAppClient;
   isClosed(): boolean;
   close(): Promise<void>;
 }): ManagedAppLaunchBackend {
-  const { scope, spec, client, isClosed, close } = options;
+  const { scope, client, isClosed, close } = options;
 
   async function inspectInstalledApp(value: AppLaunchSpec, signal: AbortSignal): Promise<AppInstallationCheck> {
-    if (isClosed() || signal.aborted || JSON.stringify(value) !== JSON.stringify(spec)) {
-      throw new AppLaunchError('unavailable', 'workbench-configured-app-only');
+    launchDefinition(value);
+    if (isClosed() || signal.aborted || value.kind !== 'exe' || value.args.length || value.workingDirectory) {
+      throw new AppLaunchError('unavailable', 'workbench-no-argument-exe-only');
     }
     const checked = await client.call<AppInstallationCheck>('inspect', { spec: value });
     if (signal.aborted || isClosed()) throw new AppLaunchError('unavailable', 'workbench-app-cancelled');

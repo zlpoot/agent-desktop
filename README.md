@@ -49,7 +49,7 @@ npm run demo:browser
 
 `node scripts/check-dashboard.mjs` 会在临时本机端口启动控制台、检查只读路由并停止进程，可验证无模型/Guest 配置的启动。
 
-工作台应用打开组件源码为 `src/app/public/workbench-app-launcher.ts`，独立浏览器类型配置为 `tsconfig.workbench-app.json`，纳入 `npm run check`。普通 Dashboard 和合成网页服务创建时，使用既有 TypeScript CLI 编译该组件，以 `/workbench-app-launcher.js` 提供；编译结果缓存在当前进程，临时输出仅写入忽略目录 `.artifacts/frontend/` 并在读取后清理。其他页面 JS、原生 worker 及协议保持原样，无须额外手动构建。
+工作台应用打开组件源码为 `src/app/public/workbench-app-launcher.ts`，独立浏览器类型配置为 `tsconfig.workbench-app.json`，纳入 `npm run check`。普通 Dashboard 和合成网页服务创建时，使用既有 TypeScript CLI 编译该组件，以 `/workbench-app-launcher.js` 提供；编译结果缓存在当前进程，临时输出仅写入忽略目录 `.artifacts/frontend/` 并在读取后清理。其他页面 JS 与 Host/Guest 协议维持原有接口，无须额外手动构建。
 
 ## 控制台与配置
 
@@ -59,7 +59,11 @@ npm run dashboard
 
 打开终端显示的本机地址，默认端口 4173。空工程会建立新数据库；缺少模型或 Guest 配置不妨碍控制台查看和离线示例。提交真实任务前必须自行提供相应配置。不要导入历史数据库或复制私人 `.env.local`。
 
-主工作台的应用入口需要环境后端配置。当前 App-only Hidden Desktop 入口仅支持已授权的网易云音乐 `3.1.40.205461`：在忽略文件 `config/workbench-apps.local.json` 中设置 `path`（本机 `cloudmusic.exe` 的绝对路径）、`sha256`（该文件实际 SHA-256）及 `version`，再运行 `npm run dashboard -- --port 4174`；也可用 `--apps-config <配置路径>` 显式指定文件。此入口使用普通 Windows Medium 用户会话，自动显示该配置的应用，首次打开须在页面确认身份。它禁用模型、不给 Task 或输入能力，自有 Hidden Desktop/Job 最长保留 60 秒，拒绝接管已有网易云进程。本机配置、App Registry 与诊断状态保存在忽略目录，不提交到仓库；缺少此配置时不会出现该环境。
+Windows 普通控制台启动后可选择 `Hidden Desktop · workbench-apps / local-workspace:apps`，点击「添加 APP」粘贴该环境中普通 `.exe` 的绝对路径，名称自动填充且可修改，再点击「检查并保存」。后端探测版本和 SHA-256，沿用本机私有 `environment-apps.sqlite` 登记；无需编辑 JSON、计算哈希或配置模型。保存、选择、刷新和重启都不会启动应用，登记在相同仓库工作区重启后保留。其他环境仍需各自的发现/启动后端，不会回退到本机桌面。
+
+选择已保存的应用后，只有点击「打开应用」才进行无参数启动及实际窗口归属确认；不提交 Task、不调用模型、不执行 APP 内的业务输入。Hidden Desktop 使用普通 Windows Medium 用户会话、自有 Desktop/Job，拒绝接管已有用户进程，资源期限仍为**从预留起最多 60 秒**。页面只读查询原进程/窗口状态，区分配置已保存、正在启动、窗口已确认、失败/未知和已退出；显示回收期限，刷新会重新查询，历史成功记录不能证明仍在运行。单实例冲突、多主窗口、子进程托管或不兼容 Hidden Desktop 的应用可能被拒绝/无法确认；结果未知不会自动再次启动，不能据此宣称任意 EXE 都兼容。
+
+验收可在本工作分支目录运行 `npm run dashboard -- --port 4175`，访问 `http://127.0.0.1:4175/#/live`，选择环境 → 添加路径并保存 → 刷新核对持久化 → 选择并打开 → 核对实际结果及到期退出。真实 APP 和路径由操作者选择；合成测试通过不代表真实窗口验收通过。默认不读取旧 `config/workbench-apps.local.json`；`--apps-config <路径>` 仅保留显式旧 seed 模式（其独立状态目录及模型禁用行为保持），不再是手动导入的前置。私有登记、生成资源、诊断及截图均不提交。
 
 普通 Chat Completions 模型可在**设置 → 模型与 Provider**填写 HTTP(S) API 地址、模型名及 API Key，保存到 gitignore 覆盖的本机 `config/model.local.json`。读取只显示 Key 是否存在、不回填明文；保存不会测试连接或启动任务。新普通任务开始执行时读取当前配置，同一次执行的规划/决策模型保持快照；已活动任务不受保存影响，暂停后恢复按原生命周期重新装配模型。文件是本机明文私有配置，不能分享或提交；Unix 新文件权限 0600，Windows 继承所在目录的访问控制。
 

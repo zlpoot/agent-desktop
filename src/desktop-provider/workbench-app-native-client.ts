@@ -11,7 +11,7 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
   private next = 0;
   private pending = new Map<number, { resolve(value: any): void; reject(error: Error): void }>();
   private failed = false;
-  constructor(private readonly config: WorkbenchAppConfig, private readonly scope: EnvironmentAppScope,
+  constructor(private readonly config: WorkbenchAppConfig | undefined, private readonly scope: EnvironmentAppScope,
     private readonly registry: string, private readonly project: string) {}
   private async initialize() {
     if (this.failed) throw Error('workbench-app-worker-unavailable');
@@ -25,7 +25,8 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
       let value: any; try { value = JSON.parse(line); } catch { child.kill(); fail(); return; }
       const waiter = this.pending.get(value.id); if (!waiter) return; this.pending.delete(value.id);
       if (value.error && value.diagnostic) console.error('Workbench native diagnostic:', JSON.stringify(value.diagnostic));
-      if (value.error) waiter.reject(new AppLaunchError(value.error === 'workbench-installation-changed' ? 'stale'
+      if (value.error) waiter.reject(new AppLaunchError(['stale', 'unavailable', 'unknown'].includes(value.failureKind) ? value.failureKind
+        : value.error === 'workbench-installation-changed' ? 'stale'
         : value.error === 'workbench-native-operation-failed' ? 'unknown' : 'unavailable', value.error)); else waiter.resolve(value.result);
     });
     await this.send('init', { config: this.config, scope: this.scope, registry: this.registry });

@@ -5,6 +5,7 @@ import hashlib
 import json
 import ntpath
 import os
+import re
 from pathlib import Path
 import sqlite3
 import sys
@@ -15,18 +16,19 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'guest'))
 sys.path.insert(0, str(ROOT / 'spikes/local-workspace'))
-from app_launch import WindowsNativeLauncher, definition
+from app_launch import WindowsNativeLauncher, definition, LaunchFailure
 from app_discovery import installation_scope_id
 from win32 import Api, ENUMPROC
 
 
 def check_spec(config, spec):
-    if definition(spec) != ('exe', '', ntpath.normcase(config['path']), (), ''):
-        raise ValueError('workbench-configured-app-only')
-    if ntpath.basename(config['path']).lower() != 'cloudmusic.exe' or config['version'] != '3.1.40.205461':
-        raise ValueError('workbench-app-version-unsupported')
-    if hashlib.sha256(Path(config['path']).read_bytes()).hexdigest() != config['sha256']:
-        raise ValueError('workbench-installation-changed')
+    parsed = definition(spec)
+    if parsed[0] != 'exe' or parsed[3] or parsed[4]:
+        raise ValueError('workbench-no-argument-exe-only')
+    # Optional legacy seed remains pinned, while imported profiles carry probed identity.
+    if config and ntpath.normcase(config['path']) == parsed[2]:
+        if hashlib.sha256(Path(config['path']).read_bytes()).hexdigest() != config['sha256']:
+            raise ValueError('workbench-installation-changed')
 
 
 class RegistryFence:
@@ -79,6 +81,7 @@ class OwnedApp:
         self.desktop = self.job = self.process = self.file = self.context = None
         self.pid = self.hwnd = self.token = self.profile = None
         self.blocked = False
+        self.ended = None
         self.watch_stop, self.watch_ready = threading.Event(), threading.Event()
         # Bind and verify the expiry thread on Default before creating owned resources.
         def supervise():
@@ -93,7 +96,7 @@ class OwnedApp:
                 with self.lock:
                     if self.context and time.monotonic() >= self.deadline:
                         try:
-                            self.close()
+                            self.close(reason='workbench-resource-expired')
                         except Exception:
                             self.blocked = True
         self.watcher = threading.Thread(target=supervise, daemon=True)
@@ -107,17 +110,40 @@ class OwnedApp:
     def inspect(self, spec):
         check_spec(self.config, spec)
         checked = self.native.inspect(spec)
-        if checked['identity']['fingerprint'] != self.config['sha256'] or checked['identity']['version'] != self.config['version']:
+        if self.config and ntpath.normcase(spec['executable']) == ntpath.normcase(self.config['path']) and (checked['identity']['fingerprint'] != self.config['sha256'] or checked['identity']['version'] != self.config['version']):
             raise ValueError('workbench-installation-changed')
         return checked
 
-    def catalog(self):
-        spec = {'kind': 'exe', 'executable': self.config['path'], 'args': []}
+    def catalog(self, path=None):
+        path = path or (self.config or {}).get('path')
+        spec = {'kind': 'exe', 'executable': path, 'args': []}
         checked = self.inspect(spec)
-        entry = self.native.scanner.inspect(self.config['path'], 'explicit-operator-config', time.monotonic() + 5)
+        entry = self.native.scanner.inspect(path, 'explicit-operator-path', time.monotonic() + 5)
         if entry['contentFingerprint'] != checked['identity']['fingerprint']:
             raise ValueError('workbench-installation-changed')
-        return {**entry, 'displayName': '网易云音乐', 'aliases': ['NetEase Cloud Music']}
+        return entry
+
+    def status(self, profile):
+        result = {'checkedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+        if self.blocked:
+            return {**result, 'state': 'unknown', 'reason': 'workbench-cleanup-unconfirmed'}
+        if self.context and time.monotonic() >= self.deadline:
+            self.close(reason='workbench-resource-expired')
+        if self.profile and self.profile['appBindingId'] == profile['appBindingId']:
+            if self.profile['profileDigest'] != profile['profileDigest']:
+                return {**result, 'state': 'unknown', 'reason': 'workbench-original-profile-mismatch'}
+            process_state = self.api.k.WaitForSingleObject(self.process, 0)
+            if process_state == 0:
+                self.close(reason='workbench-original-process-ended')
+            elif process_state != 258:
+                return {**result, 'state': 'unknown', 'reason': 'workbench-original-process-state-unavailable'}
+            else:
+                values = self.instances(profile)
+                return {**result, 'state': 'window-confirmed' if len(values) == 1 else 'unknown',
+                        'expiresAt': self.expires_at, **({} if values else {'reason': 'workbench-original-window-unavailable'})}
+        if self.ended and self.ended[0] == profile['appBindingId']:
+            return {**result, 'state': 'exited', 'reason': self.ended[1]}
+        return {**result, 'state': 'saved'}
 
     def current(self):
         self.api.assert_default()
@@ -125,8 +151,10 @@ class OwnedApp:
             raise ValueError('workbench-reservation-unavailable')
         if self.api.name(self.desktop) != self.name:
             raise ValueError('workbench-original-desktop-required')
-        if self.process and self.api.k.WaitForSingleObject(self.process, 0) != 258:
-            raise ValueError('workbench-original-process-ended')
+        if self.process:
+            process_state = self.api.k.WaitForSingleObject(self.process, 0)
+            if process_state != 258:
+                raise ValueError('workbench-original-process-ended' if process_state == 0 else 'workbench-original-process-state-unavailable')
         if self.process and self.api.k.GetProcessId(self.process) != self.pid:
             raise ValueError('workbench-original-process-changed')
         return self.context
@@ -154,6 +182,7 @@ class OwnedApp:
             self.context = {'scope': self.scope, 'sessionId': uuid.uuid4().hex, 'instanceId': uuid.uuid4().hex,
                             'windowsSessionId': self.api.session(os.getpid()), 'desktop': station + '\\' + self.api.name(self.desktop)}
             self.deadline = time.monotonic() + 60
+            self.expires_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 60))
             return self.context
         except BaseException:
             self.close()
@@ -164,25 +193,27 @@ class OwnedApp:
         if self.process:
             raise ValueError('workbench-original-already-started')
         self.inspect(profile['launchSpec'])
+        path = profile['launchSpec']['executable']
         # Do not let a single-instance app escape into an unrelated user process.
         import psutil
         for index, process in enumerate(psutil.process_iter(['name', 'exe'])):
             if index >= 4096:
                 raise ValueError('workbench-process-query-limit')
-            if process.info['exe'] and os.path.normcase(process.info['exe']) == os.path.normcase(self.config['path']):
+            if process.info['exe'] and ntpath.normcase(process.info['exe']) == ntpath.normcase(path):
                 raise ValueError('workbench-existing-user-instance')
-            if not process.info['exe'] and (process.info['name'] or '').lower() == 'cloudmusic.exe':
+            if not process.info['exe'] and (process.info['name'] or '').lower() == ntpath.basename(path).lower():
                 raise ValueError('workbench-existing-instance-unreadable')
         def effect():
-            self.file = self.api.k.CreateFileW(self.config['path'], 0x80000000, 1, None, 3, 0x80, None)
+            self.file = self.api.k.CreateFileW(path, 0x80000000, 1, None, 3, 0x80, None)
             if not self.file or self.file == C.c_void_p(-1).value:
                 self.file = None
                 raise ValueError('workbench-installation-pin-unavailable')
             checked = self.inspect(profile['launchSpec'])
             if checked['identity'] != profile['identity']:
                 raise ValueError('workbench-installation-changed')
-            self.process, self.pid = self.api.launch([self.config['path']], self.name, self.job)
+            self.process, self.pid = self.api.launch([path], self.name, self.job)
             self.profile, self.token = profile, uuid.uuid4().hex
+            self.ended = None
             return self.token
         return self.fence.run(profile, effect)
 
@@ -211,13 +242,15 @@ class OwnedApp:
             matches = []
             for hwnd in windows:
                 pid = W.DWORD(); tid = self.api.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
-                if tid and pid.value == self.pid and self.api.u.IsWindowVisible(hwnd) and self.api.class_name(hwnd) == 'OrpheusBrowserHost':
+                if tid and pid.value == self.pid and self.api.u.IsWindowVisible(hwnd) and self.api.u.GetAncestor(hwnd, 2) == hwnd and self.api.class_name(hwnd):
                     if self.api.u.GetAncestor(hwnd, 2) != hwnd:
                         raise ValueError('workbench-original-root-required')
                     matches.append((hwnd, tid))
             if not matches:
                 return []
-            if len(matches) != 1 or self.hwnd and self.hwnd != matches[0][0]:
+            if len(matches) != 1:
+                raise ValueError('workbench-main-window-ambiguous-or-unsupported')
+            if self.hwnd and self.hwnd != matches[0][0]:
                 raise ValueError('workbench-original-window-changed')
             hwnd, tid = matches[0]
             in_job = W.BOOL()
@@ -226,12 +259,12 @@ class OwnedApp:
             image, image_size = C.create_unicode_buffer(32768), W.DWORD(32768)
             self.api.checked(self.api.k.QueryFullProcessImageNameW(self.process, 0, image, C.byref(image_size)), 'workbench-original-image')
             after_pid = W.DWORD(); after_tid = self.api.u.GetWindowThreadProcessId(hwnd, C.byref(after_pid))
-            if not in_job.value or parent != child or child[1] != self.context['windowsSessionId'] or ntpath.normcase(image.value) != ntpath.normcase(self.config['path']) or not self.api.u.IsWindow(hwnd) or self.api.u.GetAncestor(hwnd, 2) != hwnd or after_tid != tid or after_pid.value != self.pid:
+            if not in_job.value or parent != child or child[1] != self.context['windowsSessionId'] or ntpath.normcase(image.value) != ntpath.normcase(profile['launchSpec']['executable']) or not self.api.u.IsWindow(hwnd) or self.api.u.GetAncestor(hwnd, 2) != hwnd or after_tid != tid or after_pid.value != self.pid:
                 raise ValueError('workbench-original-owner-unconfirmed')
             self.current()
             self.hwnd = hwnd
             return [{**self.context, 'targetToken': self.token, 'identity': checked['identity'],
-                     'executable': self.config['path'], 'args': [], 'processOwnedByInstallation': True,
+                     'executable': profile['launchSpec']['executable'], 'args': [], 'processOwnedByInstallation': True,
                      'windowOwnedByProcess': True, 'sameUser': True, 'permissionsCompatible': True}]
         finally:
             self.api.checked(self.api.u.SetThreadDesktop(previous), 'workbench-query-restore')
@@ -240,7 +273,9 @@ class OwnedApp:
                 raise ValueError('workbench-default-restore-unconfirmed')
             self.api.assert_default()
 
-    def close(self):
+    def close(self, reason='workbench-owned-resources-cleaned'):
+        if self.profile:
+            self.ended = (self.profile['appBindingId'], reason)
         errors = []
         if self.job:
             if not self.api.k.TerminateJobObject(self.job, 1): errors.append('terminate')
@@ -276,13 +311,13 @@ def main():
                 if len(line.encode('utf-8')) > 131072: raise ValueError('workbench-request-limit')
                 value = json.loads(line); method, fields = value['method'], value.get('fields', {})
                 if method == 'init' and worker is None:
-                    worker = OwnedApp(fields['config'], fields['scope'], fields['registry']); result = {'initialized': True}
-                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'cleanup', 'close'):
+                    worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry']); result = {'initialized': True}
+                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'cleanup', 'close'):
                     with worker.lock:
                         if method == 'inspect': result = worker.inspect(fields['spec'])
-                        elif method == 'catalog': result = worker.catalog()
+                        elif method == 'catalog': result = worker.catalog(fields.get('path'))
                         elif method in ('reserve', 'current'): result = getattr(worker, method)()
-                        elif method in ('start', 'instances'): result = getattr(worker, method)(fields['profile'])
+                        elif method in ('start', 'instances', 'status'): result = getattr(worker, method)(fields['profile'])
                         elif method == 'cleanup':
                             if fields['token'] != worker.token: raise ValueError('workbench-owned-token-required')
                             result = worker.close()
@@ -290,8 +325,10 @@ def main():
                 else: raise ValueError('workbench-command-unavailable')
                 reply = {'id': value['id'], 'result': result}
             except Exception as error:
-                code = str(error) if isinstance(error, ValueError) and str(error).startswith('workbench-') else 'workbench-native-operation-failed'
+                code = str(error) if isinstance(error, (ValueError, LaunchFailure)) and re.fullmatch(r'(workbench|app|unsupported|invalid)-[a-z0-9-]{1,100}', str(error)) else 'workbench-native-operation-failed'
+                kind = error.kind if isinstance(error, LaunchFailure) else 'stale' if code == 'workbench-installation-changed' else 'unknown' if code == 'workbench-native-operation-failed' else 'unavailable'
                 reply = {'id': value.get('id') if isinstance(value, dict) else None, 'error': code,
+                         'failureKind': kind,
                          'diagnostic': {'operation': value.get('method') if isinstance(value, dict) else None,
                                         'exception': type(error).__name__, 'winerror': getattr(error, 'winerror', None),
                                         'errno': getattr(error, 'errno', None)}}

@@ -14,7 +14,7 @@ import { Script } from 'node:vm';
 
 const target = (providerId: string, environmentId: string) => JSON.stringify([providerId, environmentId]);
 
-test('normal startup lists its configured App immediately in the main workbench', { timeout: 60000 }, async () => {
+test('legacy seed only discovers on an explicit click in the main workbench', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
   const dir = mkdtempSync(join(tmpdir(), 'workbench-startup-ui-')), client = new FakeWorkbenchClient();
   let models = 0;
@@ -40,6 +40,7 @@ test('normal startup lists its configured App immediately in the main workbench'
     await page.waitForFunction(() => Array.from((document.querySelector('#task-destination') as HTMLSelectElement).options)
       .some(option => option.value.includes('workbench-apps')));
     await environment.selectOption(target(scope.providerId, scope.environmentId));
+    await page.getByRole('button', { name: '发现应用', exact: true }).click();
     await app.getByRole('option', { name: /网易云音乐/ }).waitFor({ state: 'attached' });
     assert.equal(await app.isDisabled(), false); assert.equal(client.starts, 0);
     assert.equal(await page.locator('#task-submit').isDisabled(), true);
@@ -169,7 +170,7 @@ test('workbench rejects missing launch support and stale/failed launch acknowled
       if (route.request().postDataJSON().action === 'confirm') { attempts++; return route.fulfill({ status: 409, json: { error: 'synthetic-acknowledgement-lost' } }); }
       return route.continue();
     });
-    await confirm.click(); await status.getByText('操作被拒绝', { exact: false }).waitFor();
+    await confirm.click(); await status.getByText('结果未知或打开被拒绝', { exact: false }).waitFor();
     assert.equal(attempts, 1); assert.equal(f.backends[1].starts, 0); assert.doesNotMatch(await status.innerText(), /应用已打开/);
     await page.unroute('**/api/desktop/apps'); f.backends[1].unknown = true;
     await panel.getByRole('button', { name: '刷新 App 列表', exact: true }).click();
@@ -225,3 +226,75 @@ async function assertEventually(check: () => boolean) {
   while (!check() && Date.now() < until) await new Promise(done => setTimeout(done, 20));
   assert.equal(check(), true);
 }
+
+
+test('normal workbench manually saves two named EXEs, persists on refresh, opens only on click and observes exit/unknown', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-manual-ui-')), client = new FakeWorkbenchClient();
+  let models = 0;
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { models++; throw Error('no-model'); } } });
+  const server = createDashboardServer(dir, root.controller);
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const { chromium } = await import('playwright'), browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    const requests: any[] = [], errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { if (request.method() === 'POST') { assert.equal(new URL(request.url()).pathname, '/api/desktop/apps'); requests.push(request.postDataJSON()); } });
+    await page.goto(base);
+    const environment = page.locator('#task-destination'), app = page.locator('#task-application'), status = page.locator('#task-app-status');
+    await page.waitForFunction(() => Array.from((document.querySelector('#task-destination') as HTMLSelectElement).options).some(option => option.value.includes('workbench-apps')));
+    await environment.selectOption(target(scope.providerId, scope.environmentId));
+    await status.getByText('尚无已确认应用', { exact: false }).waitFor();
+    for (const [path, name] of [['C:\\Synthetic\\Editor.exe', '我的编辑器'], ['D:\\Synthetic\\Viewer.exe', '我的查看器']]) {
+      await page.getByRole('button', { name: '添加 APP', exact: true }).click();
+      await page.locator('#task-app-path').fill(path);
+      assert.equal(await page.locator('#task-app-name').inputValue(), path.split('\\').at(-1)!.replace('.exe', ''));
+      await page.locator('#task-app-name').fill(name);
+      await page.getByRole('button', { name: '检查并保存', exact: true }).click();
+      await status.getByText('配置已保存', { exact: false }).waitFor();
+    }
+    assert.equal(client.starts, 0); assert.ok(!requests.some(request => ['scan', 'prepare', 'confirm', 'verify'].includes(request.action)));
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.reload();
+    await app.getByRole('option', { name: /我的编辑器/ }).waitFor({ state: 'attached' });
+    await app.getByRole('option', { name: /我的查看器/ }).waitFor({ state: 'attached' });
+    assert.equal(client.starts, 0);
+    await app.selectOption({ label: await app.getByRole('option', { name: /我的编辑器/ }).innerText() });
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('窗口已确认', { exact: false }).waitFor();
+    assert.match(await status.innerText(), /60 秒期限/); assert.equal(client.starts, 1);
+    let lostReplies = 0;
+    await page.route('**/api/desktop/apps', async route => {
+      if (route.request().postDataJSON().action === 'verify') { lostReplies++; await route.fetch(); return route.abort('failed'); }
+      return route.continue();
+    });
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('结果未知或打开被拒绝', { exact: false }).waitFor();
+    assert.doesNotMatch(await status.innerText(), /应用已打开/); assert.equal(client.starts, 1); assert.equal(lostReplies, 1);
+    await page.unroute('**/api/desktop/apps');
+    await page.reload();
+    await app.getByRole('option', { name: /我的编辑器/ }).waitFor({ state: 'attached' });
+    await app.selectOption({ label: await app.getByRole('option', { name: /我的编辑器/ }).innerText() });
+    await status.getByText('窗口已确认', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    client.active = false; client.ended = true;
+    await status.getByText('已退出', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    client.unknown = true;
+    await status.getByText('结果未知', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    client.unknown = client.ended = false; client.conflict = true;
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('workbench-existing-user-instance', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    await page.getByRole('button', { name: '添加 APP', exact: true }).click();
+    await page.locator('#task-app-path').fill('C:\\Synthetic\\Missing.exe');
+    await page.getByRole('button', { name: '检查并保存', exact: true }).click();
+    await status.getByText('app-installation-path-unavailable', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    assert.equal(models, 0); assert.deepEqual(errors, []);
+    mkdirSync(resolve('.validation/workbench-app-import'), { recursive: true });
+    await page.screenshot({ path: resolve('.validation/workbench-app-import/mobile.png'), fullPage: true });
+  } finally {
+    await browser.close(); await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+    await root.dispose(); rmSync(dir, { recursive: true, force: true });
+  }
+});

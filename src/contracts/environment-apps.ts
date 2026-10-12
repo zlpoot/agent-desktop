@@ -102,6 +102,14 @@ export interface EnvironmentAppService {
   readonly discovery?: EnvironmentAppDiscovery;
   readonly launcher?: EnvironmentAppLauncher;
   readonly onboarding?: EnvironmentAppOnboarding;
+  /** Read-only current evidence; historical verification is never a live status. */
+  readonly liveStatus?: (app: EnvironmentAppBinding) => Promise<AppLiveStatus>;
+}
+export interface AppLiveStatus {
+  readonly state: 'saved' | 'window-confirmed' | 'exited' | 'unknown';
+  readonly checkedAt: string;
+  readonly expiresAt?: string;
+  readonly reason?: string;
 }
 export interface EnvironmentAppServices {
   forEnvironment(target: TaskDesktopTarget): EnvironmentAppService;

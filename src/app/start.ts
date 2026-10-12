@@ -19,14 +19,18 @@ if (process.env.AGENT_DESKTOP_VM_ID && !process.env.AGENT_DESKTOP_TOKEN) {
 
 // 集中装配：Root Context + 基础设施服务 + 任务控制器（失败自动回收已创建资源）。
 const projectDir = process.cwd();
-const appConfig = loadWorkbenchAppConfig(projectDir, option('--apps-config') ?? process.env.AGENT_DESKTOP_WORKBENCH_CONFIG);
-// App-only startup has fresh state; never imports prior Task traces, confirmations or model keys.
+const explicitConfig = option('--apps-config') ?? process.env.AGENT_DESKTOP_WORKBENCH_CONFIG;
+const appConfig = explicitConfig ? loadWorkbenchAppConfig(projectDir, explicitConfig) : undefined;
+const appEnvironment = process.platform === 'win32';
+// Explicit legacy App-only mode keeps its prior state location. Ordinary startup
+// retains the existing console stores; model configuration is lazy and not used by App opening.
 const rootDir = appConfig ? resolve(projectDir, '.artifacts/workbench-apps/runtime') : projectDir;
 if (appConfig) mkdirSync(rootDir, { recursive: true });
-const workbenchApps = appConfig ? await nativeWorkbenchApps(appConfig, projectDir, resolve(rootDir, 'environment-apps.sqlite')) : undefined;
+const workbenchApps = appEnvironment ? await nativeWorkbenchApps(appConfig, projectDir, resolve(rootDir, 'environment-apps.sqlite')) : undefined;
 const assembly = await createRootAssembly({ rootDir,
   ...loadDesktopEnvironmentConfig(process.env.AGENT_DESKTOP_ENVIRONMENT_CONFIG),
-  ...(workbenchApps ? { workbenchApps, model: { createModel() { throw Error('workbench-app-only-model-disabled'); } } } : {}) });
+  ...(workbenchApps ? { workbenchApps } : {}),
+  ...(appConfig ? { model: { createModel() { throw Error('workbench-app-only-model-disabled'); } } } : {}) });
 let server: Server | undefined;
 try {
   const sessionId = process.env.AGENT_DESKTOP_SESSION_ID ?? "agent-desktop-default";

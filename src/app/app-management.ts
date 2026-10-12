@@ -5,13 +5,14 @@ import type { AppConfirmationDisplay } from '../contracts/app-launch.js';
 import { desktopTarget, sameDesktopTarget, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { sameAppScope, textValue } from '../environment-apps/validation.js';
 import type { TaskDesktopOption } from './task-desktop-sessions.js';
+import { ControlledAppLauncher } from '../environment-apps/launcher.js';
 
 type Session = { id: string; target: TaskDesktopTarget; scope: EnvironmentAppScope; service: EnvironmentAppService; revision: number;
   expires: number; candidates: readonly DiscoveredApp[]; report?: Omit<AppScanReport, 'candidates' | 'snapshots'>;
   display?: AppConfirmationDisplay; operations: Map<string, { key: string; promise: Promise<unknown> }>;
   active: Set<string>; busy: boolean; closed: boolean; timer?: ReturnType<typeof setTimeout> };
 const fields: Record<string, readonly string[]> = {
-  open: [], list: [], scan: [], path: ['path'], prepare: ['candidateId', 'candidateRevision'],
+  open: [], list: [], scan: [], path: ['path', 'displayName', 'save'], prepare: ['candidateId', 'candidateRevision'],
   confirm: ['confirmationId', 'digest', 'allowLaunch'], verify: ['appBindingId', 'expectedRevision', 'allowLaunch'],
   revoke: ['appBindingId', 'expectedRevision'], cancel: [], close: [],
 };
@@ -52,8 +53,14 @@ export class AppManagement {
   private async view(session: Session) {
     const option = await this.current(session), service = this.service(session);
     const registered = service.registry.list();
+    const liveStatus = service.liveStatus ? Object.fromEntries(await Promise.all(registered.map(async app => {
+      try { return [app.appBindingId, await service.liveStatus!(app)]; }
+      catch (error) { return [app.appBindingId, { state: 'unknown', checkedAt: new Date(this.clock()).toISOString(),
+        reason: error instanceof Error && /^[a-z][a-z0-9-]{1,100}$/.test(error.message) ? error.message : 'app-status-unavailable' }]; }
+    }))) : undefined;
+    await this.current(session);
     return { sessionId: session.id, revision: session.revision, desktopTarget: session.target, scope: session.scope,
-      registered, candidates: session.candidates, report: session.report, confirmation: session.display,
+      registered, candidates: session.candidates, report: session.report, confirmation: session.display, liveStatus,
       readiness: { discovery: typeof (service.discovery as ReadonlyAppDiscovery)?.candidate === 'function',
         controlledLaunch: !!service.onboarding, taskCompatibility: option.executable, blockedReason: option.blockedReason,
         scenarios: option.scenarios ?? [], businessCapable: false,
@@ -87,6 +94,11 @@ export class AppManagement {
       // Cancellation must remain available during an operation; it invalidates the whole page session.
       this.end(session); return { closed: true };
     }
+    if (action === 'list') {
+      if (body.revision !== session.revision || session.busy) throw new Error('app-management-revision-conflict');
+      // Polling observes only; it consumes neither launch receipts nor session lifetime.
+      return this.view(session);
+    }
     const key = JSON.stringify(body), old = session.operations.get(String(body.requestId));
     if (old) {
       if (old.key !== key) throw new Error('app-management-operation-conflict');
@@ -116,6 +128,29 @@ export class AppManagement {
         session.report = { scope: session.scope, status: result.snapshot ? 'complete' : 'unavailable',
           coverage: [], reason: result.reason, installationOrigin: result.snapshot?.limitation?.startsWith('installed-on-host-os')
             ? 'shared-host-os' : session.report?.installationOrigin ?? 'selected-environment' };
+        if (body.save !== undefined && body.save !== true) throw new Error('invalid-app-save');
+        if (body.displayName !== undefined && body.save !== true) throw new Error('app-name-requires-save');
+        if (body.save === true) {
+          if (!result.snapshot || !service.onboarding || !(service.launcher instanceof ControlledAppLauncher)) throw new Error(result.reason ?? 'app-path-inspection-unavailable');
+          const snapshot = result.snapshot;
+          if (snapshot.candidate.launchSpec.kind !== 'exe' || snapshot.candidate.launchSpec.args.length || snapshot.candidate.launchSpec.workingDirectory) throw new Error('manual-app-exe-only');
+          const displayName = body.displayName ?? snapshot.candidate.displayName;
+          textValue(displayName); if (String(displayName).length > 128) throw new Error('app-name-too-long');
+          // Same scoped identity inspection and Registry confirmation; saving grants no launch permit.
+          const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+          let checked;
+          try { checked = await service.launcher.inspect(snapshot.candidate.launchSpec, controller.signal); }
+          finally { clearTimeout(timer); }
+          await this.current(session);
+          if (controller.signal.aborted || checked.identity.fingerprint !== snapshot.contentFingerprint ||
+              snapshot.version && checked.identity.version !== snapshot.version ||
+              discovery.candidate(snapshot.candidateId, snapshot.revision).digest !== snapshot.digest) throw new Error('app-installation-changed');
+          const previous = service.registry.list().find(app => app.installationId === snapshot.candidate.installationId);
+          const app = service.registry.discover({ ...snapshot.candidate, displayName: String(displayName), identity: checked.identity }, previous?.revision);
+          if (app.trust === 'discovered') service.registry.confirm({ appBindingId: app.appBindingId, expectedRevision: app.revision,
+            profileDigest: app.profileDigest, operatorId: 'dashboard-local-operator' });
+          session.candidates = [];
+        }
       } else {
         const candidate = session.candidates.find(item => item.candidateId === body.candidateId && item.revision === body.candidateRevision);
         if (!candidate || !service.onboarding) throw new Error('app-management-candidate-or-launch-unavailable');
