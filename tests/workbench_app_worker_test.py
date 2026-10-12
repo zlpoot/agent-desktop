@@ -203,7 +203,7 @@ class PreviewTests(unittest.TestCase):
         owner.api=Mock();owner.api.assert_default=Mock();owner.instances=Mock(return_value=[{'owned':True}]);owner.current=Mock()
         image=png_rgb(2,1,bytearray([255,0,0,0,255,0]))
         owner.api.capture.return_value=(image,{'width':2,'height':1,'nonuniform':True})
-        owner.profile={};owner.process=owner.job=owner.file=owner.desktop=None;owner.blocked=False
+        owner.profile={};owner.process=owner.job=owner.file=None;owner.desktop=9;owner.blocked=False
         return owner,image
 
     def test_readonly_owned_window_capture_uses_opaque_private_file_and_revalidates(self):
@@ -212,9 +212,9 @@ class PreviewTests(unittest.TestCase):
             path=owner.preview_dir/(frame['token']+'.png')
             self.assertEqual(path.read_bytes(),image);self.assertEqual(frame['sha256'],worker.hashlib.sha256(image).hexdigest())
             self.assertEqual((frame['width'],frame['height']),(2,1));self.assertEqual(owner.instances.call_count,2)
-            owner.api.capture.assert_called_once_with(10,{'pid':42,'desktop':'synthetic-owned','session':1},flags=2)
+            owner.api.capture.assert_called_once_with(10,{'pid':42,'desktop':'synthetic-owned','session':1},flags=2,desktop=9)
             owner.api.launch.assert_not_called();owner.current.assert_called_once()
-            owner.close();self.assertFalse(path.exists())
+            owner.desktop = None; owner.close();self.assertFalse(path.exists())
 
     def test_unavailable_changed_blank_oversize_or_too_many_pending_frames_never_return_pixels(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -290,6 +290,59 @@ class PreviewTests(unittest.TestCase):
             api.g.DeleteObject.assert_called_once_with(101); api.g.DeleteDC.assert_called_once_with(100)
             self.assertEqual(owner.instances.call_count, 2); self.assertEqual(api.owned_job_name, owner.name + '_job')
 
+
+
+class CaptureDesktopIdentityTests(unittest.TestCase):
+    def api(self):
+        import ctypes as C
+        from win32 import Api
+        api = Api.__new__(Api); api.u = Mock(); api.k = Mock(); api.assert_default = Mock()
+        api.owned_job_name = 'synthetic-owned-job'; api.session = Mock(return_value=1)
+        state = {'windows': [10], 'complete': True, 'in_job': True, 'pid': 42, 'after_pid': 42, 'calls': 0}
+        def identity(hwnd, pointer):
+            state['calls'] += 1
+            C.cast(pointer, C.POINTER(worker.W.DWORD))[0] = state['pid'] if state['calls'] == 1 else state['after_pid']
+            return 7
+        def enum(desktop, callback, unused):
+            self.assertEqual(desktop, 9)
+            for hwnd in state['windows']:
+                if not callback(hwnd, 0): return False
+            return state['complete']
+        def in_job(process, job, pointer):
+            C.cast(pointer, C.POINTER(worker.W.BOOL))[0] = state['in_job']; return True
+        def name(handle):
+            if handle != 9: raise worker.Blocked('desktop_name_unavailable')
+            return 'synthetic-owned'
+        api.u.GetWindowThreadProcessId.side_effect = identity; api.u.IsWindow.return_value = True
+        api.u.GetThreadDesktop.return_value = None; api.u.EnumDesktopWindows.side_effect = enum
+        api.k.OpenProcess.return_value = 100; api.k.OpenJobObjectW.return_value = 200
+        api.k.IsProcessInJob.side_effect = in_job; api.name = name
+        return api, state
+
+    def test_owned_desktop_membership_handles_foreign_tid_denial_and_still_needs_job_pid_session(self):
+        api, state = self.api()
+        expected = {'pid': 42, 'desktop': 'synthetic-owned', 'session': 1}
+        api.guard(10, expected, desktop=9)
+        api.u.GetThreadDesktop.assert_not_called()
+        api.k.OpenJobObjectW.assert_called_once_with(4, False, 'synthetic-owned-job')
+        self.assertEqual(api.k.CloseHandle.call_count, 2)
+        api, state = self.api()
+        with self.assertRaisesRegex(worker.Blocked, 'desktop_name_unavailable'): api.guard(10, expected)
+        for mutation, reason in (({'windows': []}, 'target_desktop_mismatch'),
+                                 ({'complete': False}, 'target_desktop_membership_unavailable'),
+                                 ({'windows': [10] * 1025}, 'target_desktop_membership_unavailable'),
+                                 ({'after_pid': 99}, 'target_exited'),
+                                 ({'in_job': False}, 'target_outside_owned_job')):
+            api, state = self.api(); state.update(mutation)
+            with self.assertRaisesRegex(worker.Blocked, reason): api.guard(10, expected, desktop=9)
+            api.u.GetThreadDesktop.assert_not_called()
+        api, state = self.api()
+        with self.assertRaisesRegex(worker.Blocked, 'membership_unavailable'): api.guard(10, expected, desktop=0)
+        api.u.EnumDesktopWindows.assert_not_called()
+        for changed, reason in (({'pid': 99}, 'target_pid_mismatch'), ({'session': 9}, 'target_session_mismatch'),
+                                ({'desktop': 'Default'}, 'target_desktop_mismatch')):
+            api, state = self.api()
+            with self.assertRaisesRegex(worker.Blocked, reason): api.guard(10, {**expected, **changed}, desktop=9)
 
 
 class CleanupAckTests(unittest.TestCase):

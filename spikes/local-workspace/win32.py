@@ -252,7 +252,7 @@ class Api:
                 raise OSError(C.get_last_error(), "enum_desktop")
         return result
 
-    def identity(self, hwnd):
+    def identity(self, hwnd, desktop=None):
         pid = W.DWORD()
         tid = self.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
         if not tid or not self.u.IsWindow(hwnd):
@@ -267,7 +267,30 @@ class Api:
         finally:
             if process: self.k.CloseHandle(process)
             if job: self.k.CloseHandle(job)
-        return {"alive": True, "pid": pid.value, "desktop": self.name(self.u.GetThreadDesktop(tid)),
+        if desktop is None:
+            desktop_name = self.name(self.u.GetThreadDesktop(tid))
+        else:
+            # A caller-owned Desktop handle permits a bounded membership proof.
+            # GetThreadDesktop on a foreign process's TID can return access denied.
+            if not desktop:
+                raise Blocked("target_desktop_membership_unavailable")
+            windows = []
+            @ENUMPROC
+            def collect(window, _):
+                windows.append(int(window))
+                return len(windows) <= 1024
+            C.set_last_error(0)
+            complete = self.u.EnumDesktopWindows(desktop, collect, 0)
+            if not complete or len(windows) > 1024:
+                raise Blocked("target_desktop_membership_unavailable")
+            if hwnd not in windows:
+                raise Blocked("target_desktop_mismatch")
+            desktop_name = self.name(desktop)
+            after_pid = W.DWORD()
+            after_tid = self.u.GetWindowThreadProcessId(hwnd, C.byref(after_pid))
+            if after_pid.value != pid.value or after_tid != tid or not self.u.IsWindow(hwnd):
+                raise Blocked("target_exited")
+        return {"alive": True, "pid": pid.value, "desktop": desktop_name,
                 "session": self.session(pid.value), "in_job": owned}
 
     def owned_process(self, pid):
@@ -280,12 +303,12 @@ class Api:
             if process: self.k.CloseHandle(process)
             if job: self.k.CloseHandle(job)
 
-    def guard(self, hwnd, expected):
+    def guard(self, hwnd, expected, desktop=None):
         check_control = getattr(self, "check_control", None)
         if check_control:
             check_control()
         self.assert_default()
-        validate_target(self.identity(hwnd), expected)
+        validate_target(self.identity(hwnd) if desktop is None else self.identity(hwnd, desktop=desktop), expected)
 
     def close_owned_window(self, hwnd, expected):
         # Cleanup is allowed after the input lease is revoked. It still requires
@@ -360,8 +383,11 @@ class Api:
                 return hwnd, x, y
         raise Blocked("click_outside_supported_controls")
 
-    def capture(self, hwnd, expected, flags=0):
-        self.guard(hwnd, expected)
+    def capture(self, hwnd, expected, flags=0, desktop=None):
+        if desktop is None:
+            self.guard(hwnd, expected)
+        else:
+            self.guard(hwnd, expected, desktop=desktop)
         rect = W.RECT()
         self.checked(self.u.GetWindowRect(hwnd, C.byref(rect)), "window_rect")
         width, height = rect.right - rect.left, rect.bottom - rect.top

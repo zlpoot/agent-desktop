@@ -184,12 +184,13 @@ class OwnedApp:
         captured_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         try:
             image, metadata = self.api.capture(hwnd, {'pid': self.pid, 'desktop': self.name,
-                                                    'session': self.context['windowsSessionId']}, flags=2)
+                                                    'session': self.context['windowsSessionId']}, flags=2, desktop=self.desktop)
         except Blocked as error:
             # Preserve the exact read-only capture refusal. Do not expose arbitrary
             # exception text, and never substitute another window or desktop.
             allowed = ('target_exited', 'target_pid_mismatch', 'target_desktop_mismatch',
                        'target_session_mismatch', 'target_outside_owned_job', 'default_target_forbidden',
+                       'target_desktop_membership_unavailable',
                        'invalid_capture_geometry', 'desktop_name_unavailable',
                        'interactive_session_not_active', 'user_input_desktop_not_default')
             reason = str(error)
