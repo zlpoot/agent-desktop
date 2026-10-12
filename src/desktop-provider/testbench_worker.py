@@ -4,6 +4,7 @@ Launch is fenced on the authoritative Registry. The actual WPF input producer ow
 its SQLite write lock through synchronous commit; uncertain transport drains only the owned Job.
 """
 import ctypes
+from contextlib import contextmanager
 import hashlib
 import json
 import traceback
@@ -154,6 +155,27 @@ class NativeBench:
     def context(self):
         return {"scope": self.scope, "sessionId": self.session_id, "instanceId": self.instance,
                 "windowsSessionId": self.api.session(os.getpid()), "desktop": self.name}
+    @contextmanager
+    def window_desktop(self):
+        # Window USER-object queries belong to the original owned Desktop, like D0's
+        # isolated worker. This binds this helper thread only; never SwitchDesktop.
+        self.api.assert_default()
+        if not self.desktop or self.api.name(self.desktop) != self.name:
+            raise ValueError("original-desktop-handle-required")
+        tid = self.api.k.GetCurrentThreadId()
+        previous = self.api.u.GetThreadDesktop(tid)
+        if not previous or self.api.name(previous).lower() != "default":
+            raise ValueError("window-probe-controller-not-default")
+        self.api.checked(self.api.u.SetThreadDesktop(self.desktop), "original_window_desktop_bind")
+        try:
+            if self.api.name(self.api.u.GetThreadDesktop(tid)) != self.name:
+                raise ValueError("original-window-desktop-unconfirmed")
+            self.api.assert_default()  # The user's input Desktop must stay Default.
+            yield
+        finally:
+            self.api.checked(self.api.u.SetThreadDesktop(previous), "restore_controller_thread")
+            if self.api.name(self.api.u.GetThreadDesktop(tid)).lower() != "default":
+                raise ValueError("controller-desktop-restore-unconfirmed")
     def current(self):
         self.api.assert_default()
         self.inspect()
@@ -165,7 +187,8 @@ class NativeBench:
             facts = self.token_facts()
             if not facts["sameUser"] or not facts["permissionsCompatible"]: raise ValueError("original_process_permissions_changed")
             if self.hwnd:
-                self.api.guard(self.hwnd, {"pid": self.pid, "desktop": self.name, "session": self.context()["windowsSessionId"]})
+                with self.window_desktop():
+                    self.api.guard(self.hwnd, {"pid": self.pid, "desktop": self.name, "session": self.context()["windowsSessionId"]})
         return self.context()
     def pipe(self, method, **args):
         # Private current-user pipe is created by original BenchWindow, verifies worker PID + secret.
@@ -287,9 +310,10 @@ class NativeBench:
         self.observed_at = self.clock()
         from ctypes import wintypes as W
         rect = W.RECT()
-        self.api.checked(self.api.u.GetWindowRect(self.hwnd, ctypes.byref(rect)), "original_window_rect")
-        capture["rect"] = {"left": rect.left, "top": rect.top, "width": rect.right - rect.left, "height": rect.bottom - rect.top}
-        capture["windowClass"] = self.api.class_name(self.hwnd)
+        with self.window_desktop():
+            self.api.checked(self.api.u.GetWindowRect(self.hwnd, ctypes.byref(rect)), "original_window_rect")
+            capture["rect"] = {"left": rect.left, "top": rect.top, "width": rect.right - rect.left, "height": rect.bottom - rect.top}
+            capture["windowClass"] = self.api.class_name(self.hwnd)
         capture.update(self.token_facts())
         return capture
     def execute(self, authority, action, observation, action_id):
@@ -395,7 +419,7 @@ def failure_diagnostic(method, error):
         if producer:
             item["producer"] = producer
         chain.append(item)
-        error = error.__cause__
+        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
         if error is None:
             break
     return {"method": method if method in methods else "unknown", "chain": chain}

@@ -271,5 +271,109 @@ class CleanupAndDiagnosticContracts(unittest.TestCase):
         self.assertEqual(module.failure_diagnostic("secret-method", Exception("secret"))["method"], "unknown")
 
 
+class WindowDesktopContracts(unittest.TestCase):
+    def bench(self):
+        bench = module.NativeBench.__new__(module.NativeBench)
+        state = {"thread": 1, "input": "Default", "binds": [], "queries": []}
+        names = {1: "Default", 2: "AgentD0_Bench_synthetic", 9: "foreign"}
+        def checked(value, label):
+            if not value: raise OSError(5, label)
+            return value
+        def default():
+            if state["input"] != "Default": raise ValueError("input-desktop-not-default")
+        def bind(handle):
+            state["binds"].append(handle)
+            state["thread"] = handle
+            return 1
+        def guard(hwnd, expected):
+            default()
+            if state["thread"] != 2: raise ValueError("target-not-on-controller-desktop")
+            if hwnd != 5 or expected != {"pid": 6, "desktop": names[2], "session": 7}:
+                raise ValueError("original-window-mismatch")
+            state["queries"].append(("guard", state["thread"]))
+        def rect(hwnd, pointer):
+            guard(hwnd, {"pid": 6, "desktop": names[2], "session": 7})
+            state["queries"].append(("rect", state["thread"]))
+            pointer._obj.left, pointer._obj.top, pointer._obj.right, pointer._obj.bottom = 10, 20, 110, 220
+            return 1
+        def class_name(hwnd):
+            guard(hwnd, {"pid": 6, "desktop": names[2], "session": 7})
+            return "synthetic-original-class"
+        bench.api = SimpleNamespace(checked=checked, assert_default=default, name=lambda handle: names[handle],
+            guard=guard, class_name=class_name,
+            k=SimpleNamespace(GetCurrentThreadId=lambda: 100, WaitForSingleObject=lambda handle, timeout: 258),
+            u=SimpleNamespace(GetThreadDesktop=lambda tid: state["thread"], SetThreadDesktop=bind, GetWindowRect=rect))
+        bench.desktop, bench.job, bench.process, bench.hwnd, bench.pid, bench.name = 2, 3, 4, 5, 6, names[2]
+        bench.inspect = lambda: None
+        bench.token_facts = lambda: {"sameUser": True, "permissionsCompatible": True}
+        bench.context = lambda: {"windowsSessionId": 7}
+        bench.clock = lambda: 100
+        bench.pipe = lambda method: {"observation": "synthetic", "hwnd": 5, "pid": 6, "incarnation": "original"}
+        bench.incarnation = "original"
+        return bench, state
+    def test_current_queries_original_window_on_owned_desktop_then_restores(self):
+        bench, state = self.bench()
+        self.assertEqual(bench.current(), {"windowsSessionId": 7})
+        self.assertEqual(state["binds"], [2, 1])
+        self.assertEqual(state["queries"], [("guard", 2)])
+        self.assertEqual(state["thread"], 1)
+        self.assertEqual(state["input"], "Default")
+    def test_observe_rect_and_class_use_same_original_desktop(self):
+        bench, state = self.bench()
+        capture = bench.observe()
+        self.assertEqual(capture["rect"], {"left": 10, "top": 20, "width": 100, "height": 200})
+        self.assertEqual(capture["windowClass"], "synthetic-original-class")
+        self.assertTrue(all(desktop == 2 for _, desktop in state["queries"]))
+        self.assertEqual(state["thread"], 1)
+    def test_window_mismatch_still_rejects_and_restores_without_fallback(self):
+        bench, state = self.bench()
+        bench.hwnd = 999
+        with self.assertRaisesRegex(ValueError, "original-window-mismatch"): bench.current()
+        self.assertEqual(state["binds"], [2, 1])
+        self.assertEqual(state["thread"], 1)
+    def test_foreign_desktop_controller_or_locked_input_never_enters_probe(self):
+        for change in ("foreign", "controller", "locked"):
+            bench, state = self.bench()
+            if change == "foreign": bench.desktop = 9
+            elif change == "controller": state["thread"] = 2
+            else: state["input"] = "Winlogon"
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError): bench.current()
+                self.assertEqual(state["binds"], [])
+                self.assertEqual(state["queries"], [])
+    def test_binding_failure_never_runs_window_query(self):
+        bench, state = self.bench()
+        bench.api.u.SetThreadDesktop = lambda handle: 0
+        with self.assertRaises(OSError): bench.current()
+        self.assertEqual(state["queries"], [])
+    def test_restore_failure_preserves_first_error_in_diagnostic(self):
+        bench, state = self.bench()
+        bench.hwnd = 999
+        bind = bench.api.u.SetThreadDesktop
+        bench.api.u.SetThreadDesktop = lambda handle: 0 if handle == 1 else bind(handle)
+        try: bench.current()
+        except OSError as error: diagnostic = module.failure_diagnostic("current", error)
+        else: self.fail("restore failure must reject")
+        self.assertEqual([item["type"] for item in diagnostic["chain"]], ["OSError", "ValueError"])
+    def test_process_or_user_mismatch_rejects_before_desktop_binding(self):
+        for change in ("process", "user"):
+            bench, state = self.bench()
+            if change == "process": bench.api.k.WaitForSingleObject = lambda handle, timeout: 0
+            else: bench.token_facts = lambda: {"sameUser": False, "permissionsCompatible": False}
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError): bench.current()
+                self.assertEqual(state["binds"], [])
+    def test_implicit_diagnostic_context_excludes_messages_and_honors_suppression(self):
+        for suppress, expected in ((False, ["RuntimeError", "ValueError"]), (True, ["RuntimeError"])):
+            try:
+                try: raise ValueError("synthetic-secret-first-error")
+                except ValueError:
+                    if suppress: raise RuntimeError("synthetic-secret-cleanup") from None
+                    raise RuntimeError("synthetic-secret-cleanup")
+            except RuntimeError as error: diagnostic = module.failure_diagnostic("close", error)
+            self.assertEqual([item["type"] for item in diagnostic["chain"]], expected)
+            self.assertNotIn("synthetic-secret", json.dumps(diagnostic))
+
+
 if __name__ == "__main__":
     unittest.main()
