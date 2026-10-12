@@ -1,5 +1,53 @@
 # R1-NATIVE-01：原生无输入诊断
 
+## 同一普通会话的历史 exact HEAD / 当前版对照
+
+Owner 后续明确授权对照历史可用 HEAD `c189ff466d00759e86309584398e9adacdc62b3a`
+（D0-D 收口）和修复 HEAD `563e5caaff33440819a290480cb628997d502d2e`。
+两棵源码均未修改，复用各自的 Host → 原 Hidden Desktop/Job → netease_worker → 原网易云实例启动链；
+外置只读追踪捕获原 API 返回值并保留即时 last-error，当前版另测原外部线程查询，不改变身份判定。
+同一个普通、非提升、非 restricted-token Windows 会话内顺序完成9次启动，9次均 ready/isolation PASS，
+commandsSent/modelCalls/agent_progress/human_actions均0，input=NOT_RUN，Default目标窗口数0。
+每轮 process/Job/Desktop 实际关闭 ACK=true/error=0、Job active=0、原 Desktop OpenDesktopW NULL/error=2、
+调用线程/Input Desktop=Default 确认后才开始下一轮；最终网易云进程数0。
+
+**差异已经定位到调用进程对原 Desktop 持有的 HANDLE 访问条件，未出现旧代码到新代码的启动回归。**
+旧 Worker/capture 现在仍能取得外部窗口线程的 Desktop，而同一原窗口由 Host 查询，在旧、新两版均失败5。
+Windows 在 Hidden Desktop 启动进程时打开 MAXIMUM_ALLOWED；原 Host 创建/临时绑定的 HANDLE 仅0xC3。
+只读 `NtQueryObject(ObjectBasicInformation)` 成功返回56字节，实测前者 GrantedAccess=0xF01FF，后者0xC3。
+
+对同一个原 HWND/TID 的最后一对 helper 实验，旧、新 exact HEAD 结果完全相同。
+helper 均加入原 Job，顺序启动、退出码0、关闭原 process HANDLE 后才继续；不创建窗口或发送输入。
+
+| 固定来源与阶段 | 调用进程持有/线程绑定条件 | GetThreadDesktop 即时结果 |
+|---|---|---|
+| hidden-start / initial | 启动时关联原 Desktop，自动取得0xF01FF | 非NULL/error=0，实际名称匹配原 Desktop |
+| hidden-start / thread-bound-default | 临时绑定Default的0xC3，仍持有原启动 Desktop HANDLE | 非NULL/error=0，返回原 Desktop的0xF01FF HANDLE |
+| default-start / initial | 从Default启动，也属于原Job | NULL/error=5 |
+| default-start / thread-bound-owned | 打开并绑定原Desktop的0xC3 | NULL/error=5；自线程查询正常 |
+| default-start / maximum-handle-open-thread-still-limited | 仅额外打开原Desktop的MAXIMUM_ALLOWED，线程仍绑定0xC3 | 非NULL/error=0；返回值与额外打开的0xF01FF HANDLE相同 |
+| default-start / maximum-closed-thread-limited | 确认关闭额外HANDLE，线程保留原0xC3绑定 | 再次NULL/error=5 |
+
+这个5→0→5序列在两版均重现，证明单纯SetThreadDesktop与旧Worker启动条件不等价；
+不是同用户/session、Job归属、模型、歌曲动作或Python ABI差异。
+本次仅在自有临时 Desktop 的诊断 helper 打开额外权限，未改ACL、令牌或生产访问掩码。
+生产最小修复继续使用0xC3与原生窗口成员证明，不改成MAXIMUM_ALLOWED。
+未逐位穷举权限，也没有内核追踪；不把0xF01FF写成文档规定的最小权限，不推断内部访问检查算法。
+[Windows启动关联Desktop时的MAXIMUM_ALLOWED规则](https://learn.microsoft.com/en-us/windows/win32/winstation/thread-connection-to-a-desktop)；
+[GrantedAccess查询结构](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntqueryobject)。
+
+保留探针局限：首轮当前版的额外Host identity读取曾失败，后续重复成功，没有推断其未记录的失败阶段。
+初次helper在Default读取隐藏HWND的owner TID得到0，产生NULL/error=0，不能算实际原线程的证据；
+同时NtQueryObject的64字节尝试返回长度不符。该轮保留，未计入上述有效对照；
+修正为在原Desktop确认原TID、使用文档结构的56字节后才取得上述结果。
+旧版成功的GetThreadDesktop调用有残留error=122（previousError同为122），因返回非NULL且随后名称读取成功，
+不将其误报为失败；显式清零的独立helper对照返回error=0。
+
+新证据仅覆盖网易云原窗口与共享身份路径，仍不能回填第三次R1的缺失来源。
+TestBench的0x8007045A初始化阻塞、历史A5 safety FAIL / Windows PAUSED / overall INCOMPLETE及offline4项超时保持。
+本轮仅更新证据页，生产代码仍为563e5ca；不重复与文档无关的全量CI。
+原始运行和外置探针仅留忽略的 `.artifacts/r1-exact-ab/`；无P7/正式Task、第四次完整Task或模型调用。
+
 ## 后续授权：网易云 error 5 的原生证据与最小修复
 
 2026-10-12，Owner 在本聊天明确授权结合网易云主窗口查清 error 5、保留身份/安全检查做最小修复并重验 Hidden Desktop 启动。
@@ -13,7 +61,8 @@ OpenProcess 的 limited-query/query/duplicate-handle 与 OpenThread 的 limited-
 原 Desktop 的 READOBJECTS、既有 0xC3、GENERIC_READ、READ_CONTROL 查询均成功。
 Python 原封装、重新加载 user32（Default/bound 两种上下文）及独立 C# P/Invoke 都对该外部线程返回 NULL/error=5，
 而 C# 自线程查询成功/error=0。排除封装、基本查询权限、线程归属、同用户/session 和 helper 未绑定解释。
-只能确认当前现场的跨进程获取被 Windows 拒绝；具体内核附加访问检查未取得证据，不推断 UIPI、ACL、保护进程或系统版本变化，不提升或修改 ACL。
+初轮只能确认当前现场的跨进程获取被 Windows 拒绝；后续同会话exact HEAD对照已将差异定位到上文的原Desktop HANDLE访问条件。
+不推断 UIPI、ACL、保护进程或系统版本变化，生产不提升或修改 ACL。
 
 最小修复只换 Desktop 身份证明的原生路径：调用线程实际 Desktop HANDLE/name →
 `GetAncestor(GA_ROOT)` 的父链根窗口 → 同一 HANDLE 的 `EnumDesktopWindows` 成员证明。
