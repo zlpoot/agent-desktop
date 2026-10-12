@@ -21,6 +21,12 @@ from app_discovery import installation_scope_id
 from win32 import Api, ENUMPROC
 
 
+class NativeDiagnostic(ValueError):
+    def __init__(self, code, **details):
+        super().__init__(code)
+        self.details = details
+
+
 def check_spec(config, spec):
     parsed = definition(spec)
     if parsed[0] != 'exe' or parsed[3] or parsed[4]:
@@ -237,8 +243,15 @@ class OwnedApp:
                 windows.append(int(hwnd))
                 return len(windows) <= 1024
             C.set_last_error(0)
-            if not self.api.u.EnumDesktopWindows(self.desktop, collect, 0) or len(windows) > 1024:
-                raise ValueError('workbench-window-enumeration-incomplete')
+            enumerated = self.api.u.EnumDesktopWindows(self.desktop, collect, 0)
+            enum_error = C.get_last_error()
+            # Match the existing Workspace observer: an empty, initializing desktop
+            # can return FALSE with ERROR_SUCCESS. This is pending, never verified.
+            if not enumerated and enum_error == 0 and not windows:
+                return []
+            if not enumerated or len(windows) > 1024:
+                raise NativeDiagnostic('workbench-window-enumeration-incomplete', winerror=enum_error,
+                                       windowCount=len(windows), returned=bool(enumerated))
             matches = []
             for hwnd in windows:
                 pid = W.DWORD(); tid = self.api.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
@@ -249,7 +262,8 @@ class OwnedApp:
             if not matches:
                 return []
             if len(matches) != 1:
-                raise ValueError('workbench-main-window-ambiguous-or-unsupported')
+                raise NativeDiagnostic('workbench-main-window-ambiguous-or-unsupported', windowCount=len(matches),
+                                       windows=[{'hwnd': hwnd, 'threadId': tid, 'class': self.api.class_name(hwnd)} for hwnd, tid in matches[:16]])
             if self.hwnd and self.hwnd != matches[0][0]:
                 raise ValueError('workbench-original-window-changed')
             hwnd, tid = matches[0]
@@ -277,26 +291,44 @@ class OwnedApp:
         if self.profile:
             self.ended = (self.profile['appBindingId'], reason)
         errors = []
+        def failed(step):
+            errors.append({'step': step, 'winerror': C.get_last_error()})
         if self.job:
-            if not self.api.k.TerminateJobObject(self.job, 1): errors.append('terminate')
+            C.set_last_error(0)
+            if not self.api.k.TerminateJobObject(self.job, 1): failed('terminate')
             until = time.monotonic() + 3
             while self.api.job_active(self.job) and time.monotonic() < until: time.sleep(.02)
-            if self.api.job_active(self.job): errors.append('job-not-empty')
+            active = self.api.job_active(self.job)
+            if active: errors.append({'step': 'job-not-empty', 'activeProcesses': active})
         for key in ('process', 'job', 'file'):
-            handle = getattr(self, key); setattr(self, key, None)
-            if handle and not self.api.k.CloseHandle(handle): errors.append(key)
+            handle = getattr(self, key)
+            if handle:
+                C.set_last_error(0)
+                if not self.api.k.CloseHandle(handle): failed(key)
+                else: setattr(self, key, None)
         if self.desktop:
-            desktop, self.desktop = self.desktop, None
-            if not self.api.u.CloseDesktop(desktop): errors.append('desktop-close')
-            C.set_last_error(0); residual = self.api.u.OpenDesktopW(self.name, 0, False, 1); error = C.get_last_error()
-            if residual:
-                self.api.u.CloseDesktop(residual); errors.append('desktop-present')
-            elif error != 2: errors.append('desktop-absence-unconfirmed')
+            desktop = self.desktop
+            C.set_last_error(0)
+            if not self.api.u.CloseDesktop(desktop): failed('desktop-close')
+            else: self.desktop = None
+            # Job/handles can be drained before the desktop object disappears.
+            # Bounded read-only ACK wait; never starts an App or extends its lease.
+            until = time.monotonic() + 1
+            while True:
+                C.set_last_error(0); residual = self.api.u.OpenDesktopW(self.name, 0, False, 1); error = C.get_last_error()
+                if residual:
+                    if not self.api.u.CloseDesktop(residual): failed('desktop-probe-close'); break
+                    if self.desktop or time.monotonic() >= until:
+                        errors.append({'step': 'desktop-present'}); break
+                    time.sleep(.02)
+                else:
+                    if error != 2: errors.append({'step': 'desktop-absence-unconfirmed', 'winerror': error})
+                    break
         self.context = self.pid = self.hwnd = self.token = self.profile = None
         self.api.assert_default()
         if errors:
             self.blocked = True
-            raise ValueError('workbench-cleanup-unconfirmed')
+            raise NativeDiagnostic('workbench-cleanup-unconfirmed', cleanup=errors)
         return {'cleaned': True}
 
 
@@ -331,7 +363,8 @@ def main():
                          'failureKind': kind,
                          'diagnostic': {'operation': value.get('method') if isinstance(value, dict) else None,
                                         'exception': type(error).__name__, 'winerror': getattr(error, 'winerror', None),
-                                        'errno': getattr(error, 'errno', None)}}
+                                        'errno': getattr(error, 'errno', None), 'code': code,
+                                        **(error.details if isinstance(error, NativeDiagnostic) else {})}}
             print(json.dumps(reply, ensure_ascii=True), flush=True)
     finally:
         if worker:

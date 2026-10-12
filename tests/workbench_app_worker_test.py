@@ -147,6 +147,66 @@ class GenericWindowTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'workbench-existing-'): owner.start(profile)
         owner.api.launch.assert_not_called(); owner.api.k.CreateFileW.assert_not_called(); owner.fence.run.assert_not_called()
 
+    def test_empty_initializing_desktop_is_pending_but_api_error_or_partial_enumeration_fails(self):
+        owner, profile, state = self.owner()
+        def empty(*args): worker.C.set_last_error(0); return False
+        owner.api.u.EnumDesktopWindows.side_effect = empty
+        self.assertEqual(owner.instances(profile), [])
+        self.assertEqual(state['desktop'], 0); self.assertIsNone(owner.hwnd)
+        def denied(*args): worker.C.set_last_error(5); return False
+        owner.api.u.EnumDesktopWindows.side_effect = denied
+        with self.assertRaises(worker.NativeDiagnostic) as caught: owner.instances(profile)
+        self.assertEqual(caught.exception.details, {'winerror': 5, 'windowCount': 0, 'returned': False})
+        self.assertEqual(state['desktop'], 0)
+        def partial(desktop, callback, unused): callback(10, 0); worker.C.set_last_error(0); return False
+        owner.api.u.EnumDesktopWindows.side_effect = partial
+        with self.assertRaises(worker.NativeDiagnostic): owner.instances(profile)
+        self.assertEqual(state['desktop'], 0)
+
+
+
+class CleanupAckTests(unittest.TestCase):
+    def owner(self):
+        owner=worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.api=Mock();owner.api.assert_default=Mock();owner.api.u.CloseDesktop.return_value=True
+        owner.api.k.CloseHandle.return_value=True;owner.api.k.TerminateJobObject.return_value=True
+        owner.api.job_active.return_value=0
+        owner.profile=dict(appBindingId='a');owner.desktop=1;owner.job=2;owner.process=3;owner.file=4
+        owner.context={};owner.pid=42;owner.hwnd=10;owner.token='owned';owner.name='synthetic-owned';owner.blocked=False
+        return owner
+
+    def test_transient_desktop_presence_waits_for_absence_ack_without_new_effect(self):
+        owner=self.owner();reads=[]
+        def probe(*args):
+            reads.append(True)
+            if len(reads)==1: return 8
+            worker.C.set_last_error(2);return None
+        owner.api.u.OpenDesktopW.side_effect=probe
+        with patch.object(worker.time,'sleep'):
+            self.assertEqual(owner.close(),{'cleaned':True})
+        self.assertEqual(len(reads),2);owner.api.k.TerminateJobObject.assert_called_once_with(2,1)
+        owner.api.u.CloseDesktop.assert_any_call(8);self.assertFalse(owner.blocked)
+        self.assertIsNone(owner.desktop);self.assertIsNone(owner.job)
+        owner.api.launch.assert_not_called()
+
+    def test_persistent_desktop_and_absence_error_still_block_with_diagnostics(self):
+        owner=self.owner();owner.api.u.OpenDesktopW.return_value=8
+        with patch.object(worker.time,'monotonic',side_effect=[0,0,2]), patch.object(worker.time,'sleep'):
+            with self.assertRaises(worker.NativeDiagnostic) as caught: owner.close()
+        self.assertTrue(owner.blocked);self.assertIn({'step':'desktop-present'},caught.exception.details['cleanup'])
+        owner=self.owner()
+        def denied(*args):worker.C.set_last_error(5);return None
+        owner.api.u.OpenDesktopW.side_effect=denied
+        with self.assertRaises(worker.NativeDiagnostic) as caught:owner.close()
+        self.assertIn({'step':'desktop-absence-unconfirmed','winerror':5},caught.exception.details['cleanup']);self.assertTrue(owner.blocked)
+
+    def test_failed_owned_handle_close_retains_reference_and_cannot_ack_success(self):
+        owner=self.owner();owner.api.u.CloseDesktop.return_value=False
+        def missing(*args):worker.C.set_last_error(2);return None
+        owner.api.u.OpenDesktopW.side_effect=missing;owner.api.k.CloseHandle.return_value=False
+        with self.assertRaises(worker.NativeDiagnostic):owner.close()
+        self.assertTrue(owner.blocked);self.assertEqual((owner.desktop,owner.job,owner.process,owner.file),(1,2,3,4))
+
 
 
 class RegistryFenceTests(unittest.TestCase):
