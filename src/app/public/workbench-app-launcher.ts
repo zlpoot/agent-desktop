@@ -84,6 +84,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
     app.confirmations.some(item => item.profileRevision === app.profileRevision && item.profileDigest === app.profileDigest);
   const launchText = (spec: WorkbenchLaunchSpec) => spec.kind === 'package' ? `包：${spec.packageFamilyName} / ${spec.applicationUserModelId}`
     : `路径：${spec.executable}\n参数：${JSON.stringify(spec.args)}\n工作目录：${spec.workingDirectory || '默认'}`;
+  const failureText = (reason: string | undefined) => reason === 'workbench-app-in-use'
+    ? '请先关闭当前应用，再打开所选 APP' : reason || '窗口身份未获确认';
   async function post(body: Record<string, unknown>, keepalive = false): Promise<WorkbenchAppView> {
     const response = await fetch('/api/desktop/apps', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive });
     const result: unknown = await response.json();
@@ -175,7 +177,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
           last.processOwnershipVerified === true && last.windowOwnershipVerified === true;
         preferred = `app:${openedId}`;
         status.textContent = verified ? `应用已打开：${app!.displayName}（窗口已确认）。`
-          : `打开未完成：${last?.reason || app?.lastError || '窗口身份未获确认'}。不会自动重试。`;
+          : `打开未完成：${failureText(last?.reason || app?.lastError)}。不会自动重试。`;
       }
     } catch (error) { if (current === version) {
       state!.confirmation = undefined;
@@ -208,14 +210,14 @@ window.createWorkbenchAppLauncher = (root, select) => {
         ['unavailable', 'mismatch'].includes(last.result);
       clearPreview(failedLaunch ? '启动验证失败，本次启动资源已清理；没有已确认窗口可预览。' : '应用已退出，预览已停止。');
       status.textContent = failedLaunch
-        ? `打开失败：${last.reason || app.lastError || '窗口身份未获确认'}。本次启动资源已清理，不会自动重试。`
+        ? `打开失败：${failureText(last.reason || app.lastError)}。本次启动资源已清理，不会自动重试。`
         : `已退出：${live.reason || '原进程已结束'}。`;
     }
     else {
       clearPreview();
       const last = app.verifications.at(-1);
       status.textContent = last?.result === 'unavailable' || last?.result === 'mismatch'
-        ? `打开失败/未知：${last.reason || app.lastError || '未确认'}。不会自动重试。`
+        ? `打开失败/未知：${failureText(last.reason || app.lastError)}。不会自动重试。`
         : '配置已保存，尚未打开。';
     }
   }

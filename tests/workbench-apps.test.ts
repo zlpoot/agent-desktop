@@ -11,6 +11,95 @@ import { createRootAssembly } from '../src/composition/root.js';
 import { WorkbenchApps, NativeWorkbenchAppClient, workbenchAppConfig, loadWorkbenchAppConfig } from '../src/desktop-provider/workbench-apps.js';
 import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
 
+test('opening B while A runs preserves A, its preview and lease; B failures release only B reservations', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-cross-app-')), client = new FakeWorkbenchClient();
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { throw Error('no-model'); } } });
+  const target = { providerId: scope.providerId, environmentId: scope.environmentId };
+  let view: any = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+  const act = async (action: string, fields = {}) => view = await root.controller.manageApps({ action, desktopTarget: target,
+    sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), ...fields });
+  const selected = (id: string) => view.registered.find((app: any) => app.appBindingId === id);
+  const open = (id: string) => act('verify', { appBindingId: id, expectedRevision: selected(id).revision, allowLaunch: true });
+  const stop = (id: string) => act('stop', { appBindingId: id, expectedRevision: selected(id).revision });
+  const preview = (id: string) => root.controller.manageApps({ action: 'preview', desktopTarget: target,
+    sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), appBindingId: id, expectedRevision: selected(id).revision });
+  try {
+    for (const path of ['C:\\Synthetic\\Editor.exe', 'D:\\Synthetic\\Viewer.exe']) await act('path', { path, save: true });
+    const [a, b] = view.registered;
+    await open(a.appBindingId);
+    const reservation = client.reservationId, expires = client.expiresAt, before = client.calls.length;
+    await open(b.appBindingId);
+    assert.equal(selected(b.appBindingId).verifications.at(-1).reason, 'workbench-app-in-use');
+    assert.equal(client.starts, 1); assert.equal(client.active, true); assert.equal(client.activeProfile?.appBindingId, a.appBindingId);
+    assert.equal(client.reservationId, reservation); assert.equal(client.expiresAt, expires); assert.equal(client.allocations, 1);
+    assert.equal(client.releasedReservations.length, 0); assert.equal(client.stops, 0);
+    assert.ok(!client.calls.slice(before).some(method => ['close', 'cleanup', 'fit'].includes(method)));
+    assert.equal(view.liveStatus[a.appBindingId].state, 'window-confirmed');
+    const frameA: any = await preview(a.appBindingId); assert.equal(frameA.appBindingId, a.appBindingId);
+    await open(a.appBindingId); assert.equal(client.starts, 1); assert.equal(client.expiresAt, expires);
+    await stop(a.appBindingId); await open(b.appBindingId);
+    assert.equal(client.starts, 2); assert.equal(client.activeProfile?.appBindingId, b.appBindingId); assert.equal(client.allocations, 2);
+    const frameB: any = await preview(b.appBindingId); assert.equal(frameB.appBindingId, b.appBindingId);
+    await stop(b.appBindingId);
+    client.windowFailure = 'workbench-main-window-ambiguous-or-unsupported';
+    await open(b.appBindingId);
+    assert.equal(client.starts, 3); assert.equal(client.active, false); assert.equal(client.releasedReservations.length, 1);
+    assert.ok(client.calls.includes('cleanup')); assert.equal(client.reservationId, undefined);
+    client.windowFailure = undefined; client.conflict = true;
+    await open(b.appBindingId);
+    assert.equal(client.starts, 3); assert.equal(client.releasedReservations.length, 2, 'pre-dispatch failure must release its newly created Job/Desktop');
+    assert.equal(client.reservationId, undefined);
+  } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('cancellation after this request starts still releases its own reservation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-cancel-')), client = new FakeWorkbenchClient();
+  let release = () => {};
+  const held = new Promise<void>(done => { release = done; }); client.beforeStart = () => held;
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { throw Error('no-model'); } } });
+  const target = { providerId: scope.providerId, environmentId: scope.environmentId };
+  let view: any = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+  const body = (action: string, fields = {}) => ({ action, desktopTarget: target, sessionId: view.sessionId,
+    revision: view.revision, requestId: crypto.randomUUID(), ...fields });
+  try {
+    view = await root.controller.manageApps(body('path', { path: 'C:\\Synthetic\\Editor.exe', save: true }));
+    const app = view.registered[0];
+    const opening = root.controller.manageApps(body('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true }));
+    const rejected = assert.rejects(opening, /closed|expired|cancel/);
+    const until = Date.now() + 3000;
+    while (!client.active && Date.now() < until) await new Promise(done => setTimeout(done, 10));
+    assert.equal(client.active, true);
+    await root.controller.manageApps(body('cancel')); release(); await rejected;
+    assert.equal(client.active, false); assert.equal(client.reservationId, undefined);
+    assert.equal(client.releasedReservations.length, 1); assert.ok(client.calls.includes('release'));
+    assert.equal(client.starts, 1);
+  } finally { release(); await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('failed own cleanup remains unknown and blocks another launch without releasing other resources', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-cleanup-failure-')), client = new FakeWorkbenchClient();
+  client.windowFailure = 'workbench-main-window-ambiguous-or-unsupported'; client.cleanupFailure = true;
+  const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
+    model: { createModel() { throw Error('no-model'); } } });
+  const target = { providerId: scope.providerId, environmentId: scope.environmentId };
+  let view: any = await root.controller.manageApps({ action: 'open', desktopTarget: target });
+  const act = async (action: string, fields = {}) => view = await root.controller.manageApps({ action, desktopTarget: target,
+    sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), ...fields });
+  try {
+    await act('path', { path: 'C:\\Synthetic\\Editor.exe', save: true });
+    const app = view.registered[0];
+    await act('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true });
+    assert.equal(view.registered[0].verifications.at(-1).reason, 'launch-result-unknown:app-launch-cleanup-unconfirmed');
+    assert.equal(view.liveStatus[app.appBindingId].state, 'unknown'); assert.equal(client.starts, 1);
+    assert.equal(client.releasedReservations.length, 0); assert.ok(client.reservationId);
+    await assert.rejects(act('verify', { appBindingId: app.appBindingId, expectedRevision: view.registered[0].revision, allowLaunch: true }), /resource-blocked/);
+    assert.equal(client.starts, 1);
+    await assert.rejects(root.environmentApps.forEnvironment(target).onboarding!.close(), /cleanup-unconfirmed/);
+  } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('explicit stop is scoped, revision fenced and idempotent; retains saved configuration and launch history', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-stop-')), client = new FakeWorkbenchClient();
   const root = await createRootAssembly({ rootDir: dir, workbenchApps: new WorkbenchApps(undefined, scope.installationScopeId, client, true),
@@ -61,7 +150,8 @@ test('ordinary Root wires configured App service and App-only environment withou
     assert.equal(client.starts, 1); assert.equal(models, 0);
     client.changed = true;
     await act('verify', { appBindingId: view.registered[0].appBindingId, expectedRevision: view.registered[0].revision, allowLaunch: true });
-    assert.equal(view.registered[0].verifications.at(-1).result, 'unavailable'); assert.equal(client.active, false); assert.equal(client.starts, 1);
+    assert.equal(view.registered[0].verifications.at(-1).result, 'unavailable'); assert.equal(client.active, true); assert.equal(client.starts, 1);
+    assert.equal(client.releasedReservations.length, 0, 'failed re-observation cannot release a borrowed execution');
   } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
 });
 

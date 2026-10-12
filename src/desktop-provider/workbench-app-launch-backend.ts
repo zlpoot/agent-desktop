@@ -3,6 +3,7 @@ import type { AppInstallationCheck, AppInstanceEvidence, AppLaunchExecution, App
 import { AppLaunchError } from '../environment-apps/launcher.js';
 import { launchDefinition } from '../environment-apps/launcher.js';
 import type { WorkbenchAppClient } from './workbench-app-native-client.js';
+import { randomUUID } from 'node:crypto';
 
 /** Keeps configured-App admission and original-resource checks at each native boundary. */
 export function createWorkbenchAppLaunchBackend(options: {
@@ -25,7 +26,10 @@ export function createWorkbenchAppLaunchBackend(options: {
 
   async function reserveExecution(signal: AbortSignal): Promise<AppLaunchExecution> {
     if (isClosed() || signal.aborted) throw Error('workbench-app-cancelled');
-    const context = await client.call<AppRuntimeContext>('reserve');
+    // Native remembers which request created the resources. A reused context
+    // permits observation only; its caller cannot release the original owner.
+    const reservationId = randomUUID();
+    const context = await client.call<AppRuntimeContext>('reserve', { reservationId });
     let owned: string | undefined;
 
     async function assertCurrent() {
@@ -41,7 +45,7 @@ export function createWorkbenchAppLaunchBackend(options: {
     }
     async function startOwnedApp(profile: EnvironmentAppBinding) {
       await assertCurrent();
-      owned = await client.call<string>('start', { profile });
+      owned = await client.call<string>('start', { profile, reservationId });
       await assertCurrent();
       return owned;
     }
@@ -62,10 +66,10 @@ export function createWorkbenchAppLaunchBackend(options: {
     }
     async function cleanupOwnedApp(token: string) {
       if (!owned || token !== owned) throw Error('workbench-owned-token-required');
-      await client.call('cleanup', { token });
+      await client.call('cleanup', { token, reservationId });
     }
     async function closeExecution(keep?: boolean) {
-      try { if (!keep || signal.aborted) await client.call('close'); }
+      try { if (!keep || signal.aborted) await client.call('release', { reservationId }); }
       catch (error) {
         console.error('Workbench close diagnostic:', JSON.stringify({
           exception: error instanceof Error ? error.name : 'unknown',

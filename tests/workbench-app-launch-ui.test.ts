@@ -236,14 +236,27 @@ test('close button stops only the selected owned APP, clears late frames, preser
     await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
     await page.locator('#task-destination').selectOption(target(scope.providerId, scope.environmentId));
     await status.getByText('尚无已确认应用', { exact: false }).waitFor();
-    await page.getByRole('button', { name: '添加 APP', exact: true }).click();
-    await page.locator('#task-app-path').fill('C:\\Synthetic\\Editor.exe');
-    await page.getByRole('button', { name: '检查并保存', exact: true }).click();
-    await status.getByText('配置已保存', { exact: false }).waitFor();
+    for (const path of ['C:\\Synthetic\\Editor.exe', 'D:\\Synthetic\\Viewer.exe']) {
+      await page.getByRole('button', { name: '添加 APP', exact: true }).click();
+      await page.locator('#task-app-path').fill(path);
+      await page.getByRole('button', { name: '检查并保存', exact: true }).click();
+      await status.getByText('配置已保存', { exact: false }).waitFor();
+    }
+    await app.selectOption({ label: await app.getByRole('option', { name: /Editor/ }).innerText() });
     assert.equal(await stop.isDisabled(), true); assert.equal(client.stops, 0);
     await page.getByRole('button', { name: '打开应用', exact: true }).click();
     await status.getByText('窗口已确认', { exact: false }).waitFor(); await preview.waitFor({ state: 'visible' });
     assert.equal(await stop.isEnabled(), true);
+    const expires = client.expiresAt, reservation = client.reservationId, beforeB = client.calls.length;
+    await app.selectOption({ label: await app.getByRole('option', { name: /Viewer/ }).innerText() });
+    await page.getByRole('button', { name: '打开应用', exact: true }).click();
+    await status.getByText('请先关闭当前应用', { exact: false }).waitFor();
+    assert.equal(client.active, true); assert.equal(client.starts, 1); assert.equal(client.stops, 0);
+    assert.equal(client.expiresAt, expires); assert.equal(client.reservationId, reservation);
+    assert.equal(client.releasedReservations.length, 0);
+    assert.ok(!client.calls.slice(beforeB).some(method => ['close', 'cleanup'].includes(method)));
+    await app.selectOption({ label: await app.getByRole('option', { name: /Editor/ }).innerText() });
+    await status.getByText('窗口已确认', { exact: false }).waitFor(); await preview.waitFor({ state: 'visible' });
     const held = new Promise<void>(done => { release = done; }), count = client.previews;
     client.beforePreview = () => held; await assertEventually(() => client.previews > count);
     await stop.click(); await status.getByText('workbench-operator-closed', { exact: false }).waitFor();

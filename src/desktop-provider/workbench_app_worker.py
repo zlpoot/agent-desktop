@@ -94,6 +94,7 @@ class OwnedApp:
         self.pid = self.hwnd = self.token = self.profile = None
         self.blocked = False
         self.ended = None
+        self.reservation_id = None
         self.preview_id = uuid.uuid4().hex
         self.preview_dir = ROOT / '.artifacts/workbench-app-preview' / self.preview_id
         self.preview_files = set()
@@ -261,7 +262,23 @@ class OwnedApp:
         C.set_last_error(0)
         return self.api.checked(self.api.u.GetThreadDesktop(self.api.k.GetCurrentThreadId()), 'workbench-current-thread-desktop')
 
-    def reserve(self):
+    def reservation_key(self, value):
+        if not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', value):
+            raise ValueError('workbench-reservation-id-required')
+        return value
+
+    def release(self, reservation_id, token=None):
+        self.reservation_key(reservation_id)
+        if reservation_id != self.reservation_id:
+            # Borrowed or already released execution: never touch a newer/other
+            # request's resources. A failed cleanup retains its original key.
+            return {'cleaned': True}
+        if token is not None and token != self.token:
+            raise ValueError('workbench-owned-token-required')
+        return self.close()
+
+    def reserve(self, reservation_id):
+        self.reservation_key(reservation_id)
         if self.context:
             return self.current()
         if self.blocked:
@@ -274,6 +291,7 @@ class OwnedApp:
         if integrity != 'S-1-16-8192':
             raise ValueError('workbench-ordinary-medium-required')
         self.name = 'AgentD0_App_' + uuid.uuid4().hex
+        self.reservation_id = reservation_id
         try:
             self.desktop = self.api.desktop(self.name)
             self.job = self.api.job(self.name + '_job')
@@ -286,7 +304,10 @@ class OwnedApp:
             self.close()
             raise
 
-    def start(self, profile):
+    def start(self, profile, reservation_id):
+        self.reservation_key(reservation_id)
+        if reservation_id != self.reservation_id:
+            raise ValueError('workbench-app-in-use')
         self.current()
         if self.process:
             raise ValueError('workbench-original-already-started')
@@ -338,7 +359,9 @@ class OwnedApp:
         self.current()
         if not self.process:
             return []
-        if self.profile['appBindingId'] != profile['appBindingId'] or self.profile['profileDigest'] != profile['profileDigest']:
+        if self.profile['appBindingId'] != profile['appBindingId']:
+            raise ValueError('workbench-app-in-use')
+        if self.profile['profileDigest'] != profile['profileDigest']:
             raise ValueError('workbench-original-profile-mismatch')
         checked = self.inspect(profile['launchSpec'])
         if checked['identity'] != profile['identity']:
@@ -448,6 +471,7 @@ class OwnedApp:
         if errors:
             self.blocked = True
             raise NativeDiagnostic('workbench-cleanup-unconfirmed', cleanup=errors)
+        self.reservation_id = None
         return {'cleaned': True}
 
 
@@ -463,17 +487,19 @@ def main():
                 value = json.loads(line); method, fields = value['method'], value.get('fields', {})
                 if method == 'init' and worker is None:
                     worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry']); result = {'initialized': True, 'previewDirectory': getattr(worker, 'preview_id', None)}
-                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'preview', 'fit', 'stop', 'cleanup', 'close'):
+                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'preview', 'fit', 'stop', 'cleanup', 'release', 'close'):
                     with worker.lock:
                         if method == 'inspect': result = worker.inspect(fields['spec'])
                         elif method == 'catalog': result = worker.catalog(fields.get('path'))
-                        elif method in ('reserve', 'current'): result = getattr(worker, method)()
-                        elif method in ('start', 'instances', 'status', 'preview'): result = getattr(worker, method)(fields['profile'])
+                        elif method == 'current': result = worker.current()
+                        elif method == 'reserve': result = worker.reserve(fields['reservationId'])
+                        elif method == 'start': result = worker.start(fields['profile'], fields['reservationId'])
+                        elif method in ('instances', 'status', 'preview'): result = getattr(worker, method)(fields['profile'])
                         elif method == 'fit': result = worker.fit(fields['profile'], fields['token'])
                         elif method == 'stop': result = worker.stop(fields['profile'])
                         elif method == 'cleanup':
-                            if fields['token'] != worker.token: raise ValueError('workbench-owned-token-required')
-                            result = worker.close()
+                            result = worker.release(fields['reservationId'], fields['token'])
+                        elif method == 'release': result = worker.release(fields['reservationId'])
                         else: result = worker.close()
                 else: raise ValueError('workbench-command-unavailable')
                 reply = {'id': value['id'], 'result': result}

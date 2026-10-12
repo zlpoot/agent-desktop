@@ -147,10 +147,11 @@ class GenericWindowTests(unittest.TestCase):
         import psutil
         owner = worker.OwnedApp.__new__(worker.OwnedApp); owner.current = Mock(); owner.inspect = Mock()
         owner.process = None; owner.api = Mock(); owner.fence = Mock()
+        owner.reservation_id = '00000000-0000-0000-0000-000000000001'
         profile = dict(launchSpec=dict(kind='exe', executable=r'D:\Synthetic\Viewer.exe', args=[]))
         for info in (dict(exe=r'd:\synthetic\viewer.exe', name='Viewer.exe'), dict(exe=None, name='VIEWER.EXE')):
             with patch.object(psutil, 'process_iter', return_value=[SimpleNamespace(info=info)]):
-                with self.assertRaisesRegex(ValueError, 'workbench-existing-'): owner.start(profile)
+                with self.assertRaisesRegex(ValueError, 'workbench-existing-'): owner.start(profile, owner.reservation_id)
         owner.api.launch.assert_not_called(); owner.api.k.CreateFileW.assert_not_called(); owner.fence.run.assert_not_called()
 
     def test_auxiliary_roots_are_pending_and_do_not_ambiguate_a_real_owned_main_window(self):
@@ -343,6 +344,42 @@ class CaptureDesktopIdentityTests(unittest.TestCase):
                                 ({'desktop': 'Default'}, 'target_desktop_mismatch')):
             api, state = self.api()
             with self.assertRaisesRegex(worker.Blocked, reason): api.guard(10, {**expected, **changed}, desktop=9)
+
+
+class ReservationOwnershipTests(unittest.TestCase):
+    A = '00000000-0000-0000-0000-000000000001'
+    B = '00000000-0000-0000-0000-000000000002'
+
+    def test_borrowed_reserve_and_release_cannot_change_owner_resources_or_deadline(self):
+        owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.context = {'original': True}; owner.reservation_id = self.A
+        owner.deadline = 123; owner.current = Mock(return_value=owner.context); owner.close = Mock()
+        owner.api = Mock(); owner.inspect = Mock()
+        self.assertEqual(owner.reserve(self.B), owner.context)
+        self.assertEqual(owner.reservation_id, self.A); self.assertEqual(owner.deadline, 123)
+        self.assertEqual(owner.release(self.B), {'cleaned': True}); owner.close.assert_not_called()
+        owner.release(self.B, 'token-of-A'); owner.close.assert_not_called()
+        with self.assertRaisesRegex(ValueError, 'app-in-use'): owner.start({}, self.B)
+        owner.inspect.assert_not_called(); owner.api.launch.assert_not_called()
+        owner.token = 'token-of-A'
+        with self.assertRaisesRegex(ValueError, 'owned-token-required'): owner.release(self.A, 'wrong-token')
+        owner.close.assert_not_called()
+        owner.release(self.A, owner.token); owner.close.assert_called_once_with()
+
+    def test_scoped_release_still_cleans_pre_start_resources_and_keeps_failed_owner_key(self):
+        owner = CleanupAckTests().owner(); owner.reservation_id = self.A; owner.profile = None
+        owner.process = owner.file = None
+        def absent(*args): worker.C.set_last_error(2); return None
+        owner.api.u.OpenDesktopW.side_effect = absent
+        self.assertEqual(owner.release(self.A), {'cleaned': True})
+        owner.api.k.TerminateJobObject.assert_called_once_with(2, 1)
+        self.assertIsNone(owner.reservation_id); self.assertIsNone(owner.desktop); self.assertIsNone(owner.job)
+        owner.reservation_id = self.B; owner.close = Mock()
+        owner.release(self.A); owner.close.assert_not_called()
+        owner = CleanupAckTests().owner(); owner.reservation_id = self.A
+        owner.api.u.CloseDesktop.return_value = False; owner.api.u.OpenDesktopW.side_effect = absent
+        with self.assertRaisesRegex(ValueError, 'cleanup-unconfirmed'): owner.release(self.A)
+        self.assertEqual(owner.reservation_id, self.A); self.assertTrue(owner.blocked)
 
 
 class StopAndFitTests(unittest.TestCase):
