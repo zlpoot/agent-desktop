@@ -111,6 +111,7 @@ class GenericWindowTests(unittest.TestCase):
         owner.api.u.SetThreadDesktop.side_effect = bind; owner.api.u.EnumDesktopWindows.side_effect = enum
         owner.api.u.GetWindowThreadProcessId.side_effect = window_pid; owner.api.u.GetAncestor.side_effect = lambda hwnd, _: hwnd
         owner.api.u.IsWindowVisible.side_effect = lambda _: state['visible']; owner.api.u.IsWindow.return_value = True
+        owner.api.u.GetWindowLongW.return_value = 0; owner.api.u.GetWindow.return_value = None
         owner.api.k.IsProcessInJob.side_effect = in_job; owner.api.k.QueryFullProcessImageNameW.side_effect = image
         owner.api.checked.side_effect = lambda value, _: value
         owner.api.name.side_effect = lambda handle: 'owned-desktop' if handle == 1 else 'Default'
@@ -146,6 +147,29 @@ class GenericWindowTests(unittest.TestCase):
             with patch.object(psutil, 'process_iter', return_value=[SimpleNamespace(info=info)]):
                 with self.assertRaisesRegex(ValueError, 'workbench-existing-'): owner.start(profile)
         owner.api.launch.assert_not_called(); owner.api.k.CreateFileW.assert_not_called(); owner.fence.run.assert_not_called()
+
+    def test_auxiliary_roots_are_pending_and_do_not_ambiguate_a_real_owned_main_window(self):
+        owner, profile, state = self.owner(); state['windows'] = [10, 11]
+        classes = {10: 'UAC_InputIndicatorOverlayWnd', 11: 'UAC Input Indicator', 12: 'SyntheticViewerClass'}
+        owner.api.class_name.side_effect = classes.get
+        self.assertEqual(owner.instances(profile), []); self.assertIsNone(owner.hwnd)
+        state['windows'].append(12)
+        self.assertEqual(len(owner.instances(profile)), 1); self.assertEqual(owner.hwnd, 12)
+        state['windows'].append(13); classes[13] = 'SyntheticSecondMain'
+        with self.assertRaisesRegex(ValueError, 'ambiguous-or-unsupported'): owner.instances(profile)
+        self.assertEqual(state['desktop'], 0)
+
+    def test_tool_noactivate_and_owned_windows_are_excluded_but_query_errors_fail_closed(self):
+        for extended, parent in ((0x80, None), (0x08000000, None), (0, 99)):
+            owner, profile, state = self.owner()
+            owner.api.u.GetWindowLongW.return_value = extended; owner.api.u.GetWindow.return_value = parent
+            self.assertEqual(owner.instances(profile), []); self.assertEqual(state['desktop'], 0)
+        for method, code in (('GetWindowLongW', 'style'), ('GetWindow', 'owner')):
+            owner, profile, state = self.owner()
+            def denied(*args): worker.C.set_last_error(5); return 0
+            getattr(owner.api.u, method).side_effect = denied
+            with self.assertRaisesRegex(ValueError, 'window-' + code + '-unavailable'): owner.instances(profile)
+            self.assertEqual(state['desktop'], 0)
 
     def test_empty_initializing_desktop_is_pending_but_api_error_or_partial_enumeration_fails(self):
         owner, profile, state = self.owner()

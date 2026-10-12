@@ -75,6 +75,8 @@ class OwnedApp:
         self.config, self.scope = config, scope
         self.api = Api()
         self.api.u.GetAncestor.argtypes, self.api.u.GetAncestor.restype = [W.HWND, W.UINT], W.HWND
+        self.api.u.GetWindow.argtypes, self.api.u.GetWindow.restype = [W.HWND, W.UINT], W.HWND
+        self.api.u.GetWindowLongW.argtypes, self.api.u.GetWindowLongW.restype = [W.HWND, C.c_int], W.LONG
         self.api.u.GetProcessWindowStation.argtypes, self.api.u.GetProcessWindowStation.restype = [], W.HANDLE
         self.api.k.GetProcessId.argtypes, self.api.k.GetProcessId.restype = [W.HANDLE], W.DWORD
         self.api.k.QueryFullProcessImageNameW.argtypes = [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)]
@@ -258,6 +260,25 @@ class OwnedApp:
             return self.token
         return self.fence.run(profile, effect)
 
+    def main_window(self, hwnd):
+        # These input-indicator helpers can be visible roots in the APP process
+        # before its UI exists. Their presence is not a main-window confirmation.
+        if self.api.class_name(hwnd) in ('UAC_InputIndicatorOverlayWnd', 'UAC Input Indicator'):
+            return False
+        C.set_last_error(0)
+        extended = self.api.u.GetWindowLongW(hwnd, -20)  # GWL_EXSTYLE (32-bit styles)
+        error = C.get_last_error()
+        if not extended and error:
+            raise NativeDiagnostic('workbench-window-style-unavailable', winerror=error)
+        if extended & (0x80 | 0x08000000):  # WS_EX_TOOLWINDOW / WS_EX_NOACTIVATE
+            return False
+        C.set_last_error(0)
+        owner = self.api.u.GetWindow(hwnd, 4)  # GW_OWNER
+        error = C.get_last_error()
+        if not owner and error:
+            raise NativeDiagnostic('workbench-window-owner-unavailable', winerror=error)
+        return not owner
+
     def instances(self, profile):
         self.current()
         if not self.process:
@@ -290,9 +311,7 @@ class OwnedApp:
             matches = []
             for hwnd in windows:
                 pid = W.DWORD(); tid = self.api.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
-                if tid and pid.value == self.pid and self.api.u.IsWindowVisible(hwnd) and self.api.u.GetAncestor(hwnd, 2) == hwnd and self.api.class_name(hwnd):
-                    if self.api.u.GetAncestor(hwnd, 2) != hwnd:
-                        raise ValueError('workbench-original-root-required')
+                if tid and pid.value == self.pid and self.api.u.IsWindowVisible(hwnd) and self.api.u.GetAncestor(hwnd, 2) == hwnd and self.api.class_name(hwnd) and self.main_window(hwnd):
                     matches.append((hwnd, tid))
             if not matches:
                 return []
@@ -308,7 +327,7 @@ class OwnedApp:
             image, image_size = C.create_unicode_buffer(32768), W.DWORD(32768)
             self.api.checked(self.api.k.QueryFullProcessImageNameW(self.process, 0, image, C.byref(image_size)), 'workbench-original-image')
             after_pid = W.DWORD(); after_tid = self.api.u.GetWindowThreadProcessId(hwnd, C.byref(after_pid))
-            if not in_job.value or parent != child or child[1] != self.context['windowsSessionId'] or ntpath.normcase(image.value) != ntpath.normcase(profile['launchSpec']['executable']) or not self.api.u.IsWindow(hwnd) or self.api.u.GetAncestor(hwnd, 2) != hwnd or after_tid != tid or after_pid.value != self.pid:
+            if not in_job.value or parent != child or child[1] != self.context['windowsSessionId'] or ntpath.normcase(image.value) != ntpath.normcase(profile['launchSpec']['executable']) or not self.api.u.IsWindow(hwnd) or not self.api.u.IsWindowVisible(hwnd) or self.api.u.GetAncestor(hwnd, 2) != hwnd or not self.main_window(hwnd) or after_tid != tid or after_pid.value != self.pid:
                 raise ValueError('workbench-original-owner-unconfirmed')
             self.current()
             self.hwnd = hwnd

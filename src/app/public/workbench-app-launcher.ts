@@ -194,7 +194,16 @@ window.createWorkbenchAppLauncher = (root, select) => {
     if (live.state === 'window-confirmed') {
       if (live.expiresAt && Date.parse(live.expiresAt) <= Date.now()) { clearPreview('资源期限已到，预览已停止。'); status.textContent = '资源期限已到，正在核对退出状态…'; return; }
       status.textContent = `应用已打开：${app.displayName}（窗口已确认）。资源最迟于 ${live.expiresAt ? new Date(live.expiresAt).toLocaleTimeString() : '未知时间'} 回收（60 秒期限）。`;
-    } else if (live.state === 'exited') { clearPreview('应用已退出，预览已停止。'); status.textContent = `已退出：${live.reason || '原进程已结束'}。`; }
+    } else if (live.state === 'exited') {
+      const last = app.verifications.at(-1);
+      const failedLaunch = live.reason === 'workbench-owned-resources-cleaned' && last &&
+        last.profileDigest === app.profileDigest && last.profileRevision === app.profileRevision &&
+        ['unavailable', 'mismatch'].includes(last.result);
+      clearPreview(failedLaunch ? '启动验证失败，本次启动资源已清理；没有已确认窗口可预览。' : '应用已退出，预览已停止。');
+      status.textContent = failedLaunch
+        ? `打开失败：${last.reason || app.lastError || '窗口身份未获确认'}。本次启动资源已清理，不会自动重试。`
+        : `已退出：${live.reason || '原进程已结束'}。`;
+    }
     else {
       clearPreview();
       const last = app.verifications.at(-1);
