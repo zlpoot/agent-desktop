@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("bench_worker", ROOT / "src/desktop-provider/testbench_worker.py")
@@ -176,6 +178,97 @@ return 0;
         code, marker = self.run_producer(); self.assertEqual(code, 7); self.assertFalse(marker.exists())
         self.db.execute("DROP TABLE private_app_denial_store"); self.db.commit()
         code, marker = self.run_producer(); self.assertEqual(code, 7); self.assertFalse(marker.exists())
+
+
+class CleanupAndDiagnosticContracts(unittest.TestCase):
+    def setUp(self):
+        get_error = patch.object(module.ctypes, "get_last_error", return_value=2, create=True)
+        set_error = patch.object(module.ctypes, "set_last_error", create=True)
+        self.last_error = get_error.start()
+        set_error.start()
+        self.addCleanup(get_error.stop)
+        self.addCleanup(set_error.stop)
+    def bench(self, desktops=(0,), fail_desktop=False, fail_drain=False):
+        bench = module.NativeBench.__new__(module.NativeBench)
+        closed, probes, registry = [], [], []
+        values = iter(desktops)
+        def probe(*args):
+            value = next(values)
+            probes.append(value)
+            return value
+        def checked(value, label):
+            if not value:
+                raise OSError(5, label)
+            return value
+        bench.api = SimpleNamespace(
+            k=SimpleNamespace(CloseHandle=lambda handle: closed.append(handle) or 1,
+                              WaitForSingleObject=lambda handle, timeout: 0),
+            u=SimpleNamespace(CloseDesktop=lambda handle: closed.append(handle) or (0 if fail_desktop else 1),
+                              OpenDesktopW=probe), checked=checked)
+        def drain():
+            if fail_drain:
+                raise RuntimeError("synthetic drain failure")
+        bench.drain = drain
+        bench.process, bench.job, bench.desktop, bench.binary = 11, 22, 33, 44
+        bench.name = "AgentD0_Bench_synthetic"
+        bench.fence = SimpleNamespace(close=lambda: registry.append(True))
+        return bench, closed, probes, registry
+    def test_delayed_desktop_rundown_requires_absence_and_closes_each_probe(self):
+        bench, closed, probes, registry = self.bench((55, 66, 0))
+        with patch.object(module.time, "sleep"):
+            bench.close()
+        self.assertEqual(probes, [55, 66, 0])
+        self.assertEqual(closed, [11, 22, 33, 55, 66, 44])
+        self.assertEqual(registry, [True])
+        self.assertIsNone(bench.binary)
+    def test_persistent_desktop_remains_nack_but_releases_binary_and_registry(self):
+        bench, closed, probes, registry = self.bench((55,))
+        with patch.object(module.time, "monotonic", side_effect=[0, 3]):
+            with self.assertRaisesRegex(RuntimeError, "owned-cleanup-unconfirmed"):
+                bench.close()
+        self.assertEqual(closed, [11, 22, 33, 55, 44])
+        self.assertEqual(registry, [True])
+    def test_drain_and_close_failures_do_not_skip_other_owned_resources(self):
+        for failures in ({"fail_drain": True}, {"fail_desktop": True}):
+            with self.subTest(failures=failures):
+                bench, closed, probes, registry = self.bench(**failures)
+                with self.assertRaisesRegex(RuntimeError, "owned-cleanup-unconfirmed"):
+                    bench.close()
+                self.assertIn(11, closed)
+                self.assertIn(22, closed)
+                self.assertIn(44, closed)
+                self.assertEqual(registry, [True])
+    def test_desktop_access_or_probe_failure_cannot_be_misreported_as_absent(self):
+        for error in (0, 5, 6):
+            with self.subTest(error=error):
+                self.last_error.return_value = error
+                bench, closed, probes, registry = self.bench()
+                with self.assertRaisesRegex(RuntimeError, "owned-cleanup-unconfirmed"):
+                    bench.close()
+                self.assertEqual(closed, [11, 22, 33, 44])
+                self.assertEqual(registry, [True])
+    def test_unconfirmed_process_exit_still_closes_handles_and_rejects_ack(self):
+        bench, closed, probes, registry = self.bench()
+        bench.api.k.WaitForSingleObject = lambda handle, timeout: 258
+        with self.assertRaisesRegex(RuntimeError, "owned-cleanup-unconfirmed"):
+            bench.close()
+        self.assertEqual(closed, [11, 22, 33, 44])
+        self.assertEqual(registry, [True])
+    def test_private_diagnostic_excludes_exception_messages_paths_and_request_data(self):
+        try:
+            try:
+                raise OSError(5, "synthetic-key-do-not-print C:/private/person/file")
+            except OSError as cause:
+                raise RuntimeError("synthetic-secret-request-body") from cause
+        except RuntimeError as error:
+            diagnostic = module.failure_diagnostic("start", error)
+        encoded = json.dumps(diagnostic)
+        self.assertNotIn("synthetic-key", encoded)
+        self.assertNotIn("private/person", encoded)
+        self.assertNotIn("request-body", encoded)
+        self.assertEqual(diagnostic["method"], "start")
+        self.assertEqual(diagnostic["chain"][1]["errno"], 5)
+        self.assertEqual(module.failure_diagnostic("secret-method", Exception("secret"))["method"], "unknown")
 
 
 if __name__ == "__main__":

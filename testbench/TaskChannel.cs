@@ -186,7 +186,16 @@ namespace WindowsAgentTestBench
                             if ((string)request["secret"] != secret) throw new InvalidOperationException("foreign-channel");
                             object result;
                             try { result = window.Dispatcher.Invoke(() => Dispatch(request)); }
-                            catch (Exception) { result = new { error = "testbench-producer-rejected" }; }
+                            catch (Exception error) {
+                                var cause = error.GetBaseException();
+                                var codes = new[] { "peer-depth-budget", "peer-history-budget", "original-window-closed", "peer-budget",
+                                    "producer-bind-reused", "unsupported-method", "producer-not-bound", "stale-producer-admission",
+                                    "semantic-target-required", "control-incarnation-changed", "native-peer-required", "read-query-action-required" };
+                                var types = new[] { "InvalidOperationException", "ArgumentException", "NullReferenceException", "ElementNotAvailableException" };
+                                result = new { error = "testbench-producer-rejected", diagnostic = new {
+                                    type = types.Contains(cause.GetType().Name) ? cause.GetType().Name : "Exception",
+                                    code = codes.Contains(cause.Message) ? cause.Message : "producer-operation-failed" } };
+                            }
                             await writer.WriteLineAsync(json.Serialize(result));
                         }
                     } catch (OperationCanceledException) { break; }

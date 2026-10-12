@@ -54,7 +54,10 @@ export class NativeTestBenchBackend implements TestBenchBackend {
         const response = JSON.parse(line), pending = this.pending.get(response.id);
         if (!pending) return;
         clearTimeout(pending.timer); this.pending.delete(response.id);
-        if (response.error) pending.reject(new Error(response.error));
+        if (response.error) {
+          if (response.diagnostic) console.error('TestBench native failure:', JSON.stringify(response.diagnostic));
+          pending.reject(new Error(response.error));
+        }
         else pending.resolve(response.result);
       } catch { this.fail(); }
     });

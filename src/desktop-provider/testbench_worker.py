@@ -6,6 +6,7 @@ its SQLite write lock through synchronous commit; uncertain transport drains onl
 import ctypes
 import hashlib
 import json
+import traceback
 import os
 from pathlib import Path
 import sqlite3
@@ -183,7 +184,14 @@ class NativeBench:
                         line.extend(char)
                     response = json.loads(line)
                     if "error" in response:
-                        raise ValueError(response["error"])
+                        error = ValueError("testbench-producer-rejected")
+                        diagnostic = response.get("diagnostic", {})
+                        # Only constant codes emitted by the reviewed producer are retained.
+                        codes = {"peer-depth-budget", "peer-history-budget", "original-window-closed", "peer-budget", "producer-bind-reused", "unsupported-method", "producer-not-bound", "stale-producer-admission", "semantic-target-required", "control-incarnation-changed", "native-peer-required", "read-query-action-required", "producer-operation-failed"}
+                        types = {"InvalidOperationException", "ArgumentException", "NullReferenceException", "ElementNotAvailableException", "Exception"}
+                        if isinstance(diagnostic, dict) and diagnostic.get("code") in codes and diagnostic.get("type") in types:
+                            error.producer_diagnostic = {"code": diagnostic["code"], "type": diagnostic["type"]}
+                        raise error
                     result.append(response)
             except BaseException as error:
                 result.append(error)
@@ -311,20 +319,86 @@ class NativeBench:
             while self.api.job_active(self.job) and time.monotonic() < deadline: time.sleep(.01)
             if self.api.job_active(self.job): raise RuntimeError("owned-job-drain-unconfirmed")
     def close(self):
+        errors = []
         try:
             self.drain()
-        finally:
-            if self.process: self.api.k.CloseHandle(self.process); self.process = None
-            if self.job: self.api.k.CloseHandle(self.job); self.job = None
-            if self.desktop:
+        except BaseException as error:
+            errors.append(error)
+        # Exhaust every owned resource even when drain/Desktop confirmation fails.
+        for field in ("process", "job"):
+            handle = getattr(self, field)
+            if handle:
+                if field == "process":
+                    try:
+                        if self.api.k.WaitForSingleObject(handle, 2000) != 0:
+                            raise RuntimeError("owned-process-exit-unconfirmed")
+                    except BaseException as error:
+                        errors.append(error)
+                try:
+                    self.api.checked(self.api.k.CloseHandle(handle), "owned_" + field + "_close")
+                except BaseException as error:
+                    errors.append(error)
+                finally:
+                    setattr(self, field, None)
+        if self.desktop:
+            try:
                 self.api.checked(self.api.u.CloseDesktop(self.desktop), "owned_desktop_close")
                 self.desktop = None
-                remaining = self.api.u.OpenDesktopW(self.name, 0, False, 1)
-                if remaining:
-                    self.api.u.CloseDesktop(remaining)
-                    raise RuntimeError("owned-desktop-cleanup-unconfirmed")
-            if self.binary: self.api.k.CloseHandle(self.binary); self.binary = None
+                # Job accounting can reach zero before Windows completes Desktop rundown.
+                # Only an absent original name confirms cleanup; each probe handle is closed.
+                deadline = time.monotonic() + 2
+                while True:
+                    ctypes.set_last_error(0)
+                    remaining = self.api.u.OpenDesktopW(self.name, 0, False, 1)
+                    if not remaining:
+                        if ctypes.get_last_error() != 2:  # ERROR_FILE_NOT_FOUND, not access/probe failure.
+                            raise RuntimeError("owned-desktop-absence-unconfirmed")
+                        break
+                    self.api.checked(self.api.u.CloseDesktop(remaining), "owned_desktop_probe_close")
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError("owned-desktop-cleanup-unconfirmed")
+                    time.sleep(.01)
+            except BaseException as error:
+                errors.append(error)
+        if self.binary:
+            try:
+                self.api.checked(self.api.k.CloseHandle(self.binary), "owned_binary_close")
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                self.binary = None
+        try:
             self.fence.close()
+        except BaseException as error:
+            errors.append(error)
+        if errors:
+            raise RuntimeError("owned-cleanup-unconfirmed") from errors[0]
+
+
+
+# Private operator diagnostics: no exception messages, request bodies, paths or credentials.
+# The RPC error code remains unchanged and every failure continues to fail closed.
+def failure_diagnostic(method, error):
+    methods = {"init", "inspect", "current", "start", "instances", "bind", "activate", "ping", "revoke", "observe", "execute", "close"}
+    chain = []
+    for _ in range(3):
+        frames = traceback.extract_tb(error.__traceback__)
+        origin = next((frame for frame in reversed(frames) if Path(frame.filename).name in ("testbench_worker.py", "win32.py", "policy.py")), None)
+        item = {"type": type(error).__name__}
+        for field in ("errno", "winerror"):
+            value = getattr(error, field, None)
+            if isinstance(value, int):
+                item[field] = value
+        if origin:
+            item["site"] = {"file": Path(origin.filename).name, "function": origin.name, "line": origin.lineno}
+        producer = getattr(error, "producer_diagnostic", None)
+        if producer:
+            item["producer"] = producer
+        chain.append(item)
+        error = error.__cause__
+        if error is None:
+            break
+    return {"method": method if method in methods else "unknown", "chain": chain}
 
 
 def serve():
@@ -357,8 +431,9 @@ def serve():
                     bench.close(); bench = None; result = None
                 else: raise ValueError("unsupported-method")
                 print(json.dumps({"id": request["id"], "result": result}, ensure_ascii=False), flush=True)
-            except BaseException:
-                print(json.dumps({"id": request["id"], "error": "testbench-" + method + "-rejected"}), flush=True)
+            except BaseException as error:
+                print(json.dumps({"id": request["id"], "error": "testbench-" + method + "-rejected",
+                                  "diagnostic": failure_diagnostic(method, error)}), flush=True)
     finally:
         if bench: bench.close()
 
