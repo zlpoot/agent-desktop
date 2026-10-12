@@ -12,7 +12,7 @@ interface WorkbenchAppView {
   revision: number;
   registered: readonly WorkbenchRegisteredApp[];
   candidates: readonly WorkbenchAppCandidate[];
-  readiness: { controlledLaunch: boolean; discovery: boolean };
+  readiness: { controlledLaunch: boolean; discovery: boolean; preview?: boolean };
   report?: { status: 'complete' | 'incomplete' | 'unavailable' };
   confirmation?: WorkbenchAppConfirmation;
   configuredAppList?: boolean;
@@ -46,6 +46,10 @@ window.createWorkbenchAppLauncher = (root, select) => {
   const status = node('p', '选择桌面环境后，可选择并打开应用。'); status.id = 'task-app-status'; status.setAttribute('role', 'status');
   const identity = node('p'); identity.id = 'task-app-identity';
   const confirmation = node('section'); confirmation.id = 'task-app-confirmation';
+  const preview = node('section'); preview.id = 'task-app-preview';
+  const previewImage = node('img'); previewImage.hidden = true; previewImage.alt = '所选应用在 Hidden Desktop 中的窗口画面';
+  const previewStatus = node('p', '窗口确认后显示画面。仅查看，不接收鼠标键盘操作。'); previewStatus.setAttribute('role', 'status');
+  preview.append(node('h3', 'Hidden Desktop 窗口预览（只读）'), previewImage, previewStatus);
   const refresh = button('刷新 App 列表', () => load());
   const scan = button('发现应用', () => act('scan'));
   function requestOpenSelectedApp() {
@@ -65,9 +69,11 @@ window.createWorkbenchAppLauncher = (root, select) => {
   const save = button('检查并保存', () => act('path', { path: path.value.trim(), displayName: name.value.trim(), save: true }));
   form.append(pathLabel, path, nameLabel, name, save, node('p', '保存不启动。打开后仅确认原进程的单个可见主窗口；Hidden Desktop 兼容性以实际结果为准，资源最多保留 60 秒。'));
   const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, addApp, scan, refresh);
-  root.classList.add('workbench-app-launcher'); root.append(actions, form, identity, confirmation, status);
+  root.classList.add('workbench-app-launcher'); root.append(actions, form, identity, confirmation, status, preview);
   let scope: WorkbenchAppTarget | undefined, state: WorkbenchAppView | undefined;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let previewTimer: ReturnType<typeof setTimeout> | undefined, previewVersion = 0, previewBusy = false;
+  let previewUrl: string | undefined;
   let busy = false, version = 0, choices = new Map<string, WorkbenchAppChoice>();
   const key = (value: WorkbenchAppTarget | undefined) => value ? JSON.stringify([value.providerId, value.environmentId]) : '';
   const confirmed = (app: WorkbenchRegisteredApp) => app.validity === 'current' && ['confirmed', 'verified'].includes(app.trust) &&
@@ -91,6 +97,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     return result;
   }
   function reset() {
+    clearPreview();
     if (pollTimer) clearTimeout(pollTimer);
     version++; const old = state; state = undefined; busy = false; select.value = ''; form.hidden = true; path.value = name.value = ''; end(old); render();
   }
@@ -135,6 +142,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
   }
   async function act(action: WorkbenchAppAction, extra: WorkbenchAppActionFields = {}) {
     if (!state || busy) return;
+    if (action !== 'list') clearPreview();
     const current = version, snapshot = state, selected = scope;
     const openedId = extra.appBindingId || snapshot.confirmation?.appBindingId;
     let received = false;
@@ -165,12 +173,14 @@ window.createWorkbenchAppLauncher = (root, select) => {
     } catch (error) { if (current === version) {
       state!.confirmation = undefined;
       if (['list', 'verify', 'confirm'].includes(action)) state!.liveStatus = undefined;
+      clearPreview('预览已停止，请刷新核对窗口状态。');
       status.textContent = `${['list', 'verify', 'confirm'].includes(action) ? '结果未知或打开被拒绝' : '操作被拒绝'}：${(error as Error).message}。请刷新核对，不会自动重试。`;
     } }
     finally { if (current === version) {
       busy = false; render(preferred ?? select.value);
       if (received && ['verify', 'confirm'].includes(action)) showLiveStatus();
       scheduleStatus();
+      if (received && ['list', 'verify', 'confirm'].includes(action)) void loadPreview();
     } }
   }
   function showLiveStatus() {
@@ -178,18 +188,58 @@ window.createWorkbenchAppLauncher = (root, select) => {
     if (!app || !state?.liveStatus) return;
     const live = state.liveStatus[app.appBindingId];
     if (!live || live.state === 'unknown' || !Number.isFinite(Date.parse(live.checkedAt)) || Date.now() - Date.parse(live.checkedAt) > 5000) {
+      clearPreview('窗口状态未知，预览已停止。');
       status.textContent = `结果未知：${live?.reason || '当前窗口状态不可用'}。不会自动重试。`; return;
     }
     if (live.state === 'window-confirmed') {
-      if (live.expiresAt && Date.parse(live.expiresAt) <= Date.now()) { status.textContent = '资源期限已到，正在核对退出状态…'; return; }
+      if (live.expiresAt && Date.parse(live.expiresAt) <= Date.now()) { clearPreview('资源期限已到，预览已停止。'); status.textContent = '资源期限已到，正在核对退出状态…'; return; }
       status.textContent = `应用已打开：${app.displayName}（窗口已确认）。资源最迟于 ${live.expiresAt ? new Date(live.expiresAt).toLocaleTimeString() : '未知时间'} 回收（60 秒期限）。`;
-    } else if (live.state === 'exited') status.textContent = `已退出：${live.reason || '原进程已结束'}。`;
+    } else if (live.state === 'exited') { clearPreview('应用已退出，预览已停止。'); status.textContent = `已退出：${live.reason || '原进程已结束'}。`; }
     else {
+      clearPreview();
       const last = app.verifications.at(-1);
       status.textContent = last?.result === 'unavailable' || last?.result === 'mismatch'
         ? `打开失败/未知：${last.reason || app.lastError || '未确认'}。不会自动重试。`
         : '配置已保存，尚未打开。';
     }
+  }
+  function clearPreview(message = '窗口确认后显示画面。仅查看，不接收鼠标键盘操作。') {
+    previewVersion++; previewBusy = false;
+    if (previewTimer) clearTimeout(previewTimer);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = undefined;
+    previewImage.hidden = true; previewImage.removeAttribute('src'); previewStatus.textContent = message;
+  }
+  async function loadPreview() {
+    const app = choices.get(select.value)?.app, snapshot = state;
+    if (document.hidden || !app || !snapshot?.readiness.preview || snapshot.liveStatus?.[app.appBindingId]?.state !== 'window-confirmed' || previewBusy) return;
+    const generation = previewVersion, selected = version, chosen = select.value;
+    previewBusy = true;
+    try {
+      const response = await fetch('/api/desktop/apps', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'preview', desktopTarget: snapshot.desktopTarget, sessionId: snapshot.sessionId,
+          revision: snapshot.revision, requestId: crypto.randomUUID(), appBindingId: app.appBindingId, expectedRevision: app.revision }) });
+      const result = await response.json() as { error?: string; desktopTarget: WorkbenchAppTarget; sessionId: string;
+        appBindingId: string; profileDigest: string; frame: import('../../contracts/environment-apps.js').AppWindowPreview };
+      if (generation !== previewVersion || selected !== version || chosen !== select.value) return;
+      if (!response.ok) throw Error(result.error || '窗口预览不可用');
+      const frame = result.frame, now = Date.now();
+      if (key(result.desktopTarget) !== key(scope) || result.sessionId !== snapshot.sessionId || result.appBindingId !== app.appBindingId || result.profileDigest !== app.profileDigest ||
+          !frame || typeof frame.png !== 'string' || frame.png.length > 5592408 || !/^[A-Za-z0-9+/]+={0,2}$/.test(frame.png) ||
+          !Number.isInteger(frame.width) || !Number.isInteger(frame.height) || frame.width < 1 || frame.width > 2048 || frame.height < 1 || frame.height > 2048 ||
+          !Number.isFinite(Date.parse(frame.capturedAt)) || now - Date.parse(frame.capturedAt) > 5000 || Date.parse(frame.capturedAt) > now + 1000 ||
+          !Number.isFinite(Date.parse(frame.expiresAt)) || Date.parse(frame.expiresAt) <= now) throw Error('窗口画面身份无效或已过期');
+      const bytes = Uint8Array.from(atob(frame.png), char => char.charCodeAt(0));
+      const oldUrl = previewUrl;
+      previewUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+      previewImage.src = previewUrl; previewImage.hidden = false;
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      previewStatus.textContent = `只读画面 · ${frame.width} × ${frame.height} · 更新于 ${new Date(frame.capturedAt).toLocaleTimeString()}。不提供鼠标键盘控制。`;
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => clearPreview('画面已过期，等待当前窗口的新画面。'), Math.min(5000 - (now - Date.parse(frame.capturedAt)), Date.parse(frame.expiresAt) - now));
+    } catch (error) {
+      if (generation === previewVersion && selected === version && chosen === select.value) clearPreview(`预览不可用：${(error as Error).message}。`);
+    } finally { if (generation === previewVersion) previewBusy = false; }
   }
   function scheduleStatus() {
     if (pollTimer) clearTimeout(pollTimer);
@@ -197,13 +247,19 @@ window.createWorkbenchAppLauncher = (root, select) => {
     pollTimer = setTimeout(() => { if (!busy) void act('list'); else scheduleStatus(); }, 2000);
   }
   select.onchange = () => {
+    clearPreview();
     if (state) state.confirmation = undefined;
     render();
     status.textContent = !state?.readiness.controlledLaunch ? '本环境尚未配置受控启动，请到“环境与应用”检查配置。'
       : select.value ? '配置已保存，尚未打开；请点击“打开应用”。' : '请选择应用。';
     showLiveStatus(); scheduleStatus();
+    void loadPreview();
   };
   window.addEventListener('pagehide', () => { scope = undefined; reset(); });
+  document.addEventListener('visibilitychange', () => {
+    clearPreview(document.hidden ? '预览已暂停。' : '正在重新核对当前窗口画面…');
+    if (!document.hidden && state && !busy) void act('list');
+  });
   render();
   return { setEnvironment(value) {
     const selected = value ? { providerId: value.providerId, environmentId: value.environmentId } : undefined;

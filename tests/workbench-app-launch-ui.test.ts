@@ -266,6 +266,25 @@ test('normal workbench manually saves two named EXEs, persists on refresh, opens
     await page.getByRole('button', { name: '打开应用', exact: true }).click();
     await status.getByText('窗口已确认', { exact: false }).waitFor();
     assert.match(await status.innerText(), /60 秒期限/); assert.equal(client.starts, 1);
+    const previewImage = page.locator('#task-app-preview img');
+    await previewImage.waitFor({ state: 'visible' });
+    await page.waitForFunction(() => (document.querySelector('#task-app-preview img') as HTMLImageElement)?.naturalWidth === 1);
+    assert.equal(await previewImage.evaluate((img: HTMLImageElement) => img.naturalWidth), 1);
+    assert.match(await page.locator('#task-app-preview').innerText(), /只读画面/);
+    assert.equal(await page.locator('#task-app-preview button').count(), 0, 'preview grants no controls');
+    let releasePreview: () => void = () => {};
+    const heldPreview = new Promise<void>(done => { releasePreview = done; });
+    const before = client.previews;
+    client.beforePreview = () => heldPreview;
+    await assertEventually(() => client.previews > before);
+    await environment.selectOption('browser');
+    assert.equal(await previewImage.getAttribute('src'), null);
+    client.beforePreview = undefined; releasePreview();
+    await environment.selectOption(target(scope.providerId, scope.environmentId));
+    await app.getByRole('option', { name: /我的编辑器/ }).waitFor({ state: 'attached' });
+    assert.equal(await previewImage.getAttribute('src'), null);
+    await app.selectOption({ label: await app.getByRole('option', { name: /我的编辑器/ }).innerText() });
+    await previewImage.waitFor({ state: 'visible' }); assert.equal(client.starts, 1);
     let lostReplies = 0;
     await page.route('**/api/desktop/apps', async route => {
       if (route.request().postDataJSON().action === 'verify') { lostReplies++; await route.fetch(); return route.abort('failed'); }
@@ -274,6 +293,7 @@ test('normal workbench manually saves two named EXEs, persists on refresh, opens
     await page.getByRole('button', { name: '打开应用', exact: true }).click();
     await status.getByText('结果未知或打开被拒绝', { exact: false }).waitFor();
     assert.doesNotMatch(await status.innerText(), /应用已打开/); assert.equal(client.starts, 1); assert.equal(lostReplies, 1);
+    assert.equal(await previewImage.getAttribute('src'), null);
     await page.unroute('**/api/desktop/apps');
     await page.reload();
     await app.getByRole('option', { name: /我的编辑器/ }).waitFor({ state: 'attached' });
@@ -281,6 +301,7 @@ test('normal workbench manually saves two named EXEs, persists on refresh, opens
     await status.getByText('窗口已确认', { exact: false }).waitFor(); assert.equal(client.starts, 1);
     client.active = false; client.ended = true;
     await status.getByText('已退出', { exact: false }).waitFor(); assert.equal(client.starts, 1);
+    assert.equal(await previewImage.getAttribute('src'), null);
     client.unknown = true;
     await status.getByText('结果未知', { exact: false }).waitFor(); assert.equal(client.starts, 1);
     client.unknown = client.ended = false; client.conflict = true;

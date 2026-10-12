@@ -15,6 +15,7 @@ const fields: Record<string, readonly string[]> = {
   open: [], list: [], scan: [], path: ['path', 'displayName', 'save'], prepare: ['candidateId', 'candidateRevision'],
   confirm: ['confirmationId', 'digest', 'allowLaunch'], verify: ['appBindingId', 'expectedRevision', 'allowLaunch'],
   revoke: ['appBindingId', 'expectedRevision'], cancel: [], close: [],
+  preview: ['appBindingId', 'expectedRevision'],
 };
 /** Private Dashboard operator port. Uses the very same P7-C services as Task onboarding.
  * Sessions and receipts are ephemeral; no Task continuation or runtime target is returned. */
@@ -62,7 +63,7 @@ export class AppManagement {
     return { sessionId: session.id, revision: session.revision, desktopTarget: session.target, scope: session.scope,
       registered, candidates: session.candidates, report: session.report, confirmation: session.display, liveStatus,
       readiness: { discovery: typeof (service.discovery as ReadonlyAppDiscovery)?.candidate === 'function',
-        controlledLaunch: !!service.onboarding, taskCompatibility: option.executable, blockedReason: option.blockedReason,
+        controlledLaunch: !!service.onboarding, preview: !!service.preview, taskCompatibility: option.executable, blockedReason: option.blockedReason,
         scenarios: option.scenarios ?? [], businessCapable: false,
         businessReason: 'not-proven: launch verification is not P6 action evidence; Tasks still require a trusted runtime bridge and independent capability/risk/budget/input/result gates' } };
   }
@@ -98,6 +99,23 @@ export class AppManagement {
       if (body.revision !== session.revision || session.busy) throw new Error('app-management-revision-conflict');
       // Polling observes only; it consumes neither launch receipts nor session lifetime.
       return this.view(session);
+    }
+    if (action === 'preview') {
+      if (body.revision !== session.revision || session.busy) throw new Error('app-management-revision-conflict');
+      const service = this.service(session);
+      if (!service.preview) throw new Error('app-preview-unavailable');
+      textValue(body.appBindingId);
+      const app = service.registry.requireLaunchProfile(body.appBindingId, body.expectedRevision as number);
+      const frame = await service.preview(app);
+      await this.current(session);
+      const current = service.registry.requireLaunchProfile(app.appBindingId, app.revision);
+      if (current.profileDigest !== app.profileDigest || current.profileRevision !== app.profileRevision) throw new Error('app-preview-profile-changed');
+      if (!frame || !Number.isInteger(frame.width) || !Number.isInteger(frame.height) || frame.width < 1 || frame.height < 1 || frame.width > 2048 || frame.height > 2048 ||
+          typeof frame.png !== 'string' || frame.png.length > 5592408 || !/^[A-Za-z0-9+/]+={0,2}$/.test(frame.png) ||
+          !Number.isFinite(Date.parse(frame.capturedAt)) || this.clock() - Date.parse(frame.capturedAt) > 5000 || Date.parse(frame.capturedAt) > this.clock() + 1000 ||
+          !Number.isFinite(Date.parse(frame.expiresAt)) || Date.parse(frame.expiresAt) <= this.clock()) throw new Error('app-preview-invalid-or-expired');
+      return { desktopTarget: session.target, scope: session.scope, sessionId: session.id, revision: session.revision,
+        appBindingId: app.appBindingId, profileDigest: app.profileDigest, frame };
     }
     const key = JSON.stringify(body), old = session.operations.get(String(body.requestId));
     if (old) {

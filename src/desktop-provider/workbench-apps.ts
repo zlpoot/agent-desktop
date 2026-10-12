@@ -35,6 +35,7 @@ export class WorkbenchApps implements DesktopProvider {
   readonly discovery: ScopedAppDiscovery;
   readonly launchBackend: ManagedAppLaunchBackend;
   readonly liveStatus: NonNullable<EnvironmentAppService['liveStatus']>;
+  readonly preview: NonNullable<EnvironmentAppService['preview']>;
   private closed = false;
   constructor(readonly config: WorkbenchAppConfig | undefined, installationScopeId: string, private readonly client: WorkbenchAppClient, available = process.platform === 'win32') {
     this.config = config ? workbenchAppConfig(config) : undefined;
@@ -44,6 +45,7 @@ export class WorkbenchApps implements DesktopProvider {
     this.launchBackend = createWorkbenchAppLaunchBackend({ scope: this.scope, client,
       isClosed: () => this.closed, close: () => this.close() });
     this.liveStatus = app => client.call('status', { profile: app });
+    this.preview = app => client.call('preview', { profile: app });
     const inspect = this.launchBackend.inspect;
     this.discovery = new ScopedAppDiscovery(this.scope, { scope: this.scope,
       collect: async (_limits, signal) => {

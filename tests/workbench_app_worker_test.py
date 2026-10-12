@@ -165,6 +165,48 @@ class GenericWindowTests(unittest.TestCase):
 
 
 
+class PreviewTests(unittest.TestCase):
+    def owner(self, directory):
+        from policy import png_rgb
+        owner=worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.preview_files=set();owner.preview_dir=Path(directory)/'frames';owner.preview_id='a'*32
+        owner.pid=42;owner.hwnd=10;owner.name='synthetic-owned';owner.context={'windowsSessionId':1};owner.expires_at='2099-01-01T00:00:00Z'
+        owner.api=Mock();owner.api.assert_default=Mock();owner.instances=Mock(return_value=[{'owned':True}]);owner.current=Mock()
+        image=png_rgb(2,1,bytearray([255,0,0,0,255,0]))
+        owner.api.capture.return_value=(image,{'width':2,'height':1,'nonuniform':True})
+        owner.profile={};owner.process=owner.job=owner.file=owner.desktop=None;owner.blocked=False
+        return owner,image
+
+    def test_readonly_owned_window_capture_uses_opaque_private_file_and_revalidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner,image=self.owner(directory);frame=owner.preview({'synthetic-profile':True})
+            path=owner.preview_dir/(frame['token']+'.png')
+            self.assertEqual(path.read_bytes(),image);self.assertEqual(frame['sha256'],worker.hashlib.sha256(image).hexdigest())
+            self.assertEqual((frame['width'],frame['height']),(2,1));self.assertEqual(owner.instances.call_count,2)
+            owner.api.capture.assert_called_once_with(10,{'pid':42,'desktop':'synthetic-owned','session':1},flags=2)
+            owner.api.launch.assert_not_called();owner.current.assert_called_once()
+            owner.close();self.assertFalse(path.exists())
+
+    def test_unavailable_changed_blank_oversize_or_too_many_pending_frames_never_return_pixels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner,image=self.owner(directory);owner.instances.return_value=[]
+            with self.assertRaisesRegex(ValueError,'original-window-unavailable'):owner.preview({})
+            owner.api.capture.assert_not_called()
+            owner,image=self.owner(directory);owner.instances.side_effect=[[{}],[]]
+            with self.assertRaisesRegex(ValueError,'original-window-changed'):owner.preview({})
+            self.assertFalse(owner.preview_dir.exists())
+            owner,image=self.owner(directory);owner.api.capture.return_value=(image,{'nonuniform':False})
+            with self.assertRaisesRegex(ValueError,'unrendered'):owner.preview({})
+            owner,image=self.owner(directory);owner.api.capture.return_value=(b'x'*4194305,{'nonuniform':True})
+            with self.assertRaisesRegex(ValueError,'size-limit'):owner.preview({})
+            owner,image=self.owner(directory);owner.preview_dir.mkdir()
+            for i in range(8):
+                path=owner.preview_dir/str(i);path.write_bytes(b'synthetic');owner.preview_files.add(path)
+            with self.assertRaisesRegex(ValueError,'pending-limit'):owner.preview({})
+            owner.api.capture.assert_not_called()
+
+
+
 class CleanupAckTests(unittest.TestCase):
     def owner(self):
         owner=worker.OwnedApp.__new__(worker.OwnedApp)

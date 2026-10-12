@@ -104,6 +104,15 @@ export interface EnvironmentAppService {
   readonly onboarding?: EnvironmentAppOnboarding;
   /** Read-only current evidence; historical verification is never a live status. */
   readonly liveStatus?: (app: EnvironmentAppBinding) => Promise<AppLiveStatus>;
+  /** Read-only pixels from the same currently confirmed owned window; no input grant. */
+  readonly preview?: (app: EnvironmentAppBinding) => Promise<AppWindowPreview>;
+}
+export interface AppWindowPreview {
+  readonly png: string;
+  readonly width: number;
+  readonly height: number;
+  readonly capturedAt: string;
+  readonly expiresAt: string;
 }
 export interface AppLiveStatus {
   readonly state: 'saved' | 'window-confirmed' | 'exited' | 'unknown';

@@ -88,6 +88,9 @@ class OwnedApp:
         self.pid = self.hwnd = self.token = self.profile = None
         self.blocked = False
         self.ended = None
+        self.preview_id = uuid.uuid4().hex
+        self.preview_dir = ROOT / '.artifacts/workbench-app-preview' / self.preview_id
+        self.preview_files = set()
         self.watch_stop, self.watch_ready = threading.Event(), threading.Event()
         # Bind and verify the expiry thread on Default before creating owned resources.
         def supervise():
@@ -164,6 +167,38 @@ class OwnedApp:
         if self.process and self.api.k.GetProcessId(self.process) != self.pid:
             raise ValueError('workbench-original-process-changed')
         return self.context
+
+    def preview(self, profile):
+        # instances rechecks the original profile, binary, PID, Job, user, session,
+        # desktop and HWND. Capture supplies no input/control authority.
+        self.preview_files = {path for path in self.preview_files if path.exists()}
+        if len(self.preview_files) >= 8:
+            raise ValueError('workbench-preview-pending-limit')
+        if len(self.instances(profile)) != 1 or not self.hwnd:
+            raise ValueError('workbench-preview-original-window-unavailable')
+        hwnd = self.hwnd
+        self.api.join_job_view(self.name + '_job')
+        captured_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        image, metadata = self.api.capture(hwnd, {'pid': self.pid, 'desktop': self.name,
+                                                'session': self.context['windowsSessionId']}, flags=2)
+        if len(self.instances(profile)) != 1 or self.hwnd != hwnd:
+            raise ValueError('workbench-preview-original-window-changed')
+        if not metadata['nonuniform']:
+            raise ValueError('workbench-preview-unrendered')
+        if len(image) > 4194304:
+            raise ValueError('workbench-preview-size-limit')
+        # Keep the original 128 KiB stdio envelope: PNG pixels use a private,
+        # per-worker opaque file, never a caller-supplied path or screenshot URL.
+        self.preview_dir.mkdir(parents=True, exist_ok=True)
+        token = uuid.uuid4().hex
+        path = self.preview_dir / (token + '.png')
+        with path.open('xb') as stream:
+            stream.write(image)
+        self.preview_files.add(path)
+        self.current()
+        return {'token': token, 'sha256': hashlib.sha256(image).hexdigest(),
+                'width': metadata['width'], 'height': metadata['height'],
+                'capturedAt': captured_at, 'expiresAt': self.expires_at}
 
     def thread_desktop(self):
         C.set_last_error(0)
@@ -326,6 +361,16 @@ class OwnedApp:
                     break
         self.context = self.pid = self.hwnd = self.token = self.profile = None
         self.api.assert_default()
+        for path in tuple(getattr(self, 'preview_files', ())):
+            try:
+                path.unlink(missing_ok=True)
+                self.preview_files.discard(path)
+            except OSError:
+                pass
+        directory = getattr(self, 'preview_dir', None)
+        if directory and not getattr(self, 'preview_files', ()):
+            try: directory.rmdir()
+            except OSError: pass
         if errors:
             self.blocked = True
             raise NativeDiagnostic('workbench-cleanup-unconfirmed', cleanup=errors)
@@ -343,13 +388,13 @@ def main():
                 if len(line.encode('utf-8')) > 131072: raise ValueError('workbench-request-limit')
                 value = json.loads(line); method, fields = value['method'], value.get('fields', {})
                 if method == 'init' and worker is None:
-                    worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry']); result = {'initialized': True}
-                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'cleanup', 'close'):
+                    worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry']); result = {'initialized': True, 'previewDirectory': getattr(worker, 'preview_id', None)}
+                elif worker and method in ('inspect', 'catalog', 'reserve', 'current', 'start', 'instances', 'status', 'preview', 'cleanup', 'close'):
                     with worker.lock:
                         if method == 'inspect': result = worker.inspect(fields['spec'])
                         elif method == 'catalog': result = worker.catalog(fields.get('path'))
                         elif method in ('reserve', 'current'): result = getattr(worker, method)()
-                        elif method in ('start', 'instances', 'status'): result = getattr(worker, method)(fields['profile'])
+                        elif method in ('start', 'instances', 'status', 'preview'): result = getattr(worker, method)(fields['profile'])
                         elif method == 'cleanup':
                             if fields['token'] != worker.token: raise ValueError('workbench-owned-token-required')
                             result = worker.close()

@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { createRootAssembly } from '../src/composition/root.js';
-import { WorkbenchApps, workbenchAppConfig, loadWorkbenchAppConfig } from '../src/desktop-provider/workbench-apps.js';
+import { WorkbenchApps, NativeWorkbenchAppClient, workbenchAppConfig, loadWorkbenchAppConfig } from '../src/desktop-provider/workbench-apps.js';
 import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
 
 test('ordinary Root wires configured App service and App-only environment without task/model/input', async () => {
@@ -71,11 +71,18 @@ test('manual imports persist two paths/names across Root restart without scan/st
     const app = view.registered[0];
     await act('verify', { appBindingId: app.appBindingId, expectedRevision: app.revision, allowLaunch: true });
     assert.equal(client.starts, 1); assert.equal(view.liveStatus[app.appBindingId].state, 'window-confirmed');
+    const frame: any = await root.controller.manageApps({ action: 'preview', desktopTarget: target, sessionId: view.sessionId,
+      revision: view.revision, requestId: crypto.randomUUID(), appBindingId: app.appBindingId, expectedRevision: view.registered[0].revision });
+    assert.equal(frame.frame.width, 1); assert.equal(frame.appBindingId, app.appBindingId); assert.equal(client.starts, 1);
+    await assert.rejects(root.controller.manageApps({ action: 'preview', desktopTarget: { ...target, environmentId: 'another' }, sessionId: view.sessionId,
+      revision: view.revision, requestId: crypto.randomUUID(), appBindingId: app.appBindingId, expectedRevision: view.registered[0].revision }), /session-target-mismatch/);
     // Poll more than the operation-receipt limit, without launches or a lease extension.
     for (let i = 0; i < 130; i++) await act('list');
     assert.equal(client.starts, 1);
     client.active = false; client.ended = true;
     await act('list'); assert.equal(view.liveStatus[app.appBindingId].state, 'exited');
+    await assert.rejects(root.controller.manageApps({ action: 'preview', desktopTarget: target, sessionId: view.sessionId,
+      revision: view.revision, requestId: crypto.randomUUID(), appBindingId: app.appBindingId, expectedRevision: view.registered[0].revision }), /original-window-unavailable/);
     assert.equal(view.registered[0].verifications.at(-1).result, 'verified', 'audit is historical; live exit is separate');
     client.unknown = true;
     await act('list'); assert.equal(view.liveStatus[app.appBindingId].state, 'unknown'); assert.equal(client.starts, 1);
@@ -113,4 +120,40 @@ test('ordinary dashboard CLI needs neither APP JSON nor model keys; empty scoped
     if (child.exitCode === null) { child.kill(); await new Promise<void>(done => child.once('exit', () => done())); }
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('native preview transport uses bounded opaque private PNG files, checks digest/geometry and never raises stdio limits', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'app-preview-transport-'));
+  const workerDir = join(dir, 'src/desktop-provider'); mkdirSync(workerDir, { recursive: true });
+  writeFileSync(join(workerDir, 'workbench_app_worker.py'), String.raw`import json,sys,uuid,base64,hashlib
+from pathlib import Path
+root=Path(__file__).resolve().parents[2]
+nonce='b'*32
+folder=root/'.artifacts/workbench-app-preview'/nonce
+folder.mkdir(parents=True)
+png=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4AWPQaDoBAAJIAXNHdacMAAAAAElFTkSuQmCC')
+for line in sys.stdin:
+    value=json.loads(line);method=value['method'];fields=value.get('fields',{})
+    if method=='init': result={'initialized':True,'previewDirectory':nonce}
+    elif method=='preview':
+        mode=fields.get('case');token=uuid.uuid4().hex
+        path=folder/(token+'.png');path.write_bytes(png if mode!='oversize' else b'x'*4194305)
+        result={'token':token,'sha256':hashlib.sha256(png).hexdigest(),'width':1,'height':1,'capturedAt':'2090-01-01T00:00:00Z','expiresAt':'2099-01-01T00:00:00Z'}
+        from datetime import datetime,timezone
+        result['capturedAt']=datetime.now(timezone.utc).isoformat()
+        if mode=='traversal':result['token']='../private'
+        if mode=='hash':result['sha256']='0'*64
+        if mode=='geometry':result['width']=2
+        if mode=='expired':result['expiresAt']='2000-01-01T00:00:00Z'
+    else:result={'cleaned':True}
+    print(json.dumps({'id':value['id'],'result':result}),flush=True)
+`);
+  const client = new NativeWorkbenchAppClient(undefined, scope, join(dir, 'synthetic.sqlite'), dir);
+  try {
+    const frame: any = await client.call('preview'); assert.equal(frame.width, 1); assert.ok(frame.png.startsWith('iVBOR'));
+    const { readdirSync } = await import('node:fs');
+    assert.equal(readdirSync(join(dir, '.artifacts/workbench-app-preview', 'b'.repeat(32))).length, 0, 'received PNG removed');
+    for (const invalid of ['hash', 'geometry', 'expired', 'oversize', 'traversal']) await assert.rejects(client.call('preview', { case: invalid }), /preview-/);
+  } finally { await client.close(); rmSync(dir, { recursive: true, force: true }); }
 });

@@ -126,3 +126,6 @@
 #task-app-confirmation:not(:empty) { margin-top: 12px; padding: 12px; background: #172a36; border-radius: 8px; }
 .workbench-app-launcher label { display: block; margin: 12px 0 6px; font-size: 13px; }
 .workbench-app-launcher input { display: block; width: 100%; box-sizing: border-box; min-width: 0; margin-bottom: 10px; padding: 10px; background: #101c29; color: #e4edf5; border: 1px solid #3a4c5d; border-radius: 8px; font: inherit; }
+#task-app-preview { margin-top: 12px; padding: 12px; background: #101c29; border: 1px solid #344757; border-radius: 8px; }
+#task-app-preview img { display: block; max-width: 100%; height: auto; margin: 10px auto; background: #000; pointer-events: none; }
+#task-app-preview img[hidden] { display: none; }
