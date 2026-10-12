@@ -2,6 +2,7 @@
   "dashboard-preflight-ui.test.ts",
   "dashboard-bridge-preview-ui.test.ts",
   "app-management-ui.test.ts",
+  "workbench-app-launch-ui.test.ts",
   "task-app-onboarding-ui.test.ts",
   "desktop-selection-ui.test.ts",
   "environment-entry-ui.test.ts",

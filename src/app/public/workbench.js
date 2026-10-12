@@ -260,6 +260,7 @@ window.Workbench = (() => {
     const hash = shell.route(next, routeTask);
     if (!fromHistory && location.hash !== hash) history.pushState(null, '', hash);
     mode = next;
+    document.dispatchEvent(new CustomEvent('workbench:page', { detail: next }));
     workspace.hidden = !['history', 'live'].includes(next); settings.hidden = !['settings', 'plugins'].includes(next);
     home.hidden = next !== 'live'; desktopPage.hidden = next !== 'desktop';
     environmentsPage.hidden = !['desktop', 'apps'].includes(next);

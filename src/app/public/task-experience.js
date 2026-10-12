@@ -1,5 +1,5 @@
 // Shared by Task drafts and fixed-version Workflow execution. Values carry both identity dimensions.
-window.createDesktopSelection = function (select, includeBrowser, changed, allowScenarios = false, explicitSelection = false) {
+window.createDesktopSelection = function (select, includeBrowser, changed, allowScenarios = false, explicitSelection = false, allowApps = false) {
   let environments = [], loaded = false, error = '', fixtureOnly = false;
   const key = item => JSON.stringify([item.providerId, item.environmentId]);
   const option = (value, label, disabled = false) => {
@@ -44,7 +44,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       if (wasBrowser) select.value = '';
     }
     const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
-    for (const item of environments) option(key(item), `${item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !item.executable && !(allowScenarios && item.scenarios?.length));
+    for (const item of environments) option(key(item), `${item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !allowApps && !item.executable && !(allowScenarios && item.scenarios?.length));
     if (previous && previous !== 'browser') {
       if (![...select.options].some(node => node.value === previous)) option(previous, '此前选择的桌面不可用，请重新选择', true);
       select.value = previous;
@@ -61,6 +61,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       select.value = value; changed();
     },
     selected: () => environments.find(item => key(item) === select.value),
+    listed: () => loaded,
     synthetic: () => fixtureOnly,
     description() {
       if (!loaded) return error ? '环境目录读取失败；不能判断桌面是否已配置。可重新读取。Browser 单独核对模型配置。' : '正在读取环境目录。';
@@ -135,8 +136,11 @@ window.createTaskExperience = function () {
   form.querySelector('.task-composer').after(modeSelector, choices);
   const appLabel = el('label', '应用（可选）'); const app = el('select', ''); app.disabled = true;
   app.id = 'task-application'; app.setAttribute('aria-label', '应用（可选）');
-  app.append(el('option', '从任务目标发现并确认；工作台暂不支持手动绑定'));appLabel.append(app);choices.append(appLabel);
-  app.title = '任务中的应用发现与确认复用后台接入流程；这里不生成绑定或启动应用。';
+  appLabel.append(app);choices.append(appLabel);
+  app.title = '选择所选环境的应用，通过“打开应用”显式启动；任务仍在后台独立核对目标。';
+  const appPanel = el('section', '', 'workbench-app-panel');
+  appPanel.setAttribute('aria-label', '打开环境中的应用'); choices.after(appPanel);
+  const appLauncher = window.createWorkbenchAppLauncher(appPanel, app);
   const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
   const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
   const modelStatus = el('p', '正在读取模型配置…'); modelStatus.id = 'task-model-status';
@@ -286,11 +290,12 @@ window.createTaskExperience = function () {
     }
   } catch {}
   if (!modes.some(([id])=>id === modeField.value)) modeField.value = 'autonomous';
-  const selection = window.createDesktopSelection(target, true, update, true, true);
+  const selection = window.createDesktopSelection(target, true, update, true, true, true);
   if (typeof draftDestination === 'string') selection.restore(draftDestination);
   function save() { try { sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])))); } catch {} }
   function update() {
     const item = selection.selected();
+    appLauncher.setEnvironment(window.Workbench?.mode === 'live' && selection.listed() ? item : undefined);
     const catalog = item?.scenarios || [];
     const renderKey = JSON.stringify([target.value, catalog]);
     if (renderedDestination !== renderKey) {
@@ -368,6 +373,7 @@ window.createTaskExperience = function () {
   document.addEventListener('workbench:model-updated', loadModel);
   refreshEntry.onclick = () => { if (!busy) { void selection.reload(); void loadModel(); void loadBudget(); } };
   document.addEventListener('workbench:budget-updated', loadBudget);
+  document.addEventListener('workbench:page', update);
   form.addEventListener('input', () => { clearAdmissionMessage(); save(); update(); });
   target.addEventListener('change', () => { clearAdmissionMessage(); draftScenario = undefined; update(); save(); });
   scenario.addEventListener('change', () => { clearAdmissionMessage(); save(); update(); });
