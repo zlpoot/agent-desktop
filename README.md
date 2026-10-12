@@ -57,6 +57,8 @@ npm run dashboard
 
 打开终端显示的本机地址，默认端口 4173。空工程会建立新数据库；缺少模型或 Guest 配置不妨碍控制台查看和离线示例。提交真实任务前必须自行提供相应配置。不要导入历史数据库或复制私人 `.env.local`。
 
+主工作台的应用入口需要环境后端配置。当前 App-only Hidden Desktop 入口仅支持已授权的网易云音乐 `3.1.40.205461`：在忽略文件 `config/workbench-apps.local.json` 中设置 `path`（本机 `cloudmusic.exe` 的绝对路径）、`sha256`（该文件实际 SHA-256）及 `version`，再运行 `npm run dashboard -- --port 4174`；也可用 `--apps-config <配置路径>` 显式指定文件。此入口使用普通 Windows Medium 用户会话，自动显示该配置的应用，首次打开须在页面确认身份。它禁用模型、不给 Task 或输入能力，自有 Hidden Desktop/Job 最长保留 60 秒，拒绝接管已有网易云进程。本机配置、App Registry 与诊断状态保存在忽略目录，不提交到仓库；缺少此配置时不会出现该环境。
+
 普通 Chat Completions 模型可在**设置 → 模型与 Provider**填写 HTTP(S) API 地址、模型名及 API Key，保存到 gitignore 覆盖的本机 `config/model.local.json`。读取只显示 Key 是否存在、不回填明文；保存不会测试连接或启动任务。新普通任务开始执行时读取当前配置，同一次执行的规划/决策模型保持快照；已活动任务不受保存影响，暂停后恢复按原生命周期重新装配模型。文件是本机明文私有配置，不能分享或提交；Unix 新文件权限 0600，Windows 继承所在目录的访问控制。
 
 `.env.example` 保留旧启动流程：非空 `COMPUTER_USE_BASE_URL`、`COMPUTER_USE_MODEL`、`COMPUTER_USE_API_KEY` 分字段优先于本机设置，页面如实显示覆盖来源。Key 优先级为 **env → 本机 Key（含显式清除）→ `.env.local`**；清除只写本机清除标记、不修改旧 env/`.env.local`，阻止 `.env.local` 自动回退，env Key 仍会覆盖清除。地址/模型不从 `.env.local` 加载，没有内网默认值。辅助 JEV 仍要求原 `JEV_BASE_URL` 与 env/`.env.local` 密钥，不读取这份普通模型设置。PowerShell 应使用 `$env:变量名='值'`。操作、范围与合成验收见 [v0.2-A 模型设置](docs/v02-a-model-settings.md)。

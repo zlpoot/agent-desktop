@@ -44,7 +44,10 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       if (wasBrowser) select.value = '';
     }
     const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
-    for (const item of environments) option(key(item), `${item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !allowApps && !item.executable && !(allowScenarios && item.scenarios?.length));
+    for (const item of environments) {
+      const appWorkspace = item.providerId === 'workbench-apps' && item.environmentId === 'local-workspace:apps';
+      option(key(item), `${appWorkspace ? 'Hidden Desktop' : item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? appWorkspace && allowApps ? '（仅打开应用，最长 60 秒）' : item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !allowApps && !item.executable && !(allowScenarios && item.scenarios?.length));
+    }
     if (previous && previous !== 'browser') {
       if (![...select.options].some(node => node.value === previous)) option(previous, '此前选择的桌面不可用，请重新选择', true);
       select.value = previous;

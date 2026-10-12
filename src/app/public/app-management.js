@@ -414,6 +414,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
         : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '尚无已确认应用。点击“发现应用”，选择后核对并打开。';
     } catch (error) { if (current === version) status.textContent = `App 列表不可用：${error.message}。可刷新重试或到“环境与应用”检查配置。`; }
     finally { if (current === version) { busy = false; render(); } }
+    // An explicit operator-pinned App list can be read immediately; no system-wide scan or launch.
+    if (current === version && state?.configuredAppList === true && state.readiness.discovery && !state.registered.some(confirmed)) await act('scan');
   }
   async function act(action, extra = {}) {
     if (!state || busy) return;

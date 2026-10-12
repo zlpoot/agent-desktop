@@ -36,6 +36,7 @@ import { mountInspected, inspectAssembly, type AssemblySnapshot } from './inspec
 import { composeEnvironmentApps, type EnvironmentAppInfrastructure } from './environment-apps.js';
 import { SqliteEnvironmentAppStore } from '../environment-apps/sqlite-registry.js';
 import type { EnvironmentAppServices } from '../contracts/environment-apps.js';
+import type { WorkbenchApps } from '../desktop-provider/workbench-apps.js';
 
 /**
  * 控制总线：DesktopSessionManager 的 controlMessage/controlDisconnected 是单回调，
@@ -62,6 +63,8 @@ export interface RootAssemblyOptions {
   environmentApps?: readonly EnvironmentAppInfrastructure[];
   /** Enable private Dashboard app management only through trusted assembly. */
   environmentAppManagement?: boolean;
+  /** Explicit App-only workspace; no Task runtime or input port. */
+  workbenchApps?: WorkbenchApps;
   model?: ModelProvider;
   /** Synthetic registry port; production registers Hyper-V and explicitly configured Physical executors. */
   desktopSessions?: TaskDesktopSessions;
@@ -155,7 +158,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         ctx.provide("physicalCompatibility", physicalCompatibility);
         ctx.provide("localWorkspaceCompatibility", localWorkspaceCompatibility);
         ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility, physicalCompatibility,
-          hiddenChrome??localWorkspaceCompatibility]));
+          hiddenChrome??localWorkspaceCompatibility, ...(options.workbenchApps ? [options.workbenchApps] : [])]));
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
@@ -173,7 +176,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               finally {
                 try { await physicalCompatibility.close(); }
                 finally {
-                  try { try {await hiddenChrome?.close();} finally {await localWorkspaceCompatibility.close();} }
+                  try { try {await hiddenChrome?.close();} finally {try {await options.workbenchApps?.close();} finally {await localWorkspaceCompatibility.close();}} }
                   finally { await desktop.close(); }
                 }
               }
@@ -190,7 +193,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       apply(ctx) {
         const store = new SqliteEnvironmentAppStore(resolve(rootDir, 'environment-apps.sqlite'));
         try {
-          const services = composeEnvironmentApps(store, options.environmentApps);
+          const services = composeEnvironmentApps(store, [...options.environmentApps ?? [],
+            ...(options.workbenchApps ? [{ scope: options.workbenchApps.scope, discovery: options.workbenchApps.discovery, launchBackend: options.workbenchApps.launchBackend }] : [])]);
           ctx.provide('environmentApps', services);
           return async () => { try { await services.close(); } finally { store.close(); } };
         }
@@ -211,7 +215,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const domainEvaluator = createDomainEvaluator(contributorRegistry, facetRegistry);
         const created = new DesktopTaskController(rootDir, {
           environmentApps: ctx.environmentApps,
-          environmentAppManagement: options.environmentAppManagement === true,
+          environmentAppManagement: options.environmentAppManagement === true || !!options.workbenchApps,
+          configuredWorkbenchAppTarget: options.workbenchApps?.scope,
           acceptanceVerifier: configuredVerifier(rootDir,
             { facets: facetRegistry, contributors: contributorRegistry }),
           registry: ctx.extensionRegistry,

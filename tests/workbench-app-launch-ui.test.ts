@@ -3,8 +3,52 @@ import { test } from 'node:test';
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { managementFixture } from './fixtures/app-management.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRootAssembly } from '../src/composition/root.js';
+import { createDashboardServer } from '../src/app/server.js';
+import { WorkbenchApps } from '../src/desktop-provider/workbench-apps.js';
+import { config, scope, FakeWorkbenchClient } from './fixtures/workbench-apps.js';
 
 const target = (providerId: string, environmentId: string) => JSON.stringify([providerId, environmentId]);
+
+test('normal startup lists its configured App immediately in the main workbench', { timeout: 60000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const dir = mkdtempSync(join(tmpdir(), 'workbench-startup-ui-')), client = new FakeWorkbenchClient();
+  let models = 0;
+  const root = await createRootAssembly({ rootDir: dir,
+    workbenchApps: new WorkbenchApps(config, scope.installationScopeId, client, true),
+    model: { createModel() { models++; throw Error('no-model'); } } });
+  const server = createDashboardServer(dir, root.controller);
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  const { chromium } = await import('playwright'), browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    page.on('request', request => {
+      if (request.method() === 'POST') assert.equal(new URL(request.url()).pathname, '/api/desktop/apps');
+    });
+    await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}`);
+    const environment = page.locator('#task-destination'), app = page.locator('#task-application');
+    await page.waitForFunction(() => Array.from((document.querySelector('#task-destination') as HTMLSelectElement).options)
+      .some(option => option.value.includes('workbench-apps')));
+    await environment.selectOption(target(scope.providerId, scope.environmentId));
+    await app.getByRole('option', { name: /网易云音乐/ }).waitFor({ state: 'attached' });
+    assert.equal(await app.isDisabled(), false); assert.equal(client.starts, 0);
+    assert.equal(await page.locator('#task-submit').isDisabled(), true);
+    await app.selectOption({ index: 1 });
+    const panel = page.getByRole('region', { name: '打开环境中的应用' });
+    await panel.getByRole('button', { name: '打开应用', exact: true }).click();
+    await panel.getByRole('button', { name: '确认并打开', exact: true }).click();
+    await page.locator('#task-app-status').getByText('应用已打开', { exact: false }).waitFor();
+    assert.equal(client.starts, 1); assert.equal(models, 0);
+    await environment.selectOption('browser');
+    assert.equal(await app.isDisabled(), true);
+  } finally {
+    await browser.close(); await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));
+    await root.dispose(); rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('workbench selects environment/App and opens through the scoped operator port without Task/model/input', { timeout: 60000 }, async () => {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
