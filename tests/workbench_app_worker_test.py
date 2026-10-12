@@ -27,6 +27,7 @@ class FakeOwner:
     def instances(self, profile): return [profile['displayName']]
     def inspect(self, spec): raise w.LaunchFailure('stale', 'app-installation-path-unavailable')
     def close(self): return {'cleaned': True}
+    def preview(self, profile): raise w.NativeDiagnostic('workbench-preview-invalid-capture-geometry', width=4096, height=2160)
 w.OwnedApp = FakeOwner
 w.main()
 ''' % str(spec.origin)
@@ -34,7 +35,8 @@ w.main()
         environment = {**os.environ, 'PYTHONIOENCODING': 'gbk'}
         requests = [dict(id=1, method='init', fields=dict(config={}, scope={}, registry='synthetic')),
                     dict(id=2, method='instances', fields=dict(profile=dict(displayName='网易云音乐'))),
-                    dict(id=3, method='close'), dict(id=4, method='inspect', fields=dict(spec={}))]
+                    dict(id=3, method='close'), dict(id=4, method='inspect', fields=dict(spec={})),
+                    dict(id=5, method='preview', fields=dict(profile={}))]
         result = subprocess.run([sys.executable, '-c', script], input=('\n'.join(json.dumps(item, ensure_ascii=False) for item in requests) + '\n').encode('utf-8'),
                                 capture_output=True, timeout=5, env=environment)
         self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
@@ -43,6 +45,9 @@ w.main()
         self.assertEqual(replies[2]['result'], {'cleaned': True})
         self.assertEqual(replies[3]['error'], 'app-installation-path-unavailable')
         self.assertEqual(replies[3]['failureKind'], 'stale')
+        self.assertEqual(replies[4]['error'], 'workbench-preview-invalid-capture-geometry')
+        self.assertEqual(replies[4]['diagnostic']['width'], 4096)
+        self.assertEqual(replies[4]['diagnostic']['height'], 2160)
 
 
 class ManualWorkerTests(unittest.TestCase):
@@ -228,6 +233,62 @@ class PreviewTests(unittest.TestCase):
                 path=owner.preview_dir/str(i);path.write_bytes(b'synthetic');owner.preview_files.add(path)
             with self.assertRaisesRegex(ValueError,'pending-limit'):owner.preview({})
             owner.api.capture.assert_not_called()
+
+    def test_actual_capture_guard_reports_geometry_or_ownership_without_gdi_or_pixels(self):
+        import ctypes as C
+        from win32 import Api
+        with tempfile.TemporaryDirectory() as directory:
+            for mutation, geometry, code in (
+                    ({'pid': 99}, (640, 480), 'target-pid-mismatch'),
+                    ({'desktop': 'Default'}, (640, 480), 'target-desktop-mismatch'),
+                    ({'session': 9}, (640, 480), 'target-session-mismatch'),
+                    ({'in_job': False}, (640, 480), 'target-outside-owned-job'),
+                    ({}, (4096, 2160), 'invalid-capture-geometry')):
+                owner, _ = self.owner(directory)
+                api = Api.__new__(Api); api.u = Mock(); api.g = Mock(); api.assert_default = Mock()
+                api.identity = Mock(return_value={'pid': 42, 'desktop': owner.name, 'session': 1,
+                                                 'alive': True, 'in_job': True, **mutation})
+                def rectangle(hwnd, pointer):
+                    rect = C.cast(pointer, C.POINTER(worker.W.RECT)).contents
+                    rect.left = rect.top = 0; rect.right, rect.bottom = geometry
+                    return True
+                api.u.GetWindowRect.side_effect = rectangle
+                owner.api = api
+                with self.assertRaises(worker.NativeDiagnostic) as caught: owner.preview({})
+                self.assertEqual(str(caught.exception), 'workbench-preview-' + code)
+                if code == 'invalid-capture-geometry':
+                    self.assertEqual(caught.exception.details, {'width': 4096, 'height': 2160})
+                api.g.CreateCompatibleDC.assert_not_called(); api.u.PrintWindow.assert_not_called()
+                self.assertFalse(owner.preview_dir.exists())
+            owner, _ = self.owner(directory)
+            owner.api.capture.side_effect = worker.Blocked('private exception text must not leak')
+            with self.assertRaisesRegex(worker.NativeDiagnostic, '^workbench-preview-capture-blocked$'): owner.preview({})
+
+    def test_actual_printwindow_capture_with_synthetic_gdi_reaches_private_png_transport(self):
+        import ctypes as C
+        from win32 import Api
+        with tempfile.TemporaryDirectory() as directory:
+            owner, _ = self.owner(directory)
+            api = Api.__new__(Api); api.u = Mock(); api.g = Mock(); api.assert_default = Mock()
+            api.identity = Mock(return_value={'pid': 42, 'desktop': owner.name, 'session': 1,
+                                             'alive': True, 'in_job': True})
+            def rectangle(hwnd, pointer):
+                rect = C.cast(pointer, C.POINTER(worker.W.RECT)).contents
+                rect.left = rect.top = 0; rect.right = 2; rect.bottom = 1
+                return True
+            pixels = C.create_string_buffer(bytes([0, 0, 255, 0, 0, 255, 0, 0]))
+            def dib(dc, info, colors, bits, section, offset):
+                C.cast(bits, C.POINTER(C.c_void_p))[0] = C.addressof(pixels)
+                return 101
+            api.u.GetWindowRect.side_effect = rectangle; api.u.PrintWindow.return_value = True
+            api.g.CreateCompatibleDC.return_value = 100; api.g.CreateDIBSection.side_effect = dib
+            api.g.SelectObject.return_value = 102; owner.api = api
+            frame = owner.preview({})
+            self.assertEqual((frame['width'], frame['height']), (2, 1))
+            self.assertTrue((owner.preview_dir / (frame['token'] + '.png')).read_bytes().startswith(b'\x89PNG'))
+            api.u.PrintWindow.assert_called_once_with(10, 100, 2)
+            api.g.DeleteObject.assert_called_once_with(101); api.g.DeleteDC.assert_called_once_with(100)
+            self.assertEqual(owner.instances.call_count, 2); self.assertEqual(api.owned_job_name, owner.name + '_job')
 
 
 

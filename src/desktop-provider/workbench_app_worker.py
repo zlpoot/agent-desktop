@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'spikes/local-workspace'))
 from app_launch import WindowsNativeLauncher, definition, LaunchFailure
 from app_discovery import installation_scope_id
 from win32 import Api, ENUMPROC
+from policy import Blocked
 
 
 class NativeDiagnostic(ValueError):
@@ -181,8 +182,24 @@ class OwnedApp:
         hwnd = self.hwnd
         self.api.join_job_view(self.name + '_job')
         captured_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        image, metadata = self.api.capture(hwnd, {'pid': self.pid, 'desktop': self.name,
-                                                'session': self.context['windowsSessionId']}, flags=2)
+        try:
+            image, metadata = self.api.capture(hwnd, {'pid': self.pid, 'desktop': self.name,
+                                                    'session': self.context['windowsSessionId']}, flags=2)
+        except Blocked as error:
+            # Preserve the exact read-only capture refusal. Do not expose arbitrary
+            # exception text, and never substitute another window or desktop.
+            allowed = ('target_exited', 'target_pid_mismatch', 'target_desktop_mismatch',
+                       'target_session_mismatch', 'target_outside_owned_job', 'default_target_forbidden',
+                       'invalid_capture_geometry', 'desktop_name_unavailable',
+                       'interactive_session_not_active', 'user_input_desktop_not_default')
+            reason = str(error)
+            code = 'workbench-preview-' + (reason.replace('_', '-') if reason in allowed else 'capture-blocked')
+            details = {}
+            geometry = getattr(error, 'geometry', None)
+            if reason == 'invalid_capture_geometry' and isinstance(geometry, dict):
+                details = {key: geometry[key] for key in ('width', 'height')
+                           if type(geometry.get(key)) is int and -(2**31) <= geometry[key] < 2**31}
+            raise NativeDiagnostic(code, **details) from error
         if len(self.instances(profile)) != 1 or self.hwnd != hwnd:
             raise ValueError('workbench-preview-original-window-changed')
         if not metadata['nonuniform']:
