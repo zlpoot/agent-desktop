@@ -299,7 +299,8 @@ class WindowDesktopContracts(unittest.TestCase):
         def class_name(hwnd):
             guard(hwnd, {"pid": 6, "desktop": names[2], "session": 7})
             return "synthetic-original-class"
-        bench.api = SimpleNamespace(checked=checked, assert_default=default, name=lambda handle: names[handle],
+        bench.api = SimpleNamespace(checked=checked, assert_default=default, name=lambda handle, source="unspecified": names[handle],
+            thread_desktop=lambda tid, source="unspecified": state["thread"],
             guard=guard, class_name=class_name,
             k=SimpleNamespace(GetCurrentThreadId=lambda: 100, WaitForSingleObject=lambda handle, timeout: 258),
             u=SimpleNamespace(GetThreadDesktop=lambda tid: state["thread"], SetThreadDesktop=bind, GetWindowRect=rect))
@@ -373,6 +374,140 @@ class WindowDesktopContracts(unittest.TestCase):
             except RuntimeError as error: diagnostic = module.failure_diagnostic("close", error)
             self.assertEqual([item["type"] for item in diagnostic["chain"]], expected)
             self.assertNotIn("synthetic-secret", json.dumps(diagnostic))
+
+
+class DesktopNameDiagnosticContracts(unittest.TestCase):
+    def setUp(self):
+        from win32 import Api, Blocked
+        self.Api, self.Blocked = Api, Blocked
+        self.api = Api.__new__(Api)  # No DLL load or real Desktop/Task.
+        self.error_code = 0
+        def get_error(): return self.error_code
+        def set_error(value): self.error_code = value
+        for name, function in (("get_last_error", get_error), ("set_last_error", set_error)):
+            mock = patch.object(module.ctypes, name, side_effect=function, create=True)
+            mock.start(); self.addCleanup(mock.stop)
+
+    def diagnostic(self, effect):
+        try: effect()
+        except (self.Blocked, OSError) as error:
+            return module.failure_diagnostic("start", error)["chain"][0]["desktop"]
+        self.fail("query must fail closed")
+
+    def test_null_thread_handle_retains_acquisition_error_before_name_query(self):
+        calls = []
+        def thread(tid):
+            calls.append(tid); self.error_code = 87; return None
+        self.api.u = SimpleNamespace(GetThreadDesktop=thread,
+            GetUserObjectInformationW=lambda *args: self.fail("must not overwrite acquisition error"))
+        diagnostic = self.diagnostic(lambda: self.api.name(
+            self.api.thread_desktop(12345, "window-owner-thread"), "window-owner-thread"))
+        self.assertEqual(diagnostic, {"source": "window-owner-thread", "operation": "GetThreadDesktop",
+            "phase": "handle-lookup", "winerror": 87, "handlePresent": False})
+        self.assertEqual(calls, [12345])
+        self.assertNotIn("12345", json.dumps(diagnostic))
+
+    def test_size_failure_distinguishes_invalid_handle_access_and_unreported_error(self):
+        for code in (6, 5, 0):
+            def query(handle, index, buffer, length, size):
+                self.error_code = code
+                size._obj.value = 0
+                return 0
+            self.api.u = SimpleNamespace(GetUserObjectInformationW=query)
+            diagnostic = self.diagnostic(lambda: self.api.name(987654321, "original-retained"))
+            self.assertEqual(diagnostic, {"source": "original-retained", "operation": "GetUserObjectInformationW",
+                "phase": "size-probe", "winerror": code, "handlePresent": True, "requiredBytes": 0})
+            self.assertNotIn("987654321", json.dumps(diagnostic))
+
+    def test_expected_insufficient_buffer_sizing_continues_to_actual_name_read(self):
+        calls = []
+        def query(handle, index, buffer, length, size):
+            calls.append(length); size._obj.value = 16
+            if buffer is None:
+                self.error_code = 122; return 0
+            self.assertEqual(self.error_code, 0, "reset stale error before read")
+            buffer.value = "Default"; return 1
+        self.api.u = SimpleNamespace(GetUserObjectInformationW=query)
+        self.assertEqual(self.api.name(4, "controller-before-bind"), "Default")
+        self.assertEqual(len(calls), 2)
+
+    def test_name_read_failure_captures_its_error_not_the_sizing_error(self):
+        def query(handle, index, buffer, length, size):
+            size._obj.value = 16
+            self.error_code = 122 if buffer is None else 5
+            return 0
+        self.api.u = SimpleNamespace(GetUserObjectInformationW=query)
+        diagnostic = self.diagnostic(lambda: self.api.name(4, "controller-restored"))
+        self.assertEqual(diagnostic["phase"], "name-read")
+        self.assertEqual(diagnostic["winerror"], 5)
+        self.assertEqual(diagnostic["source"], "controller-restored")
+
+    def test_oversized_name_still_rejects_without_buffer_read(self):
+        calls = []
+        def query(handle, index, buffer, length, size):
+            calls.append(length); self.error_code = 122; size._obj.value = 2048; return 0
+        self.api.u = SimpleNamespace(GetUserObjectInformationW=query)
+        diagnostic = self.diagnostic(lambda: self.api.name(4, "controller-bound"))
+        self.assertEqual(calls, [0])
+        self.assertEqual(diagnostic["requiredBytes"], 2048)
+        self.assertEqual(diagnostic["winerror"], 122)
+
+    def test_input_desktop_provenance_keeps_owned_handle_close_on_failure(self):
+        closed = []
+        def query(handle, index, buffer, length, size):
+            self.error_code = 6; return 0
+        self.api.u = SimpleNamespace(OpenInputDesktop=lambda *args: 44,
+            GetUserObjectInformationW=query, CloseDesktop=lambda handle: closed.append(handle))
+        diagnostic = self.diagnostic(self.api.input_desktop)
+        self.assertEqual(diagnostic["source"], "input-desktop")
+        self.assertEqual(closed, [44])
+
+    def test_real_identity_uses_window_owner_thread_provenance(self):
+        def owner(hwnd, pid): pid._obj.value = 77; return 88
+        def thread(tid):
+            self.assertEqual(tid, 88); self.error_code = 6; return None
+        self.api.u = SimpleNamespace(GetWindowThreadProcessId=owner, IsWindow=lambda hwnd: 1,
+            GetThreadDesktop=thread)
+        self.api.k = SimpleNamespace(OpenProcess=lambda *args: None)
+        diagnostic = self.diagnostic(lambda: self.api.identity(33))
+        self.assertEqual(diagnostic["source"], "window-owner-thread")
+        self.assertEqual(diagnostic["operation"], "GetThreadDesktop")
+        self.assertEqual(diagnostic["winerror"], 6)
+
+    def test_diagnostic_metadata_is_allowlisted_and_excludes_extra_private_data(self):
+        error = self.api.desktop_failure(self.Blocked("synthetic-private-message"),
+            "original-retained", "GetUserObjectInformationW", "size-probe", 6, 987654321, 0)
+        error.desktop_diagnostic.update({"handle": 987654321, "path": "C:/synthetic/private/key", "name": "private-desktop"})
+        encoded = json.dumps(module.failure_diagnostic("start", error))
+        for secret in ("987654321", "private-message", "private/key", "private-desktop"):
+            self.assertNotIn(secret, encoded)
+        for field, value in (("source", []), ("source", "private-secret"), ("operation", "secret-api"),
+                             ("phase", "secret-phase"), ("winerror", "private-key"), ("winerror", -1),
+                             ("winerror", True), ("handlePresent", 1)):
+            prior = error.desktop_diagnostic[field]
+            error.desktop_diagnostic[field] = value
+            self.assertNotIn("desktop", module.failure_diagnostic("start", error)["chain"][0])
+            error.desktop_diagnostic[field] = prior
+
+    def test_all_helper_name_queries_label_retained_controller_and_restore_sources(self):
+        for ordinal, source in enumerate(("original-retained", "controller-before-bind",
+                                           "controller-bound", "controller-restored"), 1):
+            bench, state = WindowDesktopContracts().bench()
+            read_name, sources = bench.api.name, []
+            def name(handle, provenance="unspecified"):
+                sources.append(provenance)
+                if len(sources) == ordinal:
+                    raise self.api.desktop_failure(self.Blocked("synthetic secret"), provenance,
+                        "GetUserObjectInformationW", "size-probe", 6, handle, 0)
+                return read_name(handle, provenance)
+            bench.api.name = name
+            with self.subTest(source=source):
+                diagnostic = self.diagnostic(bench.current)
+                self.assertEqual(diagnostic["source"], source)
+                self.assertEqual(state["thread"], 1)
+                self.assertEqual(state["input"], "Default")
+                if ordinal < 4:
+                    self.assertEqual(state["queries"], [])
 
 
 if __name__ == "__main__":

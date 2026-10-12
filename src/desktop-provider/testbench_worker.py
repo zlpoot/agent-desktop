@@ -160,21 +160,21 @@ class NativeBench:
         # Window USER-object queries belong to the original owned Desktop, like D0's
         # isolated worker. This binds this helper thread only; never SwitchDesktop.
         self.api.assert_default()
-        if not self.desktop or self.api.name(self.desktop) != self.name:
+        if not self.desktop or self.api.name(self.desktop, "original-retained") != self.name:
             raise ValueError("original-desktop-handle-required")
         tid = self.api.k.GetCurrentThreadId()
-        previous = self.api.u.GetThreadDesktop(tid)
-        if not previous or self.api.name(previous).lower() != "default":
+        previous = self.api.thread_desktop(tid, "controller-before-bind")
+        if not previous or self.api.name(previous, "controller-before-bind").lower() != "default":
             raise ValueError("window-probe-controller-not-default")
         self.api.checked(self.api.u.SetThreadDesktop(self.desktop), "original_window_desktop_bind")
         try:
-            if self.api.name(self.api.u.GetThreadDesktop(tid)) != self.name:
+            if self.api.name(self.api.thread_desktop(tid, "controller-bound"), "controller-bound") != self.name:
                 raise ValueError("original-window-desktop-unconfirmed")
             self.api.assert_default()  # The user's input Desktop must stay Default.
             yield
         finally:
             self.api.checked(self.api.u.SetThreadDesktop(previous), "restore_controller_thread")
-            if self.api.name(self.api.u.GetThreadDesktop(tid)).lower() != "default":
+            if self.api.name(self.api.thread_desktop(tid, "controller-restored"), "controller-restored").lower() != "default":
                 raise ValueError("controller-desktop-restore-unconfirmed")
     def current(self):
         self.api.assert_default()
@@ -415,6 +415,18 @@ def failure_diagnostic(method, error):
                 item[field] = value
         if origin:
             item["site"] = {"file": Path(origin.filename).name, "function": origin.name, "line": origin.lineno}
+        desktop = getattr(error, "desktop_diagnostic", None)
+        if isinstance(desktop, dict):
+            from win32 import DESKTOP_DIAGNOSTIC_SOURCES
+            # Reject arbitrary metadata even on an exception from a native/producer boundary.
+            if (isinstance(desktop.get("source"), str) and desktop["source"] in DESKTOP_DIAGNOSTIC_SOURCES and
+                desktop.get("operation") in ("GetThreadDesktop", "GetUserObjectInformationW") and
+                desktop.get("phase") in ("handle-lookup", "size-probe", "name-read") and
+                type(desktop.get("winerror")) is int and 0 <= desktop["winerror"] <= 0xFFFFFFFF and
+                type(desktop.get("handlePresent")) is bool):
+                item["desktop"] = {key: desktop[key] for key in ("source", "operation", "phase", "winerror", "handlePresent")}
+                if type(desktop.get("requiredBytes")) is int and 0 <= desktop["requiredBytes"] <= 0xFFFFFFFF:
+                    item["desktop"]["requiredBytes"] = desktop["requiredBytes"]
         producer = getattr(error, "producer_diagnostic", None)
         if producer:
             item["producer"] = producer
