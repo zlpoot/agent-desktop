@@ -462,15 +462,18 @@ class DesktopNameDiagnosticContracts(unittest.TestCase):
         self.assertEqual(diagnostic["source"], "input-desktop")
         self.assertEqual(closed, [44])
 
-    def test_real_identity_uses_window_owner_thread_provenance(self):
+    def test_real_identity_keeps_current_thread_lookup_failure_provenance(self):
         def owner(hwnd, pid): pid._obj.value = 77; return 88
         def thread(tid):
-            self.assertEqual(tid, 88); self.error_code = 6; return None
+            self.assertEqual(tid, 44); self.error_code = 6; return None
+        def member(process, job, value): value._obj.value = True; return True
         self.api.u = SimpleNamespace(GetWindowThreadProcessId=owner, IsWindow=lambda hwnd: 1,
             GetThreadDesktop=thread)
-        self.api.k = SimpleNamespace(OpenProcess=lambda *args: None)
+        self.api.owned_job_name = "synthetic-job"
+        self.api.k = SimpleNamespace(OpenProcess=lambda *args: 11, OpenJobObjectW=lambda *args: 22,
+            IsProcessInJob=member, GetCurrentThreadId=lambda: 44, CloseHandle=lambda *args: True)
         diagnostic = self.diagnostic(lambda: self.api.identity(33))
-        self.assertEqual(diagnostic["source"], "window-owner-thread")
+        self.assertEqual(diagnostic["source"], "window-query-thread")
         self.assertEqual(diagnostic["operation"], "GetThreadDesktop")
         self.assertEqual(diagnostic["winerror"], 6)
 

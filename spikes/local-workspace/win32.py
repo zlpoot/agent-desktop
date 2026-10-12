@@ -11,7 +11,8 @@ UPTR = C.c_size_t
 SPTR = C.c_ssize_t
 HANDLE = W.HANDLE
 DESKTOP_DIAGNOSTIC_SOURCES = frozenset(("unspecified", "input-desktop", "original-retained",
-    "controller-before-bind", "controller-bound", "controller-restored", "window-owner-thread"))
+    "controller-before-bind", "controller-bound", "controller-restored", "window-owner-thread",
+    "window-query-thread", "window-membership"))
 WNDPROC = getattr(C, "WINFUNCTYPE", C.CFUNCTYPE)(SPTR, W.HWND, W.UINT, UPTR, SPTR)
 ENUMPROC = getattr(C, "WINFUNCTYPE", C.CFUNCTYPE)(W.BOOL, W.HWND, SPTR)
 EVENTPROC = getattr(C, "WINFUNCTYPE", C.CFUNCTYPE)(None, HANDLE, W.DWORD, W.HWND, W.LONG, W.LONG, W.DWORD, W.DWORD)
@@ -84,6 +85,7 @@ class Api:
             ("GetUserObjectInformationW", [H, I, V, D, C.POINTER(D)], W.BOOL),
             ("EnumDesktopWindows", [H, ENUMPROC, SPTR], W.BOOL), ("EnumChildWindows", [H, ENUMPROC, SPTR], W.BOOL),
             ("GetWindowThreadProcessId", [H, C.POINTER(D)], D), ("IsWindow", [H], W.BOOL),
+            ("GetAncestor", [H, W.UINT], H),
             ("IsWindowVisible", [H], W.BOOL),
             ("SetThreadDpiAwarenessContext", [H], H),
             ("SetWindowPos", [H, H, I, I, I, I, W.UINT], W.BOOL),
@@ -280,6 +282,42 @@ class Api:
                 raise OSError(C.get_last_error(), "enum_desktop")
         return result
 
+    def window_desktop(self, hwnd):
+        # GetThreadDesktop(foreign_tid) can be denied even for a same-user owned
+        # window. Prove membership using the calling thread's actual Desktop,
+        # never an expected name, cached HWND list or fallback after a denial.
+        desktop = self.thread_desktop(self.k.GetCurrentThreadId(), "window-query-thread")
+        name = self.name(desktop, "window-query-thread")
+        C.set_last_error(0)
+        root = self.u.GetAncestor(hwnd, 2)  # GA_ROOT follows parents, not owners.
+        winerror = C.get_last_error()
+        if not root:
+            raise self.desktop_failure(Blocked("window_desktop_unconfirmed"), "window-membership",
+                "GetAncestor", "root-lookup", winerror, desktop)
+        found, count = False, 0
+        @ENUMPROC
+        def collect(window, _):
+            nonlocal found, count
+            count += 1
+            if count > 1024: return False
+            found = found or window == root
+            return True
+        C.set_last_error(0)
+        ok = self.u.EnumDesktopWindows(desktop, collect, 0)
+        winerror = C.get_last_error()
+        # Unlike startup enumeration, identity cannot accept FALSE/error=0 or
+        # a partial enumeration, even if the root was seen before failure.
+        if not ok or not found or count > 1024:
+            raise self.desktop_failure(Blocked("window_desktop_unconfirmed"), "window-membership",
+                "EnumDesktopWindows", "membership-probe", winerror, desktop)
+        C.set_last_error(0)
+        current_root = self.u.GetAncestor(hwnd, 2)
+        winerror = C.get_last_error()
+        if current_root != root:
+            raise self.desktop_failure(Blocked("window_desktop_unconfirmed"), "window-membership",
+                "GetAncestor", "root-lookup", winerror, desktop)
+        return name
+
     def identity(self, hwnd):
         pid = W.DWORD()
         tid = self.u.GetWindowThreadProcessId(hwnd, C.byref(pid))
@@ -292,11 +330,23 @@ class Api:
             name = getattr(self, "owned_job_name", None)
             job = self.k.OpenJobObjectW(4, False, name) if name else None
             owned = bool(process and job and self.k.IsProcessInJob(process, job, C.byref(in_job)) and in_job.value)
+            if not owned:
+                # Discovery can encounter system windows on the owned Desktop.
+                # No foreign Desktop lookup is needed to reject an unowned PID.
+                return {"alive": True, "pid": pid.value, "desktop": None,
+                    "session": self.session(pid.value), "in_job": False}
+            desktop = self.window_desktop(hwnd)
+            current_pid = W.DWORD()
+            current_tid = self.u.GetWindowThreadProcessId(hwnd, C.byref(current_pid))
+            if current_tid != tid or current_pid.value != pid.value or not self.u.IsWindow(hwnd):
+                raise Blocked("window_identity_changed")
+            if not self.k.IsProcessInJob(process, job, C.byref(in_job)) or not in_job.value:
+                raise Blocked("target_outside_owned_job")
+            return {"alive": True, "pid": pid.value, "desktop": desktop,
+                "session": self.session(pid.value), "in_job": True}
         finally:
             if process: self.k.CloseHandle(process)
             if job: self.k.CloseHandle(job)
-        return {"alive": True, "pid": pid.value, "desktop": self.name(self.thread_desktop(tid, "window-owner-thread"), "window-owner-thread"),
-                "session": self.session(pid.value), "in_job": owned}
 
     def owned_process(self, pid):
         process = self.k.OpenProcess(0x1000, False, pid)

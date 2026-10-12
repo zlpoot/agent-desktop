@@ -420,8 +420,8 @@ def failure_diagnostic(method, error):
             from win32 import DESKTOP_DIAGNOSTIC_SOURCES
             # Reject arbitrary metadata even on an exception from a native/producer boundary.
             if (isinstance(desktop.get("source"), str) and desktop["source"] in DESKTOP_DIAGNOSTIC_SOURCES and
-                desktop.get("operation") in ("GetThreadDesktop", "GetUserObjectInformationW") and
-                desktop.get("phase") in ("handle-lookup", "size-probe", "name-read") and
+                desktop.get("operation") in ("GetThreadDesktop", "GetUserObjectInformationW", "GetAncestor", "EnumDesktopWindows") and
+                desktop.get("phase") in ("handle-lookup", "size-probe", "name-read", "root-lookup", "membership-probe") and
                 type(desktop.get("winerror")) is int and 0 <= desktop["winerror"] <= 0xFFFFFFFF and
                 type(desktop.get("handlePresent")) is bool):
                 item["desktop"] = {key: desktop[key] for key in ("source", "operation", "phase", "winerror", "handlePresent")}
