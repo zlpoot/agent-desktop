@@ -1,3 +1,4 @@
+import { TestBenchWorkspace, type TestBenchWorkspaceConfig } from '../desktop-provider/testbench-workspace.js';
 import { Context, type Plugin } from "cordis";
 import { resolve } from "node:path";
 import { DesktopTaskController } from "../app/task-runner.js";
@@ -74,6 +75,7 @@ export interface RootAssemblyOptions {
   physicalBackendFactory?: PhysicalBackendFactory;
   physicalInputPolicy?: PhysicalInputPolicy;
   localWorkspace?: LocalWorkspaceAppConfig;
+  testBenchWorkspace?: TestBenchWorkspaceConfig;
   /** Explicit installed Chrome; creation additionally requires a new local one-Key authorization. */
   hiddenChrome?: {path:string;creationAuthorization?:HiddenChromeCreationAuthorization};
   localWorkspaceBackendFactory?: LocalWorkspaceBackendFactory;
@@ -103,13 +105,14 @@ export interface RootAssembly {
  *   Session 的独立卸载也必须等待使用该输入控制的任务收尾。
  */
 export async function createRootAssembly(options: RootAssemblyOptions): Promise<RootAssembly> {
-  if(options.hiddenChrome&&options.localWorkspace)throw new Error('conflicting-local-workspace-config');
+  if(options.hiddenChrome&&options.localWorkspace || options.testBenchWorkspace&&(options.hiddenChrome||options.localWorkspace))throw new Error('conflicting-local-workspace-config');
   const rootDir = resolve(options.rootDir);
   const root = new Context();
   const controlBus = createControlBus();
   let controller: DesktopTaskController | undefined;
   let closing: Promise<void> | undefined;
   let hiddenChrome: LocalWorkspaceChromeProvider | undefined;
+  let testBench: TestBenchWorkspace | undefined;
   const dispose = () => {
     if (closing) return closing;
     controlBus.close();
@@ -143,6 +146,8 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
           options.localWorkspaceBackendFactory ? true : undefined);
         hiddenChrome=options.hiddenChrome?new LocalWorkspaceChromeProvider(managedInput,resolve('.'),options.hiddenChrome.path,
           resolve(rootDir,'.artifacts','live-01','dashboard')):undefined;
+        testBench = options.testBenchWorkspace ? new TestBenchWorkspace(options.testBenchWorkspace, managedInput,
+          resolve(rootDir, 'environment-apps.sqlite'), resolve('.')) : undefined;
         const vmControl = options.vmControl
           ?? (process.env.AGENT_DESKTOP_VM_ID ? new HyperVVmControl(process.env.AGENT_DESKTOP_VM_ID) : undefined);
         ctx.provide("extensionRegistry", extensionRegistry);
@@ -155,7 +160,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         ctx.provide("physicalCompatibility", physicalCompatibility);
         ctx.provide("localWorkspaceCompatibility", localWorkspaceCompatibility);
         ctx.provide("desktopEnvironmentProviders", Object.freeze([hyperVCompatibility, physicalCompatibility,
-          hiddenChrome??localWorkspaceCompatibility]));
+          testBench??hiddenChrome??localWorkspaceCompatibility]));
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
@@ -173,7 +178,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               finally {
                 try { await physicalCompatibility.close(); }
                 finally {
-                  try { try {await hiddenChrome?.close();} finally {await localWorkspaceCompatibility.close();} }
+                  try { try {await testBench?.close(); await hiddenChrome?.close();} finally {await localWorkspaceCompatibility.close();} }
                   finally { await desktop.close(); }
                 }
               }
@@ -190,7 +195,9 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       apply(ctx) {
         const store = new SqliteEnvironmentAppStore(resolve(rootDir, 'environment-apps.sqlite'));
         try {
-          const services = composeEnvironmentApps(store, options.environmentApps);
+          const services = composeEnvironmentApps(store, [...options.environmentApps ?? [],
+            ...(testBench ? [{ scope: testBench.scope, discovery: testBench.discovery, launchBackend: testBench.launchBackend }] : [])]);
+          if (testBench) testBench.bindService(services.forEnvironment(testBench.scope));
           ctx.provide('environmentApps', services);
           return async () => { try { await services.close(); } finally { store.close(); } };
         }
@@ -211,7 +218,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         const domainEvaluator = createDomainEvaluator(contributorRegistry, facetRegistry);
         const created = new DesktopTaskController(rootDir, {
           environmentApps: ctx.environmentApps,
-          environmentAppManagement: options.environmentAppManagement === true,
+          environmentAppManagement: options.environmentAppManagement === true || !!testBench,
           acceptanceVerifier: configuredVerifier(rootDir,
             { facets: facetRegistry, contributors: contributorRegistry }),
           registry: ctx.extensionRegistry,
@@ -231,7 +238,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               }],
               [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
-              hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
+              testBench ? [testBench.id, testBench] : hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
                 [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
