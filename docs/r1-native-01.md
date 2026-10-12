@@ -1,5 +1,54 @@
 # R1-NATIVE-01：原生无输入诊断
 
+## TestBench 初始化：Low 构建产物标签，已做最小修复
+
+2026-10-12，Owner 后续授权无输入定位 `0x8007045A`。原因已通过同 SHA 原生对照确认：
+沙箱生成的 EXE 文件带 Low mandatory label（RID4096、policy=NO_WRITE_UP），
+普通 Medium 调用者启动它后，实际子进程仍为 Low；此前 sameUser/非提升检查不能证明完整性级别相同。
+独立 `GetTokenInformation(TokenIntegrityLevel)` 实测父8192/子4096，非 restricted、非 AppContainer，同用户/session/认证会话。
+普通用户构建会话实测8192，沙箱构建会话实测4096。
+
+原进程原生首错为 `win32u.dll!NtGdiInit2` 返回 FALSE，beforeError=0、即时 error=5。
+随后清理的 `EtwEventUnregister` 将 error 从5变为6，`user32.dll` 的 DLL_PROCESS_ATTACH 返回 FALSE，
+最终 CLR 启动以 `0x8007045A` 退出，未进入 Main，也未生成原 HWND；不能把后来的6当作首错。
+扩大自有 Desktop HANDLE 到0xF01FF仍失败，说明此初始化问题与下文外部线程 GetThreadDesktop 的 HANDLE 对照不同。
+[Windows MIC 的进程创建及访问规则](https://learn.microsoft.com/en-us/windows/win32/secauthz/mandatory-integrity-control)。
+
+关键反事实只改变受控副本文件的 mandatory label，EXE 字节、SHA、原 launcher、0xC3 Desktop、Job、启动参数均相同：
+`4468a49fbfffe1a1667c01d47311838c3ef847fa71720a627e12d16a748684c0`。
+
+| 同一普通用户会话，顺序启动 | 文件标签 / 实际子进程 RID | 原生结果 |
+|---|---|---|
+| 原 Low 产物（最终反例复验） | 4096 / 4096 | 无 HWND，退出0x8007045A |
+| 同 SHA 受控 Medium 副本，第1轮 | 8192 / 8192 | 原 WPF HWND、PID/Job/session/Desktop 身份全部通过 |
+| 同 SHA 受控 Medium 副本，第2轮 | 8192 / 未另采样 | 原 HWND guard、rect/class 查询通过 |
+| 修复脚本重建产物，第1轮 | 8192 / 未另采样 | 原 HWND guard、rect/class 查询通过 |
+| 修复脚本重建产物，第2轮 | 8192 / 8192 | 原 WPF HWND 身份全部通过 |
+
+这五轮每轮均先确认 Default 恢复、Input Desktop=Default、原进程退出、Job排空、
+process/Job/Desktop HANDLE关闭、OpenDesktopW NULL/error=2，再开始下一轮。
+任务通道三项环境清空，不创建或连接 Task/Oracle pipe，模型/动作命令/输入均0。
+先前一次外置继承句柄探针自身递归失败、未取得子进程，原清理NACK保留；
+已停止重复，驱动退出后确认专属Desktop无残留，再进行后续实验，不能把后验恢复改写为该轮清理PASS。
+
+最小修复只改 `testbench/build.ps1`：编译前拒绝 Low/未知完整性会话；编译成功后，
+仅对刚从仓库源码生成的 EXE 设置 Medium 标签，设置失败则报错，不返回可用产物路径。
+不递归重标记目录、不重置DACL、不修改 Desktop/Job 权限或运行时令牌。
+Low 沙箱定向构建验证：明确拒绝且输出不存在；普通非提升 Medium 构建验证：实际文件标签8192/policy1，
+重建 SHA `d2e8a37134b1cc31dc5f4b3407eb57dc65bd8d100b0e6af74ca14b11d0e209a3`，上述两轮被动启动通过。
+[icacls 文件完整性标签命令](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/icacls)。
+
+本轮检查：check PASS；普通会话 `test:offline` 788/788 PASS（exit=0），
+`test:python` 21个契约文件全部PASS，共享D0合成56/56 PASS。
+首次沙箱检查保留：Python9个文件失败、D0有16个错误，包含本地socket WinError10013/文件替换WinError5；
+沙箱offline出现等待超时后主动停止（非完成结果），确认运行器无残留后才在普通会话重跑。
+本轮普通会话通过不改写此前784/788及4项超时的历史记录；未修改断言，也未跑浏览器或远端CI。
+
+运行时原 HWND/PID/Job/session/Default 身份检查、Registry/InputControl/lease/预算全部保留。
+**TestBench 原生初始化专项 PASS；R1 自主业务验收仍 BLOCKED**，第三次历史首错来源仍不能回填。
+没有第四次完整Task、模型调用、其他应用扩展、合并/发布/Issue关闭；A5 safety FAIL / Windows PAUSED / overall INCOMPLETE保持。
+原始探针、失败记录和生成资产仅留忽略的 `.artifacts/r1-init/`，不提交。
+
 ## 同一普通会话的历史 exact HEAD / 当前版对照
 
 Owner 后续明确授权对照历史可用 HEAD `c189ff466d00759e86309584398e9adacdc62b3a`
