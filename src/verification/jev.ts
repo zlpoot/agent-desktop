@@ -1,4 +1,4 @@
-import type { AuxiliaryVerifier, AuxiliaryResult, SemanticQuestion } from './contracts.js';
+import type { AuxiliaryVerifier, AuxiliaryResult, SemanticQuestion, Verdict } from './contracts.js';
 import { meteredModelRequest } from '../runtime/model-budget.js';
 
 /** Only compact, scoped semantic questions reach the model. Exact checks never enter this adapter. */
@@ -26,7 +26,7 @@ export class JevSemanticVerifier implements AuxiliaryVerifier {
     const answers=questions.map((q,i)=>{
       const a=payload.answers?.[`q${i}`];
       if(a?.type!=='choice'||!['pass','fail','unknown'].includes(a.choice??'')||typeof a.confidence!=='number')throw new Error('Invalid JEV answer');
-      return {id:q.id,verdict:a.choice as 'pass'|'fail'|'unknown',confidence:a.confidence};
+      return {id:q.id,verdict:a.choice as Verdict,confidence:a.confidence};
     });
     const usage=payload.usage;
     const validUsage=usage && [usage.input_tokens,usage.output_tokens].every(n=>typeof n==='number'&&Number.isInteger(n)&&n>=0);

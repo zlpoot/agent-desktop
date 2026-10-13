@@ -8,8 +8,9 @@ import type { FacetRegistry } from '../contracts/facets.js';
 import type { ContributorRegistry } from '../contracts/verifier-contributor.js';
 import type { DomainCheckOutcome, DomainEvaluator } from '../verification/domain-evaluator.js';
 import { createDomainEvaluator } from '../verification/domain-evaluator.js';
+import type { VerificationCheck, VerificationVerdict } from '../contracts/verification-result.js';
 
-export type Verdict = 'pass' | 'fail' | 'unknown';
+export type Verdict = VerificationVerdict;
 const durableResultGoal=/(保存|提交|发布|支付|发送|\bsave\b|\bsubmit\b|\bpublish\b|\bpay\b|\bsend\b)/i;
 export type UnknownReason = 'unsupported_condition' | 'evidence_unavailable' | 'target_ambiguous' |
   'observation_stale' | 'verification_error' | 'rebind_pending';
@@ -17,9 +18,7 @@ export interface AcceptanceReport {
   mode: 'shadow' | 'assist';
   verdict: Verdict;
   observationId: string;
-  checks: Array<{ criterion: string; verdict: Verdict; message: string; reason?: UnknownReason;
-    evidence?:{source:'dom'|'uia';target:{role:string;name?:string;text?:string};field:string;
-      actual?:string|boolean;expected:string|boolean;captureSequence?:number};
+  checks: Array<VerificationCheck<UnknownReason> & {
     domainAudit?: DomainCheckOutcome['audit'] }>;
   reason?: UnknownReason;
   auxiliary?: { verdict: Verdict; confidence: number; error?: string;

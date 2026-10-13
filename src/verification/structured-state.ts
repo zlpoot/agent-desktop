@@ -1,8 +1,9 @@
 import type {Observation} from '../actions/schema.js';
 import type {CompletionCriteria} from '../verifier/verifier.js';
+import type { VerificationVerdict } from '../contracts/verification-result.js';
 
 export type StructuredCondition = NonNullable<CompletionCriteria['structuredStates']>[number];
-export type StructuredCheck = {verdict:'pass'|'fail'|'unknown';reason:string;message:string;
+export type StructuredCheck = {verdict:VerificationVerdict;reason:string;message:string;
   actual?:string|boolean;expected?:string|boolean};
 
 const clean=(value:string|undefined)=>(value??'').replace(/\s+/g,' ').trim();

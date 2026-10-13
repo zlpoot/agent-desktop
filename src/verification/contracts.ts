@@ -1,5 +1,7 @@
 /** Portable verification contracts. No application names, action execution or model provider dependency. */
-export type Verdict = 'pass' | 'fail' | 'unknown';
+import type { VerificationVerdict } from '../contracts/verification-result.js';
+
+export type Verdict = VerificationVerdict;
 export type Scalar = string | number | boolean;
 export type EvidenceSource = 'dom' | 'uia' | 'window' | 'file' | 'api' | 'visual_model';
 export interface Evidence {

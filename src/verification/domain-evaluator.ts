@@ -1,5 +1,6 @@
 import type { Observation } from "../actions/schema.js";
 import type { FacetRegistry } from "../contracts/facets.js";
+import type { VerificationVerdict } from "../contracts/verification-result.js";
 import type {
   ContributorResult, DomainCriterion, EvidenceRef, VerifierContributor,
 } from "../contracts/verifier-contributor.js";
@@ -24,7 +25,7 @@ export interface DomainCriterionAudit {
 
 export interface DomainCheckOutcome {
   criterion: string;
-  verdict: "pass" | "fail" | "unknown";
+  verdict: VerificationVerdict;
   reason?: string;
   message: string;
   actual?: unknown;
