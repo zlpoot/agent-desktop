@@ -62,6 +62,38 @@ export type WorkflowStepCondition =
 export type WorkflowSchemaVersion = 1 | 2;
 
 /**
+ * 读取守卫认可的 Schema 版本集合（正面白名单）：缺省 + 1 + 2。
+ * 缺省与 1 同义（历史 v1 库），2 为泛化格式；除此之外的一律视为未知。
+ */
+const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
+
+/** 只描述类型；未知字符串可能含敏感内容，禁止回显原值或其前缀。 */
+function describeSchemaValue(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function briefId(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value) : "unavailable";
+}
+
+/**
+ * 未知 `workflowSchemaVersion` 读取守卫（fail-closed，纯校验，不读不写任何存储）：
+ * - 缺省 / 1 / 2 放行；
+ * - 其他数值（如 3）、null、字符串（如 "2"）、布尔、数组、对象一律拒绝。
+ * 因此未知版本不会被自动当成 v1，也不可能进入 matcher / preview / replay / publish。
+ * 错误信息只携带序号与版本便于诊断（Issue #75 要求），不含指针/行内容等私有数据。
+ */
+export function assertKnownWorkflowSchemaVersion(workflow: Workflow, origin: string): void {
+  const raw = (workflow as { workflowSchemaVersion?: unknown }).workflowSchemaVersion;
+  if (raw === undefined || SUPPORTED_SCHEMA_VERSIONS.has(raw as number)) return;
+  throw new Error(`unsupported-workflow-schema-version: ${describeSchemaValue(raw)} ` +
+    `(workflowId=${briefId(workflow?.id)}, version=${briefId(workflow?.version)}, source=${origin})`);
+}
+
+/**
  * 持久化结果契约：Workflow 只「声明」完成后必须证明的持久结果，证明权始终在核心 Verifier——
  * durable_state 必须由核心 rebind 状态机证明（R0→edit→commit→absence→rebound→terminal），
  * desktop_file 必须由核心 file gate 证明。Workflow 不得把持久化压成单步条件（不存在 durable 条件种类）。

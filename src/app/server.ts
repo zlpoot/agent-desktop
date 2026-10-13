@@ -15,6 +15,8 @@ import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import type { VmControl } from "../desktop-session/vm-control.js";
 import { readWorkflowVersion, previewWorkflow, readWorkflowMetadata, saveWorkflowMetadata } from './workflow-view.js';
 import { WorkflowStore } from '../workflows/store.js';
+import type { Workflow } from '../workflows/schema.js';
+import { assertKnownWorkflowSchemaVersion } from '../workflows/schema.js';
 import type { AssemblySnapshot } from '../composition/inspection.js';
 import { compactObservationFacets } from '../contracts/facets.js';
 import { globalTaskBudget, parseBudgetOverride, readTaskBudget, saveGlobalTaskBudget } from '../runtime/model-budget.js';
@@ -319,7 +321,13 @@ function listWorkflows(rootDir: string): unknown[] {
   const db = new DatabaseSync(path, { readOnly: true, timeout: 1000 });
   try {
     return db.prepare(`SELECT data_json FROM workflows ORDER BY created_at DESC, version DESC`)
-      .all().map((row) => JSON.parse((row as { data_json: string }).data_json));
+      .all().map((row) => {
+        // 列表入口绕过 Store.list 直读 SQLite，故在此补齐同一白名单守卫，
+        // 未知 workflowSchemaVersion 不得出现在 Dashboard 流程列表里。
+        const workflow = JSON.parse((row as { data_json: string }).data_json) as Workflow;
+        assertKnownWorkflowSchemaVersion(workflow, "dashboard.listWorkflows");
+        return workflow;
+      });
   } finally { db.close(); }
 }
 
