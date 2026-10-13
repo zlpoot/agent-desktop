@@ -10,8 +10,8 @@ import {createAgentLoop} from '../graph/graph.js';
 import {SqliteTrace} from '../trace/sqlite-trace.js';
 import {WorkflowStore} from '../workflows/store.js';
 import {normalizeEvidence} from '../verifier/hybrid-verifier.js';
-import {CreateOneKey} from '../../testbench/live-01/hidden-chrome.js';
-import {candidateFromLiveTrace} from '../../testbench/live-01/workflow-candidate.js';
+import {CreateOneKey} from './hidden-chrome-rules.js';
+import {candidateFromLiveTrace} from '../workflows/live-candidate.js';
 import {KEY_SUBMIT_SELECTOR,type ChromeSession} from './local-workspace-chrome-provider.js';
 
 /** Trusted local operator configuration, never accepted from a Task HTTP body.

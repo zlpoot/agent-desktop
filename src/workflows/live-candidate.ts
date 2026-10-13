@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { Workflow, WorkflowStep } from '../../src/workflows/schema.js';
-import type { TraceStore } from '../../src/contracts/stores.js';
-import { semanticTarget } from '../../src/actions/semantic-target.js';
-import { KEY_SUBMIT_SELECTOR } from '../../src/desktop-provider/local-workspace-chrome-provider.js';
+import type { Workflow, WorkflowStep } from './schema.js';
+import type { TraceStore } from '../contracts/stores.js';
+import { semanticTarget } from '../actions/semantic-target.js';
+import { KEY_SUBMIT_SELECTOR } from '../desktop-provider/local-workspace-chrome-provider.js';
 
 /** Curated candidate from the LIVE-01 rules' independently accepted REAL UI trace.
  * Core model-driven distillation is unchanged and does not accept rule/Fake traces.
