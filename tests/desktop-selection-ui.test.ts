@@ -65,7 +65,8 @@ for (const width of [390, 601, 668, 700, 900, 1366, 1440]) {
       const response = await responding;
       assert.equal(response.status(), 202);
       const issued = await response.json(); assert.equal(typeof issued.taskId, 'string');
-      assert.deepEqual(posts, [{ path: '/api/desktop/scenarios/tasks', body: { desktopTarget, scenarioId } }]);
+      assert.deepEqual(posts.filter(item => item.path !== '/api/desktop/apps'), [{ path: '/api/desktop/scenarios/tasks', body: { desktopTarget, scenarioId } }]);
+      assert.ok(posts.filter(item => item.path === '/api/desktop/apps').every(item => ['open', 'close'].includes((item.body as any).action)), 'environment selection only reads the App directory');
       assert.equal(await page.locator('#task-form').getAttribute('data-clicks'), '1');
       assert.equal(await page.locator('#task-form').getAttribute('data-trusted-click'), 'true');
       assert.equal(await page.locator('#task-form').getAttribute('data-submits'), '1');
@@ -296,7 +297,10 @@ test('Task UI submits exact environment identity, preserves selection, and never
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${address.port}`);
     await page.waitForFunction(() => (document.querySelector('#task-destination') as HTMLSelectElement)?.options.length === 5);
-    assert.equal(await page.locator('#task-destination option:disabled').count(), 1);
+    assert.equal(await page.locator('#task-destination option:disabled').count(), 0, 'registered environments remain selectable for App opening');
+    await page.locator('#task-destination').selectOption(JSON.stringify(['workspace', 'finite-fixture']));
+    assert.equal(await page.locator('#task-submit').isDisabled(), true, 'App selection never grants generic Task admission');
+    assert.equal(submitted.length, 0);
     const key = JSON.stringify(['synthetic', 'desktop-two']);
     await page.locator('#task-destination').selectOption(key);
     await page.locator('#task-goal').fill('VM: ordinary task text');

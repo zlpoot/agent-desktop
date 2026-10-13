@@ -102,7 +102,7 @@ test('UI-01 shell keeps five routes, explicit admission, drafts, evidence and co
     assert.match(await page.locator('#task-mode-description').innerText(), /固定规则计划/);
     assert.equal(await page.getByRole('radio', { name: '学习', exact: true }).isDisabled(), true);
     assert.equal(await page.locator('#task-goal').isDisabled(), true);
-    assert.deepEqual(posts, []);
+    assert.ok(posts.every(path => path === '/api/desktop/apps'), 'environment selection may read Apps, never submit a Task');
     for (const [route, name] of [['desktop', '环境与应用'], ['apps', '环境与应用'], ['plugins', '设置'], ['workflows', '工作流']]) {
       await page.goto(`${base}/#/${route}`);
       assert.equal(await page.getByRole('navigation', { name: '主要导航', exact: true }).getByRole('button', { name, exact: true }).getAttribute('aria-current'), 'page');
@@ -124,7 +124,7 @@ test('UI-01 shell keeps five routes, explicit admission, drafts, evidence and co
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `scene overflow ${width}`);
       if (width === 390 || width === 1440) await page.screenshot({ path: join(screenshotDir, `recorded-${width}.png`), fullPage: true });
     }
-    assert.deepEqual(errors, []); assert.deepEqual(posts, []);
+    assert.deepEqual(errors, []); assert.ok(posts.every(path => path === '/api/desktop/apps'));
   } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())); rmSync(directory, { recursive: true, force: true }); }
 });
 

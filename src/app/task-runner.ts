@@ -63,6 +63,7 @@ export interface TaskController {
 export interface DesktopTaskControllerOptions {
   /** Trusted composition only; default off. Does not enable discovery/launch adapters. */
   environmentAppManagement?: boolean;
+  configuredWorkbenchAppTarget?: import('../contracts/task-desktop.js').TaskDesktopTarget;
   environmentApps?: EnvironmentAppServices;
   desktopSessions?: TaskDesktopSessions;
   /** Infrastructure validates structured legacy provenance, never the goal text. */
@@ -195,7 +196,10 @@ export class DesktopTaskController implements TaskController {
   async manageApps(request: Record<string, unknown>) {
     this.assertOpen();
     if (!this.appManagement) throw new Error('app-management-disabled');
-    return this.appManagement.act(request);
+    const result = await this.appManagement.act(request);
+    const configured = this.options.configuredWorkbenchAppTarget, selected = request.desktopTarget as import('../contracts/task-desktop.js').TaskDesktopTarget;
+    return request.action === 'open' && configured && selected?.providerId === configured.providerId && selected?.environmentId === configured.environmentId
+      ? { ...(result as object), configuredAppList: true } : result;
   }
   async desktopOptions() { return this.requireDesktopSessions().discover(); }
   private assertTaskCompatibility(state: import('../graph/state.js').ComputerState, environment: string | null): void {

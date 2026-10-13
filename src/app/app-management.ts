@@ -5,15 +5,18 @@ import type { AppConfirmationDisplay } from '../contracts/app-launch.js';
 import { desktopTarget, sameDesktopTarget, type TaskDesktopTarget } from '../contracts/task-desktop.js';
 import { sameAppScope, textValue } from '../environment-apps/validation.js';
 import type { TaskDesktopOption } from './task-desktop-sessions.js';
+import { ControlledAppLauncher } from '../environment-apps/launcher.js';
 
 type Session = { id: string; target: TaskDesktopTarget; scope: EnvironmentAppScope; service: EnvironmentAppService; revision: number;
   expires: number; candidates: readonly DiscoveredApp[]; report?: Omit<AppScanReport, 'candidates' | 'snapshots'>;
   display?: AppConfirmationDisplay; operations: Map<string, { key: string; promise: Promise<unknown> }>;
   active: Set<string>; busy: boolean; closed: boolean; timer?: ReturnType<typeof setTimeout> };
 const fields: Record<string, readonly string[]> = {
-  open: [], list: [], scan: [], path: ['path'], prepare: ['candidateId', 'candidateRevision'],
+  open: [], list: [], scan: [], path: ['path', 'displayName', 'save'], prepare: ['candidateId', 'candidateRevision'],
   confirm: ['confirmationId', 'digest', 'allowLaunch'], verify: ['appBindingId', 'expectedRevision', 'allowLaunch'],
   revoke: ['appBindingId', 'expectedRevision'], cancel: [], close: [],
+  preview: ['appBindingId', 'expectedRevision'],
+  stop: ['appBindingId', 'expectedRevision'],
 };
 /** Private Dashboard operator port. Uses the very same P7-C services as Task onboarding.
  * Sessions and receipts are ephemeral; no Task continuation or runtime target is returned. */
@@ -52,10 +55,16 @@ export class AppManagement {
   private async view(session: Session) {
     const option = await this.current(session), service = this.service(session);
     const registered = service.registry.list();
+    const liveStatus = service.liveStatus ? Object.fromEntries(await Promise.all(registered.map(async app => {
+      try { return [app.appBindingId, await service.liveStatus!(app)]; }
+      catch (error) { return [app.appBindingId, { state: 'unknown', checkedAt: new Date(this.clock()).toISOString(),
+        reason: error instanceof Error && /^[a-z][a-z0-9-]{1,100}$/.test(error.message) ? error.message : 'app-status-unavailable' }]; }
+    }))) : undefined;
+    await this.current(session);
     return { sessionId: session.id, revision: session.revision, desktopTarget: session.target, scope: session.scope,
-      registered, candidates: session.candidates, report: session.report, confirmation: session.display,
+      registered, candidates: session.candidates, report: session.report, confirmation: session.display, liveStatus,
       readiness: { discovery: typeof (service.discovery as ReadonlyAppDiscovery)?.candidate === 'function',
-        controlledLaunch: !!service.onboarding, taskCompatibility: option.executable, blockedReason: option.blockedReason,
+        controlledLaunch: !!service.onboarding, preview: !!service.preview, stop: !!service.stop, taskCompatibility: option.executable, blockedReason: option.blockedReason,
         scenarios: option.scenarios ?? [], businessCapable: false,
         businessReason: 'not-proven: launch verification is not P6 action evidence; Tasks still require a trusted runtime bridge and independent capability/risk/budget/input/result gates' } };
   }
@@ -87,6 +96,28 @@ export class AppManagement {
       // Cancellation must remain available during an operation; it invalidates the whole page session.
       this.end(session); return { closed: true };
     }
+    if (action === 'list') {
+      if (body.revision !== session.revision || session.busy) throw new Error('app-management-revision-conflict');
+      // Polling observes only; it consumes neither launch receipts nor session lifetime.
+      return this.view(session);
+    }
+    if (action === 'preview') {
+      if (body.revision !== session.revision || session.busy) throw new Error('app-management-revision-conflict');
+      const service = this.service(session);
+      if (!service.preview) throw new Error('app-preview-unavailable');
+      textValue(body.appBindingId);
+      const app = service.registry.requireLaunchProfile(body.appBindingId, body.expectedRevision as number);
+      const frame = await service.preview(app);
+      await this.current(session);
+      const current = service.registry.requireLaunchProfile(app.appBindingId, app.revision);
+      if (current.profileDigest !== app.profileDigest || current.profileRevision !== app.profileRevision) throw new Error('app-preview-profile-changed');
+      if (!frame || !Number.isInteger(frame.width) || !Number.isInteger(frame.height) || frame.width < 1 || frame.height < 1 || frame.width > 2048 || frame.height > 2048 ||
+          typeof frame.png !== 'string' || frame.png.length > 5592408 || !/^[A-Za-z0-9+/]+={0,2}$/.test(frame.png) ||
+          !Number.isFinite(Date.parse(frame.capturedAt)) || this.clock() - Date.parse(frame.capturedAt) > 5000 || Date.parse(frame.capturedAt) > this.clock() + 1000 ||
+          !Number.isFinite(Date.parse(frame.expiresAt)) || Date.parse(frame.expiresAt) <= this.clock()) throw new Error('app-preview-invalid-or-expired');
+      return { desktopTarget: session.target, scope: session.scope, sessionId: session.id, revision: session.revision,
+        appBindingId: app.appBindingId, profileDigest: app.profileDigest, frame };
+    }
     const key = JSON.stringify(body), old = session.operations.get(String(body.requestId));
     if (old) {
       if (old.key !== key) throw new Error('app-management-operation-conflict');
@@ -116,6 +147,29 @@ export class AppManagement {
         session.report = { scope: session.scope, status: result.snapshot ? 'complete' : 'unavailable',
           coverage: [], reason: result.reason, installationOrigin: result.snapshot?.limitation?.startsWith('installed-on-host-os')
             ? 'shared-host-os' : session.report?.installationOrigin ?? 'selected-environment' };
+        if (body.save !== undefined && body.save !== true) throw new Error('invalid-app-save');
+        if (body.displayName !== undefined && body.save !== true) throw new Error('app-name-requires-save');
+        if (body.save === true) {
+          if (!result.snapshot || !service.onboarding || !(service.launcher instanceof ControlledAppLauncher)) throw new Error(result.reason ?? 'app-path-inspection-unavailable');
+          const snapshot = result.snapshot;
+          if (snapshot.candidate.launchSpec.kind !== 'exe' || snapshot.candidate.launchSpec.args.length || snapshot.candidate.launchSpec.workingDirectory) throw new Error('manual-app-exe-only');
+          const displayName = body.displayName ?? snapshot.candidate.displayName;
+          textValue(displayName); if (String(displayName).length > 128) throw new Error('app-name-too-long');
+          // Same scoped identity inspection and Registry confirmation; saving grants no launch permit.
+          const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 15000);
+          let checked;
+          try { checked = await service.launcher.inspect(snapshot.candidate.launchSpec, controller.signal); }
+          finally { clearTimeout(timer); }
+          await this.current(session);
+          if (controller.signal.aborted || checked.identity.fingerprint !== snapshot.contentFingerprint ||
+              snapshot.version && checked.identity.version !== snapshot.version ||
+              discovery.candidate(snapshot.candidateId, snapshot.revision).digest !== snapshot.digest) throw new Error('app-installation-changed');
+          const previous = service.registry.list().find(app => app.installationId === snapshot.candidate.installationId);
+          const app = service.registry.discover({ ...snapshot.candidate, displayName: String(displayName), identity: checked.identity }, previous?.revision);
+          if (app.trust === 'discovered') service.registry.confirm({ appBindingId: app.appBindingId, expectedRevision: app.revision,
+            profileDigest: app.profileDigest, operatorId: 'dashboard-local-operator' });
+          session.candidates = [];
+        }
       } else {
         const candidate = session.candidates.find(item => item.candidateId === body.candidateId && item.revision === body.candidateRevision);
         if (!candidate || !service.onboarding) throw new Error('app-management-candidate-or-launch-unavailable');
@@ -145,6 +199,17 @@ export class AppManagement {
         }
         await this.current(session); session.display = undefined;
       } finally { session.active.delete(operationId); }
+    } else if (action === 'stop') {
+      if (!service.stop) throw new Error('app-stop-unavailable');
+      textValue(body.appBindingId);
+      // Cleanup must remain possible when availability is unknown. This grants
+      // no launch permission, restores no trust and does not erase any history.
+      const app = service.registry.get(body.appBindingId as string);
+      if (!app || app.revision !== body.expectedRevision || !sameAppScope(app.scope, session.scope)) throw new Error('app-stop-profile-conflict');
+      await service.stop(app);
+      await this.current(session);
+      const current = service.registry.get(app.appBindingId);
+      if (!current || current.revision !== app.revision || current.profileDigest !== app.profileDigest) throw new Error('app-stop-profile-changed');
     } else if (action === 'revoke') {
       textValue(body.appBindingId);
       if (service.onboarding) service.onboarding.revoke({ appBindingId: body.appBindingId as string,

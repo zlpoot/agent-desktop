@@ -6,7 +6,7 @@
     "test:verification-dataset": "node --import tsx --test tests/verification-dataset.test.ts",
     "eval:verification": "node --import tsx scripts/evaluate-verification-dataset.mjs",
     "bench:verification": "node --import tsx scripts/benchmark-verification.mjs",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc -p tsconfig.workbench-app.json",
     "test": "node scripts/run-tests.mjs offline",
     "test:browser": "node scripts/run-tests.mjs browser",
     "browser:install": "node scripts/install-browser.mjs",

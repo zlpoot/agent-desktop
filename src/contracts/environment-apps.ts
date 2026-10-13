@@ -102,6 +102,25 @@ export interface EnvironmentAppService {
   readonly discovery?: EnvironmentAppDiscovery;
   readonly launcher?: EnvironmentAppLauncher;
   readonly onboarding?: EnvironmentAppOnboarding;
+  /** Read-only current evidence; historical verification is never a live status. */
+  readonly liveStatus?: (app: EnvironmentAppBinding) => Promise<AppLiveStatus>;
+  /** Read-only pixels from the same currently confirmed owned window; no input grant. */
+  readonly preview?: (app: EnvironmentAppBinding) => Promise<AppWindowPreview>;
+  /** Explicit operator cleanup of this profile's currently owned execution only. */
+  readonly stop?: (app: EnvironmentAppBinding) => Promise<void>;
+}
+export interface AppWindowPreview {
+  readonly png: string;
+  readonly width: number;
+  readonly height: number;
+  readonly capturedAt: string;
+  readonly expiresAt: string;
+}
+export interface AppLiveStatus {
+  readonly state: 'saved' | 'window-confirmed' | 'exited' | 'unknown';
+  readonly checkedAt: string;
+  readonly expiresAt?: string;
+  readonly reason?: string;
 }
 export interface EnvironmentAppServices {
   forEnvironment(target: TaskDesktopTarget): EnvironmentAppService;

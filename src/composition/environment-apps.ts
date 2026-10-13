@@ -13,6 +13,9 @@ export interface EnvironmentAppInfrastructure {
   readonly discovery?: EnvironmentAppDiscovery;
   readonly launcher?: EnvironmentAppLauncher;
   readonly launchBackend?: ManagedAppLaunchBackend;
+  readonly liveStatus?: EnvironmentAppService['liveStatus'];
+  readonly preview?: EnvironmentAppService['preview'];
+  readonly stop?: EnvironmentAppService['stop'];
 }
 function key(target: TaskDesktopTarget): string {
   const checked = desktopTarget(target?.providerId, target?.environmentId);
@@ -39,7 +42,8 @@ export function composeEnvironmentApps(store: SqliteEnvironmentAppStore,
     const registry = store.bind(entry.scope), launcher = entry.launchBackend ? new ControlledAppLauncher(entry.launchBackend) : entry.launcher;
     const onboarding = entry.launchBackend ? new AppOnboardingService(registry, entry.discovery as ReadonlyAppDiscovery, launcher as ControlledAppLauncher) : undefined;
     services.set(key(entry.scope), Object.freeze({ registry, ...(entry.discovery ? { discovery: entry.discovery } : {}),
-      ...(launcher ? { launcher } : {}), ...(onboarding ? { onboarding } : {}) }));
+      ...(launcher ? { launcher } : {}), ...(onboarding ? { onboarding } : {}), ...(entry.liveStatus ? { liveStatus: entry.liveStatus } : {}),
+      ...(entry.preview ? { preview: entry.preview } : {}), ...(entry.stop ? { stop: entry.stop } : {}) }));
   }
   return Object.freeze({ async close() {
     for (const service of services.values()) {
