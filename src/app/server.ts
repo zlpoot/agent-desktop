@@ -11,7 +11,7 @@ import type { TaskController } from "./task-runner.js";
 import { canManuallyReviewOutcome } from '../verification/manual-review.js';
 import { taskOutcome } from '../verification/task-outcome.js';
 import { listPrompts, savePrompt, type PromptId } from "../agent/prompt-store.js";
-import type { DesktopProvider } from "../contracts/desktop-provider.js";
+import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import type { VmControl } from "../desktop-session/vm-control.js";
 import { readWorkflowVersion, previewWorkflow, readWorkflowMetadata, saveWorkflowMetadata } from './workflow-view.js';
 import { WorkflowStore } from '../workflows/store.js';
@@ -365,7 +365,7 @@ function sameOrigin(request: IncomingMessage): boolean {
 }
 
 export function createDashboardServer(rootDir = process.cwd(), controller?: TaskController,
-  desktop?: DesktopProvider, vmControl?: VmControl, control?: DesktopControlView,
+  desktop?: LegacyDesktopProvider, vmControl?: VmControl, control?: DesktopControlView,
   inspectRuntime?: () => AssemblySnapshot, preflight?: DashboardPreflightView, fixtureOnly = false): Server {
   const appLauncher = preflight ? undefined : workbenchAppLauncherAsset();
   return createServer((request, response) => {

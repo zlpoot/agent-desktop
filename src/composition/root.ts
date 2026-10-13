@@ -14,7 +14,7 @@ import type { ExtensionRegistry } from "../contracts/extension.js";
 import { FacetRegistry } from "../contracts/facets.js";
 import { ContributorRegistry } from "../contracts/verifier-contributor.js";
 import { createDomainEvaluator } from "../verification/domain-evaluator.js";
-import type { DesktopProvider } from "../contracts/desktop-provider.js";
+import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
 import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import { PhysicalDesktopProvider, type PhysicalBackendFactory } from "../desktop-provider/physical-provider.js";
@@ -72,7 +72,8 @@ export interface RootAssemblyOptions {
   workflowStore?: (path: string) => WorkflowStoreContract;
   workerClientFactory?: WorkerClientFactory;
   extensionRegistry?: ExtensionRegistry;
-  desktop?: DesktopProvider;
+  /** Legacy Hyper-V 管理面（register/list/attach/poll/close）；环境 Provider 见 environmentProviders。 */
+  desktop?: LegacyDesktopProvider;
   vmControl?: VmControl;
   physicalBackendFactory?: PhysicalBackendFactory;
   physicalInputPolicy?: PhysicalInputPolicy;
@@ -88,7 +89,8 @@ export interface RootAssembly {
   inspect(): AssemblySnapshot;
   root: Context;
   controller: DesktopTaskController;
-  desktop?: DesktopProvider;
+  /** Legacy Hyper-V 管理面；运行时字段名 desktop 保持不变（对外 JSON/装配快照已引用）。 */
+  desktop?: LegacyDesktopProvider;
   vmControl?: VmControl;
   controlBus: ControlBus;
   environmentProviders: readonly EnvironmentProvider[];
@@ -162,7 +164,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
         if (vmControl) ctx.provide("vmControl", vmControl);
         if (desktop instanceof DesktopSessionManager) attachControlBus(desktop, controlBus);
         // 基础设施释放：先撤销全部业务扩展（触发各扩展 dispose），再关闭
-        // DesktopProvider；两者都幂等，root dispose 时最后执行。
+        // DesktopProvider（旧管理面）；两者都幂等，root dispose 时最后执行。
         return async () => {
           // Cordis runs sibling disposers concurrently, even during direct Root disposal.
           controlBus.close();

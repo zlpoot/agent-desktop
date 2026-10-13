@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
 import type { TaskController } from "../app/task-runner.js";
-import type { DesktopProvider } from "../contracts/desktop-provider.js";
+import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import { SqliteTrace } from "../trace/sqlite-trace.js";
 import { connectionDefaults, type ConnectionConfig } from "./connection-config.js";
 import { WorkerConnectionError } from "../contracts/worker-error.js";
@@ -56,7 +56,7 @@ export class DesktopControl implements DesktopControlHooks {
   private connectedEndpoint?: string;
   private recoveryPending = false;
   private failures = 0;
-  constructor(private readonly rootDir: string, private readonly sessions: DesktopProvider,
+  constructor(private readonly rootDir: string, private readonly sessions: LegacyDesktopProvider,
     private readonly sessionId: string, private readonly token: string,
     private readonly controller: TaskController, private readonly requireReconnect = false,
     private readonly connectionOptions: ConnectionConfig = connectionDefaults) {

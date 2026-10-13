@@ -1,7 +1,7 @@
 import type { DesktopTaskController } from "../app/task-runner.js";
 import type { VmControl } from "../desktop-session/vm-control.js";
 import type { ExtensionRegistry } from "../contracts/extension.js";
-import type { DesktopProvider } from "../contracts/desktop-provider.js";
+import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
 import type { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
 import type { PhysicalDesktopProvider } from "../desktop-provider/physical-provider.js";
@@ -26,7 +26,7 @@ declare module "cordis" {
     traceStore: (path: string) => TraceStore;
     workflowStore: (path: string) => WorkflowStore;
     workerClientFactory: WorkerClientFactory;
-    desktopProvider: DesktopProvider;
+    desktopProvider: LegacyDesktopProvider;
     desktopEnvironmentProviders: readonly EnvironmentProvider[];
     environmentApps: EnvironmentAppServices;
     /** Composition-only legacy bridge, never an Agent Core dependency. */
