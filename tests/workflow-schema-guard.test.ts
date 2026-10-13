@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Workflow } from "../src/workflows/schema.js";
 import { workflowDigest } from "../src/workflows/recovery.js";
 import { WorkflowStore } from "../src/workflows/store.js";
+import { migrateWorkflowToV2 } from "../src/workflows/migration.js";
 import { readWorkflowVersion } from "../src/app/workflow-view.js";
 import { createDashboardServer } from "../src/app/server.js";
 import { selectWorkflow } from "../src/workflows/matcher.js";
@@ -226,6 +227,145 @@ test("重复迁移幂等：返回既有行且 created=false，不制造重复版
     assert.equal(rawRows(t.path).length, 2, "库里只能有 1 条 v1 + 1 条 v2");
     assert.equal(t.store.list().length, 2);
   } finally { t.cleanup(); }
+});
+
+test("迁移→成功/失败 replay→再次迁移：忽略源和目标运行数据，重开库仍幂等", () => {
+  for (const success of [true, false]) {
+    const t = temp("wf-replay-idempotent-");
+    let reopened: WorkflowStore | undefined;
+    try {
+      const first = t.store.migrateWorkflowToV2(base.id, 1);
+      t.store.recordReplay(base.id, first.workflow.version, "target-trial", success, "target failure");
+      t.store.recordReplay(base.id, 1, "source-trial", false, "source failure added after migration");
+      const before = rawRows(t.path);
+      const second = t.store.migrateWorkflowToV2(base.id, 1);
+      assert.equal(second.created, false);
+      assert.equal(second.workflow.version, first.workflow.version);
+      assert.equal(second.workflow.status, success ? "verified" : "candidate");
+      assert.equal(second.workflow.successCount, Number(success));
+      assert.equal(second.workflow.failureCount, Number(!success));
+      assert.equal(Boolean(second.workflow.lastVerifiedAt), success);
+      assert.deepEqual(rawRows(t.path), before, "幂等返回不得 INSERT 或改写任一行");
+      reopened = new WorkflowStore(t.path);
+      assert.equal(reopened.migrateWorkflowToV2(base.id, 1).created, false);
+      assert.deepEqual(rawRows(t.path), before, "来源关系必须持久化");
+    } finally { reopened?.close(); t.cleanup(); }
+  }
+});
+
+test("相同定义的不同源记录版本各自迁移；真正的定义变化不被忽略", () => {
+  const t = temp("wf-source-identity-");
+  try {
+    const first = t.store.migrateWorkflowToV2(base.id, 1);
+    const source2 = t.store.addCandidate(base);
+    const second = t.store.migrateWorkflowToV2(base.id, source2.version);
+    assert.equal(second.created, true, "不同源版本不能共用迁移身份");
+    assert.notEqual(second.workflow.version, first.workflow.version);
+    assert.equal(t.store.migrateWorkflowToV2(base.id, 1).workflow.version, first.workflow.version);
+    assert.equal(t.store.migrateWorkflowToV2(base.id, source2.version).workflow.version, second.workflow.version);
+    const db = new DatabaseSync(t.path);
+    try {
+      const source = t.store.get(base.id, 1)!;
+      source.steps[0].action = { kind: "keypress", keys: "b" };
+      db.prepare("UPDATE workflows SET data_json=? WHERE workflow_id=? AND version=1")
+        .run(JSON.stringify(source), base.id);
+    } finally { db.close(); }
+    const changed = t.store.migrateWorkflowToV2(base.id, 1);
+    assert.equal(changed.created, true, "执行定义真实变化必须产生新 candidate");
+    assert.notEqual(changed.workflow.version, first.workflow.version);
+    assert.equal(t.store.migrateWorkflowToV2(base.id, 1).created, false);
+    assert.equal(rawRows(t.path).length, 5);
+  } finally { t.cleanup(); }
+});
+
+const PRIVATE_SCHEMA_STRINGS = ["PRIVATE_SCHEMA_SECRET_42", "PRIVATE_LONG_SCHEMA_" + "s".repeat(100_000)];
+
+test("无来源记录的历史同定义 v2 明确拒绝；来源 INSERT 失败整体回滚", () => {
+  const legacy = temp("wf-untracked-");
+  try {
+    const target = legacy.store.addCandidate(migrateWorkflowToV2(legacy.store.get(base.id, 1)!));
+    legacy.store.recordReplay(base.id, target.version, "legacy-trial", false, "legacy failure");
+    const before = rawRows(legacy.path);
+    assert.throws(() => legacy.store.migrateWorkflowToV2(base.id, 1), /缺少迁移来源记录/);
+    assert.deepEqual(rawRows(legacy.path), before);
+  } finally { legacy.cleanup(); }
+  const failed = temp("wf-provenance-failure-");
+  try {
+    const db = new DatabaseSync(failed.path);
+    try {
+      db.exec(`CREATE TRIGGER reject_migration BEFORE INSERT ON workflow_v2_migrations
+        BEGIN SELECT RAISE(ABORT, 'synthetic provenance failure'); END`);
+    } finally { db.close(); }
+    const before = rawRows(failed.path);
+    assert.throws(() => failed.store.migrateWorkflowToV2(base.id, 1), /synthetic provenance failure/);
+    assert.deepEqual(rawRows(failed.path), before, "candidate INSERT 必须与来源记录一起回滚");
+  } finally { failed.cleanup(); }
+});
+
+test("敏感/长 schema 字符串在所有读取与写入守卫错误中只显示类型及诊断信息", () => {
+  for (const value of PRIVATE_SCHEMA_STRINGS) {
+    const t = temp("wf-private-schema-");
+    try {
+      inject(t.path, value);
+      const before = rawRows(t.path);
+      for (const [origin, read] of [
+        ["WorkflowStore.get", () => t.store.get(base.id, 1)],
+        ["WorkflowStore.list", () => t.store.list()],
+        ["workflow-view.readWorkflowVersion", () => readWorkflowVersion(t.dir, base.id, 1)],
+        ["WorkflowStore.migrateWorkflowToV2", () => t.store.migrateWorkflowToV2(base.id, 1)],
+        ["WorkflowStore.get", () => t.store.recordReplay(base.id, 1, "invalid", true)],
+        ["WorkflowStore.get", () => t.store.publish(base.id, 1, "invalid", 0, 0)],
+      ] as const) {
+        assert.throws(read, (error: unknown) => {
+          const message = String(error);
+          assert.match(message, /unsupported-workflow-schema-version: string/);
+          assert.ok(message.includes(`workflowId=${base.id}, version=1, source=${origin}`));
+          assert.ok(!message.includes(value));
+          assert.doesNotMatch(message, /PRIVATE_|ssssssss/);
+          assert.ok(message.length < 250, "长字符串不能放大错误信息");
+          return true;
+        });
+      }
+      assert.deepEqual(rawRows(t.path), before);
+    } finally { t.cleanup(); }
+  }
+});
+
+test("Dashboard 列表/详情 HTTP 错误不回显敏感或长 schema 字符串", async () => {
+  const t = temp("wf-private-http-");
+  const server = createDashboardServer(t.dir);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("address unavailable");
+  try {
+    for (const value of PRIVATE_SCHEMA_STRINGS) {
+      inject(t.path, value);
+      for (const suffix of ["", "/preview", "/execute", "/trial"]) {
+        const response: Response = await fetch(`http://127.0.0.1:${address.port}/api/workflows/${base.id}/1${suffix}`,
+          suffix ? { method: "POST", headers: { "content-type": "application/json" }, body: "{}" } : undefined);
+        const body = await response.text();
+        assert.equal(response.status, suffix ? 400 : 500);
+        assert.match(body, /unsupported-workflow-schema-version: string/);
+        assert.ok(body.includes(`workflowId=${base.id}, version=1, source=`));
+        assert.ok(!body.includes(value));
+        assert.doesNotMatch(body, /PRIVATE_|ssssssss/);
+        assert.ok(body.length < 300);
+      }
+      {
+        const response: Response = await fetch(`http://127.0.0.1:${address.port}/api/workflows`);
+        const body = await response.text();
+        assert.equal(response.status, 500);
+        assert.match(body, /unsupported-workflow-schema-version: string/);
+        assert.ok(body.includes(`workflowId=${base.id}, version=1, source=`));
+        assert.ok(!body.includes(value));
+        assert.doesNotMatch(body, /PRIVATE_|ssssssss/);
+        assert.ok(body.length < 300);
+      }
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    t.cleanup();
+  }
 });
 
 test("迁移被拒绝时不损坏源行：源不存在 / 源已 v2 / 源未知 schema", () => {

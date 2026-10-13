@@ -67,13 +67,11 @@ export type WorkflowSchemaVersion = 1 | 2;
  */
 const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
 
-/** 只描述版本号自身的类型/取值，不展开对象，避免把行内容带进错误信息。 */
+/** 只描述类型；未知字符串可能含敏感内容，禁止回显原值或其前缀。 */
 function describeSchemaValue(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
-  if (typeof value === "object") return "object";
-  if (typeof value === "string") return `string ${JSON.stringify(value)}`;
-  return `${typeof value} ${String(value)}`;
+  return typeof value;
 }
 
 function briefId(value: unknown): string {

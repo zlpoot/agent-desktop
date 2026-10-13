@@ -12,7 +12,7 @@ export interface WorkflowMigrationResult {
   created: boolean;
 }
 
-/** 定义等价比较：忽略只有存储过程才会变动的 version / createdAt，并按键排序消除字段顺序影响。 */
+/** 按键排序消除字段顺序影响；数组顺序仍属于定义。 */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
@@ -25,8 +25,13 @@ function canonicalJson(value: unknown): string {
 }
 
 function definitionKey(workflow: Workflow): string {
-  const { version: _version, createdAt: _createdAt, ...rest } = workflow;
-  return canonicalJson(rest);
+  // 正面列出稳定定义，运行证据与计数（包括 knownFailures）不参与迁移身份。
+  return canonicalJson({ id: workflow.id, workflowSchemaVersion: workflow.workflowSchemaVersion,
+    scope: workflow.scope, stageCondition: workflow.stageCondition, environment: workflow.environment,
+    taskPattern: workflow.taskPattern, inputs: workflow.inputs, preconditions: workflow.preconditions,
+    steps: workflow.steps, successConditions: workflow.successConditions,
+    durableContract: workflow.durableContract, sourceTaskId: workflow.sourceTaskId,
+    sourceTrace: workflow.sourceTrace });
 }
 
 export class WorkflowStore {
@@ -46,7 +51,11 @@ export class WorkflowStore {
       task_id TEXT NOT NULL, stage_id TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL, reason TEXT,
       created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS workflow_runs_id ON workflow_runs(workflow_id, version, id);`);
+    CREATE INDEX IF NOT EXISTS workflow_runs_id ON workflow_runs(workflow_id, version, id);
+    CREATE TABLE IF NOT EXISTS workflow_v2_migrations (
+      workflow_id TEXT NOT NULL, source_version INTEGER NOT NULL, target_version INTEGER NOT NULL,
+      PRIMARY KEY(workflow_id, source_version, target_version)
+    );`);
     const columns = this.db.prepare("PRAGMA table_info(workflow_runs)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "stage_id")) {
       this.db.exec("ALTER TABLE workflow_runs ADD COLUMN stage_id TEXT NOT NULL DEFAULT ''");
@@ -73,7 +82,8 @@ export class WorkflowStore {
    * 显式 v1→v2 迁移（Issue #75）：**仅 INSERT 同族新版本 candidate**，绝不 UPDATE / DELETE 源行。
    * - 完全复用既有 `migrateWorkflowToV2()`（回到 candidate、清零计数、确定性 stepId）
    *   与既有 `addCandidate()`（自增 version 写入新行），不重新实现任何已有转换；
-   * - 幂等：同源 v2 candidate 已存在时返回既有行且 `created=false`，不静默制造重复版本；
+   * - 幂等：同源记录版本、同稳定定义的 v2 已存在时返回既有行（包括已 replay 的行）；
+   *   来源关系单独落库，不改变 Workflow JSON，也不把不同 v1 版本误认成同一来源；
    * - 源行 `data_json` 迁移前后逐字节相同，一旦观测到变动即抛错回滚；
    * - 拒绝：源不存在、源已是 v2、源为未知 schema（由 get 级守卫统一拦截）；
    * - 产物不继承 verified / successCount / failureCount / lastVerifiedAt，必须重新完整
@@ -94,12 +104,15 @@ export class WorkflowStore {
         throw new Error(`源流程已是 v2，无需迁移：workflowId=${sourceId} version=${sourceVersion}`);
       }
       const target = migrateWorkflowToV2(source);
-      const existing = this.equivalentV2Candidate(sourceId, target);
+      const existing = this.equivalentV2Candidate(sourceId, sourceVersion, target);
       if (existing) {
         this.db.exec("COMMIT");
         return { workflow: existing, sourceVersion, created: false };
       }
       const created = this.addCandidate(target);
+      this.db.prepare(`INSERT INTO workflow_v2_migrations
+        (workflow_id, source_version, target_version) VALUES (?, ?, ?)`)
+        .run(sourceId, sourceVersion, created.version);
       const afterRow = this.db.prepare(`SELECT data_json FROM workflows
         WHERE workflow_id = ? AND version = ?`).get(sourceId, sourceVersion) as
         { data_json: string } | undefined;
@@ -111,15 +124,27 @@ export class WorkflowStore {
     } catch (error) { this.db.exec("ROLLBACK"); throw error; }
   }
 
-  /** 同源同定义的 v2 candidate（若已存在），用于迁移幂等；只读。 */
-  private equivalentV2Candidate(id: string, target: Workflow): Workflow | undefined {
-    const rows = this.db.prepare(`SELECT data_json FROM workflows WHERE workflow_id = ?`)
-      .all(id) as Array<{ data_json: string }>;
+  /** 同源记录版本、同稳定定义的 v2；状态晋级/计数变化不改变来源。只读。 */
+  private equivalentV2Candidate(id: string, sourceVersion: number, target: Workflow): Workflow | undefined {
+    const rows = this.db.prepare(`SELECT w.data_json FROM workflows w
+      JOIN workflow_v2_migrations m ON m.workflow_id = w.workflow_id AND m.target_version = w.version
+      WHERE m.workflow_id = ? AND m.source_version = ? ORDER BY w.version`)
+      .all(id, sourceVersion) as Array<{ data_json: string }>;
     const key = definitionKey(target);
     for (const row of rows) {
       const candidate = JSON.parse(row.data_json) as Workflow;
       if (candidate.workflowSchemaVersion !== 2) continue;
       if (definitionKey(candidate) === key) return candidate;
+    }
+    // 旧实现/手工 INSERT 的 v2 没有可证明的源记录版本。不能猜来源或再制造重复行。
+    const untracked = this.db.prepare(`SELECT w.data_json FROM workflows w
+      LEFT JOIN workflow_v2_migrations m ON m.workflow_id = w.workflow_id AND m.target_version = w.version
+      WHERE w.workflow_id = ? AND m.target_version IS NULL`).all(id) as Array<{ data_json: string }>;
+    if (untracked.some((row) => {
+      const candidate = JSON.parse(row.data_json) as Workflow;
+      return candidate.workflowSchemaVersion === 2 && definitionKey(candidate) === key;
+    })) {
+      throw new Error(`既有 v2 定义缺少迁移来源记录，拒绝重复迁移：workflowId=${id} version=${sourceVersion}`);
     }
     return undefined;
   }
