@@ -20,7 +20,7 @@ export function createBuiltinExtensions(options: { rootDir: string; appPath?: st
   ];
 }
 
-/** 内置扩展的默认注册表；装配层与测试用它构造路由基线。 */
+/** 显式启用全部内置扩展的帮助器；正式 Root 默认不调用，测试/样例可注入其结果。 */
 export function createDefaultExtensionRegistry(options: { rootDir: string; appPath?: string }): ExtensionRegistry {
   const registry = new ExtensionRegistry();
   for (const extension of createBuiltinExtensions(options)) registry.register(extension);

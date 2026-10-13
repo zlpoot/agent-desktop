@@ -9,8 +9,7 @@ import { configuredModelProvider, configuredVerifier } from "../agent/local-conf
 import { GuestDesktopRuntime } from "../runtime/desktop/guest-runtime.js";
 import { SqliteTrace } from "../trace/sqlite-trace.js";
 import { WorkflowStore } from "../workflows/store.js";
-import { createDefaultExtensionRegistry } from "../extensions/index.js";
-import type { ExtensionRegistry } from "../contracts/extension.js";
+import { ExtensionRegistry } from "../contracts/extension.js";
 import { FacetRegistry } from "../contracts/facets.js";
 import { ContributorRegistry } from "../contracts/verifier-contributor.js";
 import { createDomainEvaluator } from "../verification/domain-evaluator.js";
@@ -71,6 +70,7 @@ export interface RootAssemblyOptions {
   traceStore?: (path: string) => TraceStore;
   workflowStore?: (path: string) => WorkflowStoreContract;
   workerClientFactory?: WorkerClientFactory;
+  /** Business extensions are disabled by default; trusted callers explicitly inject opt-in registrations. */
   extensionRegistry?: ExtensionRegistry;
   /** Legacy Hyper-V 管理面（register/list/attach/poll/close）；环境 Provider 见 environmentProviders。 */
   desktop?: LegacyDesktopProvider;
@@ -132,7 +132,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
     await mountInspected(root, {
       name: "infrastructure",
       apply(ctx) {
-        const extensionRegistry = options.extensionRegistry ?? createDefaultExtensionRegistry({ rootDir });
+        const extensionRegistry = options.extensionRegistry ?? new ExtensionRegistry();
         const modelProvider = options.model ?? configuredModelProvider(rootDir);
         const traceStore = options.traceStore ?? ((path: string) => new SqliteTrace(path));
         const workflowStore = options.workflowStore ?? ((path: string) => new WorkflowStore(path));
