@@ -1,4 +1,5 @@
 import type { EvidenceSubjectRef, FacetValue } from "./facets.js";
+import type { VerificationVerdict } from "./verification-result.js";
 
 /**
  * VerifierContributor —— 可插拔、可审计、fail-closed 的域验收贡献者（P8 批次 2 / §11.3）。
@@ -23,7 +24,7 @@ export interface EvidenceRef {
   schemaVersion: number;
 }
 
-export type ContributorVerdict = "pass" | "fail" | "unknown";
+export type ContributorVerdict = VerificationVerdict;
 
 /** 核心统一的 contributor 侧 unknown 原因（与 HybridVerifier 三态语义对齐）。 */
 export type ContributorUnknownReason =

@@ -1,6 +1,7 @@
 import type { Observation } from '../actions/schema.js';
 import type { CompletionCriteria } from '../verifier/verifier.js';
 import {checkStructuredState} from './structured-state.js';
+import type { VerificationCheck, VerificationVerdict } from '../contracts/verification-result.js';
 
 /**
  * 可编辑结构化字段的「提交 ↔ 应用自身重投影」持久化门（通用，不绑定任何应用/夹具）。
@@ -18,7 +19,7 @@ import {checkStructuredState} from './structured-state.js';
  * 命令行参数或任何测试模式；banner/错误提示不参与裁决。
  */
 
-export type RebindVerdict = 'pass' | 'fail' | 'unknown';
+export type RebindVerdict = VerificationVerdict;
 export type RebindReason =
   | 'missing_rebind_baseline'
   | 'missing_commit'
@@ -42,22 +43,7 @@ export interface RawControl {
   valueComplete?: boolean;
 }
 
-interface RebindCheckEvidence {
-  source: 'dom' | 'uia';
-  target: StructuredCondition['target'];
-  field: string;
-  actual?: string | boolean;
-  expected: string | boolean;
-  captureSequence?: number;
-}
-
-export interface RebindCheck {
-  criterion: string;
-  verdict: RebindVerdict;
-  message: string;
-  reason?: RebindReason;
-  evidence?: RebindCheckEvidence;
-}
+export interface RebindCheck extends VerificationCheck<RebindReason> {}
 
 /** 单个 rebind 条件跨观察累积的链状态，随 checkpoint 持久化。 */
 export interface RebindConditionState {
