@@ -147,3 +147,47 @@ test('Facet collect 在途时卸载：返回的旧载荷被丢弃，后续不再
   await collectFacets(observation(), retained);
   assert.equal(calls, 1);
 });
+
+test('同对象重新注册后旧采集句柄永久失效，新周期采集/验收正常', async () => {
+  const f = fixture(), ports = extensionVerification(f.registry), retained = ports.facetProviders;
+  assert.equal(ports.domainEvaluator(criteria.domainChecks, await collectFacets(observation(), retained))[0].verdict, 'pass');
+  // 无关注册和失败的重复注册不得撤销仍然有效的句柄。
+  f.registry.register({ id: 'unrelated-extension' });
+  assert.throws(() => f.registry.register({ id: domain, facets: [f.provider] }), /已注册/);
+  const stillActive = await collectFacets(observation(), retained);
+  assert.equal(ports.domainEvaluator(criteria.domainChecks, stillActive)[0].verdict, 'pass');
+  await f.registry.unregister(domain);
+  f.registry.register({ id: domain, facets: [f.provider], contributors: [f.contributor] });
+  assert.equal(f.registry.listFacetProviders()[0], f.provider, '必须复用同一个 Provider 对象');
+  const before = f.counts();
+  assert.equal((await collectFacets(observation(), retained)).facets?.[domain], undefined);
+  assert.equal(retained[0].validate({ value: 1 }).ok, false, '旧 validator 也不得复活');
+  assert.deepEqual(f.counts(), before);
+  const fresh = await collectFacets(observation(), ports.facetProviders);
+  assert.equal(ports.domainEvaluator(criteria.domainChecks, fresh)[0].verdict, 'pass');
+  assert.equal(f.counts().collected, before.collected + 1);
+});
+
+test('同对象重新注册前启动的在途采集结果被丢弃，新周期句柄仍正常', async () => {
+  const f = fixture();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let calls = 0;
+  f.provider.collect = async () => { calls++; await gate; return { complete: true, data: { value: 1 } }; };
+  const ports = extensionVerification(f.registry), retained = ports.facetProviders;
+  const pending = collectFacets(observation(), retained);
+  try {
+    assert.equal(calls, 1);
+    await f.registry.unregister(domain);
+    f.registry.register({ id: domain, facets: [f.provider], contributors: [f.contributor] });
+    assert.equal(f.registry.listFacetProviders()[0], f.provider);
+  } finally { release(); }
+  const oldResult = await pending;
+  assert.equal(oldResult.facets?.[domain], undefined, '旧在途载荷不能跨注册周期被盖章');
+  assert.equal(ports.domainEvaluator(criteria.domainChecks, oldResult)[0].verdict, 'unknown');
+  await collectFacets(observation(), retained);
+  assert.equal(calls, 1, '旧句柄不能再进入 collect');
+  const fresh = await collectFacets(observation(), ports.facetProviders);
+  assert.equal(calls, 2);
+  assert.equal(ports.domainEvaluator(criteria.domainChecks, fresh)[0].verdict, 'pass');
+});

@@ -73,6 +73,7 @@ export class ExtensionRegistry {
   private readonly capabilityOrder: SpecializedTaskCapability[] = [];
   private readonly profileOrder: TaskProfile[] = [];
   private readonly facetProviders: ObservationFacetProvider[] = [];
+  private readonly facetRegistrationTokens = new Map<ObservationFacetProvider, symbol>();
   private readonly verifierContributors: VerifierContributor[] = [];
 
   register(extension: AgentExtension): void {
@@ -106,6 +107,9 @@ export class ExtensionRegistry {
     this.capabilityOrder.push(...(extension.capabilities ?? []));
     this.profileOrder.push(...(extension.profiles ?? []));
     this.facetProviders.push(...(extension.facets ?? []));
+    for (const provider of extension.facets ?? []) {
+      this.facetRegistrationTokens.set(provider, Symbol('facet-registration'));
+    }
     this.verifierContributors.push(...(extension.contributors ?? []));
   }
 
@@ -190,6 +194,11 @@ export class ExtensionRegistry {
     return this.facetProviders;
   }
 
+  /** 当前 Provider 注册周期的不可复用身份；撤销即失效，同对象再注册也生成新 token。 */
+  facetRegistrationToken(provider: ObservationFacetProvider): symbol | undefined {
+    return this.facetRegistrationTokens.get(provider);
+  }
+
   /** 已注册的全部验收贡献者（装配层据此构造 ContributorRegistry）。 */
   listVerifierContributors(): readonly VerifierContributor[] {
     return this.verifierContributors;
@@ -207,7 +216,10 @@ export class ExtensionRegistry {
       if (profileIds.has(this.profileOrder[index].id)) this.profileOrder.splice(index, 1);
     }
     for (let index = this.facetProviders.length - 1; index >= 0; index--) {
-      if (facetIds.has(this.facetProviders[index].id)) this.facetProviders.splice(index, 1);
+      if (facetIds.has(this.facetProviders[index].id)) {
+        this.facetRegistrationTokens.delete(this.facetProviders[index]);
+        this.facetProviders.splice(index, 1);
+      }
     }
     for (let index = this.verifierContributors.length - 1; index >= 0; index--) {
       if (contributorIds.has(this.verifierContributors[index].id)) this.verifierContributors.splice(index, 1);

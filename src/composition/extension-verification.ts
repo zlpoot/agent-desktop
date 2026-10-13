@@ -33,7 +33,9 @@ export function extensionVerification(extensions: ExtensionRegistry) {
     facets, contributors, domainEvaluator: createDomainEvaluator(contributors, facets),
     get facetProviders() {
       return facets.list().map(provider => {
-        const active = () => extensions.listFacetProviders().includes(provider);
+        const registration = extensions.facetRegistrationToken(provider);
+        const active = () => registration !== undefined &&
+          extensions.facetRegistrationToken(provider) === registration;
         return { id: provider.id, schemaVersion: provider.schemaVersion, providerVersion: provider.providerVersion,
           environment: provider.environment, source: provider.source,
           validate: (data: unknown) => active() ? provider.validate(data)
@@ -41,7 +43,7 @@ export function extensionVerification(extensions: ExtensionRegistry) {
           async collect(ctx: Parameters<typeof provider.collect>[0]) {
             if (!active()) return undefined;
             const payload = await provider.collect(ctx);
-            // A collection started while registered may finish after unregister/dispose.
+            // Never accept a result from a revoked cycle, even when the same object is re-registered.
             return active() ? payload : undefined;
           },
         };
