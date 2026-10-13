@@ -280,6 +280,46 @@ test("相同定义的不同源记录版本各自迁移；真正的定义变化�
 
 const PRIVATE_SCHEMA_STRINGS = ["PRIVATE_SCHEMA_SECRET_42", "PRIVATE_LONG_SCHEMA_" + "s".repeat(100_000)];
 
+for (const [field, values] of [
+  ["id", ["PRIVATE_JSON_OTHER_FAMILY"]],
+  ["version", [99, "1", "PRIVATE_JSON_RECORD_VERSION"]],
+] as const) test(`迁移拒绝 JSON ${field} 与 SQLite 主键不一致，不插入 candidate 或来源记录`, () => {
+  for (const value of values) {
+    const t = temp("wf-identity-mismatch-");
+    const db = new DatabaseSync(t.path);
+    try {
+      t.store.addCandidate({ ...base, id: "PRIVATE_JSON_OTHER_FAMILY" });
+      const source = t.store.get(base.id, 1)!;
+      const corrupted = JSON.stringify({ ...source, [field]: value });
+      db.prepare("UPDATE workflows SET data_json=? WHERE workflow_id=? AND version=1")
+        .run(corrupted, base.id);
+      const allRows = () => db.prepare("SELECT * FROM workflows ORDER BY workflow_id, version").all();
+      const migrations = () => db.prepare("SELECT * FROM workflow_v2_migrations").all();
+      const before = allRows();
+      assert.deepEqual(migrations(), []);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        assert.throws(() => t.store.migrateWorkflowToV2(base.id, 1), (error: unknown) => {
+          const message = String(error);
+          assert.match(message, /workflow-migration-source-identity-mismatch/);
+          assert.ok(message.includes(`workflowId=${base.id}, version=1, source=WorkflowStore.migrateWorkflowToV2`));
+          assert.doesNotMatch(message, /PRIVATE_JSON_|taskPattern|sourceTrace/);
+          return true;
+        });
+        assert.deepEqual(allRows(), before, "全部家族行及源 JSON 字节必须原样保留");
+        assert.deepEqual(migrations(), [], "不得登记来源记录");
+      }
+      // 拒绝后事务已回滚；仅在测试中修复损坏的源，再验证正常同族迁移。
+      db.prepare("UPDATE workflows SET data_json=? WHERE workflow_id=? AND version=1")
+        .run(JSON.stringify(source), base.id);
+      const migrated = t.store.migrateWorkflowToV2(base.id, 1);
+      assert.equal(migrated.created, true);
+      assert.equal(migrated.workflow.id, base.id);
+      assert.equal(migrated.workflow.version, 2);
+      assert.equal(migrations().length, 1);
+    } finally { db.close(); t.cleanup(); }
+  }
+});
+
 test("无来源记录的历史同定义 v2 明确拒绝；来源 INSERT 失败整体回滚", () => {
   const legacy = temp("wf-untracked-");
   try {

@@ -85,7 +85,7 @@ export class WorkflowStore {
    * - 幂等：同源记录版本、同稳定定义的 v2 已存在时返回既有行（包括已 replay 的行）；
    *   来源关系单独落库，不改变 Workflow JSON，也不把不同 v1 版本误认成同一来源；
    * - 源行 `data_json` 迁移前后逐字节相同，一旦观测到变动即抛错回滚；
-   * - 拒绝：源不存在、源已是 v2、源为未知 schema（由 get 级守卫统一拦截）；
+   * - 拒绝：源不存在、JSON 身份与源主键不一致、源已是 v2、源为未知 schema；
    * - 产物不继承 verified / successCount / failureCount / lastVerifiedAt，必须重新完整
    *   replay + verification 后才可晋级 verified。
    */
@@ -99,6 +99,10 @@ export class WorkflowStore {
         throw new Error(`源流程版本不存在：workflowId=${sourceId} version=${sourceVersion}`);
       }
       const source = JSON.parse(sourceRow.data_json) as Workflow;
+      if (source?.id !== sourceId || source?.version !== sourceVersion) {
+        throw new Error(`workflow-migration-source-identity-mismatch ` +
+          `(workflowId=${sourceId}, version=${sourceVersion}, source=WorkflowStore.migrateWorkflowToV2)`);
+      }
       assertKnownWorkflowSchemaVersion(source, "WorkflowStore.migrateWorkflowToV2");
       if (source.workflowSchemaVersion === 2) {
         throw new Error(`源流程已是 v2，无需迁移：workflowId=${sourceId} version=${sourceVersion}`);
