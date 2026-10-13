@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { Workflow } from '../workflows/schema.js';
+import { assertKnownWorkflowSchemaVersion } from '../workflows/schema.js';
 import { workflowDigest } from '../workflows/recovery.js';
 import { instantiateWorkflow } from '../workflows/matcher.js';
 
@@ -47,6 +48,9 @@ export function readWorkflowVersion(root: string, id: string, version: number) {
       .get(id, version) as { data_json: string } | undefined;
     if (!row) return undefined;
     const workflow = JSON.parse(row.data_json) as Workflow;
+    // 详情入口绕过 Store.get 直读 SQLite，故在此复用同一白名单守卫，
+    // 未知 workflowSchemaVersion 不能进入详情 / preview / 执行链路。
+    assertKnownWorkflowSchemaVersion(workflow, "workflow-view.readWorkflowVersion");
     const hasRuns = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_runs'").get();
     const hasStageId = hasRuns && (db.prepare("PRAGMA table_info(workflow_runs)").all() as Array<{ name: string }>)
       .some((column) => column.name === 'stage_id');

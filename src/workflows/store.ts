@@ -1,7 +1,33 @@
 import { DatabaseSync } from "node:sqlite";
 import { semanticTarget } from "../actions/semantic-target.js";
 import type { Workflow } from "./schema.js";
+import { assertKnownWorkflowSchemaVersion } from "./schema.js";
+import { migrateWorkflowToV2 } from "./migration.js";
 import { workflowDigest } from './recovery.js';
+
+/** 显式迁移结果。created=false 表示同源 v2 已存在，本次幂等返回既有行、未新增版本。 */
+export interface WorkflowMigrationResult {
+  workflow: Workflow;
+  sourceVersion: number;
+  created: boolean;
+}
+
+/** 定义等价比较：忽略只有存储过程才会变动的 version / createdAt，并按键排序消除字段顺序影响。 */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function definitionKey(workflow: Workflow): string {
+  const { version: _version, createdAt: _createdAt, ...rest } = workflow;
+  return canonicalJson(rest);
+}
 
 export class WorkflowStore {
   private readonly db: DatabaseSync;
@@ -43,17 +69,85 @@ export class WorkflowStore {
     return workflow;
   }
 
+  /**
+   * 显式 v1→v2 迁移（Issue #75）：**仅 INSERT 同族新版本 candidate**，绝不 UPDATE / DELETE 源行。
+   * - 完全复用既有 `migrateWorkflowToV2()`（回到 candidate、清零计数、确定性 stepId）
+   *   与既有 `addCandidate()`（自增 version 写入新行），不重新实现任何已有转换；
+   * - 幂等：同源 v2 candidate 已存在时返回既有行且 `created=false`，不静默制造重复版本；
+   * - 源行 `data_json` 迁移前后逐字节相同，一旦观测到变动即抛错回滚；
+   * - 拒绝：源不存在、源已是 v2、源为未知 schema（由 get 级守卫统一拦截）；
+   * - 产物不继承 verified / successCount / failureCount / lastVerifiedAt，必须重新完整
+   *   replay + verification 后才可晋级 verified。
+   */
+  migrateWorkflowToV2(sourceId: string, sourceVersion: number): WorkflowMigrationResult {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const sourceRow = this.db.prepare(`SELECT data_json FROM workflows
+        WHERE workflow_id = ? AND version = ?`).get(sourceId, sourceVersion) as
+        { data_json: string } | undefined;
+      if (!sourceRow) {
+        throw new Error(`源流程版本不存在：workflowId=${sourceId} version=${sourceVersion}`);
+      }
+      const source = JSON.parse(sourceRow.data_json) as Workflow;
+      assertKnownWorkflowSchemaVersion(source, "WorkflowStore.migrateWorkflowToV2");
+      if (source.workflowSchemaVersion === 2) {
+        throw new Error(`源流程已是 v2，无需迁移：workflowId=${sourceId} version=${sourceVersion}`);
+      }
+      const target = migrateWorkflowToV2(source);
+      const existing = this.equivalentV2Candidate(sourceId, target);
+      if (existing) {
+        this.db.exec("COMMIT");
+        return { workflow: existing, sourceVersion, created: false };
+      }
+      const created = this.addCandidate(target);
+      const afterRow = this.db.prepare(`SELECT data_json FROM workflows
+        WHERE workflow_id = ? AND version = ?`).get(sourceId, sourceVersion) as
+        { data_json: string } | undefined;
+      if (afterRow?.data_json !== sourceRow.data_json) {
+        throw new Error(`源记录被意外修改，迁移中止并回滚：workflowId=${sourceId} version=${sourceVersion}`);
+      }
+      this.db.exec("COMMIT");
+      return { workflow: created, sourceVersion, created: true };
+    } catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
+  /** 同源同定义的 v2 candidate（若已存在），用于迁移幂等；只读。 */
+  private equivalentV2Candidate(id: string, target: Workflow): Workflow | undefined {
+    const rows = this.db.prepare(`SELECT data_json FROM workflows WHERE workflow_id = ?`)
+      .all(id) as Array<{ data_json: string }>;
+    const key = definitionKey(target);
+    for (const row of rows) {
+      const candidate = JSON.parse(row.data_json) as Workflow;
+      if (candidate.workflowSchemaVersion !== 2) continue;
+      if (definitionKey(candidate) === key) return candidate;
+    }
+    return undefined;
+  }
+
+  /**
+   * 读取守卫：未知 `workflowSchemaVersion`（3 / null / "2" / …）在此 fail-closed，
+   * 不会被自动当成 v1，也因此不可能进入 matcher / preview / replay / publish。
+   * 已知版本（缺省 / 1 / 2）的读取与返回值保持不变。本方法不改写数据库。
+   */
   get(id: string, version: number): Workflow | undefined {
     const row = this.db.prepare(`SELECT data_json FROM workflows WHERE workflow_id = ? AND version = ?`)
       .get(id, version) as { data_json: string } | undefined;
-    return row ? JSON.parse(row.data_json) as Workflow : undefined;
+    if (!row) return undefined;
+    const workflow = JSON.parse(row.data_json) as Workflow;
+    assertKnownWorkflowSchemaVersion(workflow, "WorkflowStore.get");
+    return workflow;
   }
 
+  /** 逐行应用与 get 相同的未知版本守卫；任一未知版本使整个读取 fail-closed。 */
   list(environment?: Workflow["environment"]): Workflow[] {
     const rows = this.db.prepare(`SELECT data_json FROM workflows
       WHERE (? IS NULL OR environment = ?) ORDER BY created_at DESC`)
       .all(environment ?? null, environment ?? null) as Array<{ data_json: string }>;
-    return rows.map((row) => JSON.parse(row.data_json) as Workflow);
+    return rows.map((row) => {
+      const workflow = JSON.parse(row.data_json) as Workflow;
+      assertKnownWorkflowSchemaVersion(workflow, "WorkflowStore.list");
+      return workflow;
+    });
   }
 
   /** 只补可确定的语义目标；不改动作、版本、状态或原有验收数据。 */
