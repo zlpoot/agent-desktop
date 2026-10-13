@@ -13,6 +13,8 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import type { ModelAdapter } from "../agent/model-adapter.js";
 import { configuredModelProvider, snapshotModelProvider } from "../agent/local-config.js";
 import { StageWorkflowModel } from "../agent/stage-workflow-model.js";
+import { prepareReadonlyBrowserTask, isReadonlyBrowserRestricted, isLegacyReadonlyBrowserContract,
+  matchesReadonlyBrowserContract, type ReadonlyBrowserTask } from '../agent/readonly-browser-plan.js';
 import { runTaskAgent } from "../agent/task-agent.js";
 import { createAgentLoop } from "../graph/graph.js";
 import {writeHostShadow} from '../verification/host-shadow.js';
@@ -210,6 +212,15 @@ export class DesktopTaskController implements TaskController {
     throw new Error('legacy-desktop-target-required: explicitly select compatibility target or submit a new task');
   }
   private assertSavedTaskCompatibility(state: import('../graph/state.js').ComputerState): void {
+    if (isLegacyReadonlyBrowserContract(state)) throw Error('readonly-browser-legacy-contract-requires-explicit-opt-in');
+    if (isReadonlyBrowserRestricted(state.taskContract) &&
+      !matchesReadonlyBrowserContract(state.goal, state.verificationContract, state.completionCriteria, state.taskContract)) {
+      throw Error('readonly-browser-frozen-contract-mismatch');
+    }
+    if (isReadonlyBrowserRestricted(state.taskContract) && state.observation?.url &&
+      state.observation.url !== state.verificationContract?.successConditions.urlIncludes) {
+      throw Error('readonly-browser-restore-url-mismatch');
+    }
     const db = this.routeDb();
     try {
       const row = db.prepare('SELECT environment FROM generic_routes WHERE task_id = ?').get(state.taskId) as
@@ -308,9 +319,17 @@ export class DesktopTaskController implements TaskController {
     return db;
   }
 
+  /** Trusted application entry only; deliberately not exposed by Dashboard HTTP/model planning. */
+  submitReadonlyBrowser(goal: string, specification: ReadonlyBrowserTask, budget?: BudgetOverride): string {
+    this.assertOpen();
+    const prepared = prepareReadonlyBrowserTask(goal, specification);
+    return this.submitGeneric(goal, undefined, parseBudgetOverride(budget), undefined, 'browser', prepared);
+  }
+
   private submitGeneric(goal: string, workflowRef?: import('../graph/state.js').ComputerState['workflowRef'],
-    budget?: BudgetOverride, target?: TaskDesktopTarget, destination?: WorkflowExecutionRequest['destination']): string {
-    const contract = workflowRef ? undefined : taskContract(goal, taskProfile(goal, this.registry));
+    budget?: BudgetOverride, target?: TaskDesktopTarget, destination?: WorkflowExecutionRequest['destination'],
+    readonlyTask?: ReturnType<typeof prepareReadonlyBrowserTask>): string {
+    const contract = readonlyTask?.taskContract ?? (workflowRef ? undefined : taskContract(goal, taskProfile(goal, this.registry)));
     const taskId = randomUUID();
     createTaskBudget(this.rootDir, taskId, budget);
     const db = this.routeDb();
@@ -319,6 +338,8 @@ export class DesktopTaskController implements TaskController {
     finally { db.close(); }
     const trace = this.traceStore(this.tracePath);
     try { trace.save("queued", { ...initialState(taskId, goal), taskBindingVersion: 1,
+      ...(readonlyTask ? { plan: readonlyTask.plan, completionCriteria: readonlyTask.completionCriteria,
+        verificationContract: readonlyTask.verificationContract } : {}),
       ...(target ? { desktopTarget: desktopTarget(target.providerId, target.environmentId) } : {}), ...(contract ? { taskContract: contract } : {}),
       ...(workflowRef ? { workflowRef } : {}), summary: workflowRef ? '已绑定指定流程，等待准备执行环境' : "等待模型规划任务" }); }
     finally { trace.close(); }
@@ -357,6 +378,7 @@ export class DesktopTaskController implements TaskController {
       finally { db.close(); }
       if (!route) throw new Error("缺少通用任务路由");
       const savedForResume = response ? trace.load(taskId) : undefined;
+      if (savedForResume) this.assertSavedTaskCompatibility(savedForResume);
       const savedWindowIdentity = savedForResume?.taskContract?.windowIdentity ??
         (savedForResume?.desktopBinding && savedForResume.observation?.windowTitle
           ? { title: savedForResume.observation.windowTitle,
@@ -459,7 +481,12 @@ export class DesktopTaskController implements TaskController {
         const profile = taskProfile(queued.goal, this.registry);
         const windows = profile?.selectWindows?.(discovered) ?? discovered;
         const fixedWindow = guest && explicit ? explicitWorkflowWindow(explicit.workflow, windows) : undefined;
-        if (explicit?.workflow.environment === 'browser') {
+        if (isReadonlyBrowserRestricted(queued.taskContract)) {
+          if (!matchesReadonlyBrowserContract(queued.goal, verificationContract, completionCriteria, queued.taskContract)) {
+            throw Error('readonly-browser-frozen-contract-mismatch');
+          }
+          environment = 'browser';
+        } else if (explicit?.workflow.environment === 'browser') {
           environment = 'browser';
           plan = explicit.workflow.steps.map(step => step.goal);
           completionCriteria = explicit.workflow.successConditions;
@@ -726,8 +753,8 @@ export class DesktopTaskController implements TaskController {
           const proposed = distillWorkflow(trace, taskId, this.tracePath, environment);
           if (proposed) workflows.addCandidate(proposed);
         }
-      } else if (queued.taskContract && !selectWorkflow(workflows.list(environment)
-        .filter((workflow) => workflow.scope !== "stage"), queued.goal, true)) {
+      } else if (queued.taskContract && (isReadonlyBrowserRestricted(queued.taskContract) || !selectWorkflow(workflows.list(environment)
+        .filter((workflow) => workflow.scope !== "stage"), queued.goal, true))) {
         const stageModel = new StageWorkflowModel(exploreModel, workflows,
           (reason, state) => trace.save("workflow_fallback", { ...state,
             summary: `阶段流程回退探索：${reason}` }), environment, taskProfile(queued.goal, this.registry));

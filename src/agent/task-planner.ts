@@ -1,7 +1,6 @@
 import type { WindowInfo } from "../runtime/desktop/desktop-runtime.js";
 import type { RegisteredApp } from "../runtime/desktop/app-catalog.js";
 import type { CompletionCriteria } from "../verifier/verifier.js";
-import { readonlyBrowserContract } from './readonly-browser-plan.js';
 
 export interface PlannedTask {
   environment: "browser" | "windows";
@@ -107,9 +106,7 @@ export function parseTaskPlan(content: string, windows: readonly WindowInfo[], g
       item.plan.some((step) => typeof step !== "string" || !step.trim() || step.length > 120)) {
     throw new Error("任务规划器给出的步骤概要无效");
   }
-  const proposed = parseVerificationContract(item.verificationContract, goal, criteriaOverride,item.environment);
-  const contract = item.environment==='browser'&&!criteriaOverride
-    ? readonlyBrowserContract(goal)??proposed : proposed;
+  const contract = parseVerificationContract(item.verificationContract, goal, criteriaOverride,item.environment);
   const criteria = contract.successConditions;
   if(criteria.structuredStates?.length&&contract.evidenceSources.structuredStates!==
     (item.environment==='browser'?'dom':'uia'))
@@ -134,7 +131,6 @@ export function parseTaskPlan(content: string, windows: readonly WindowInfo[], g
       : { appId: item.appId as string }),
       plan: item.plan as string[], completionCriteria: criteria, verificationContract: contract };
   }
-  return { environment: "browser", plan: contract===proposed?item.plan as string[]:
-    ['只读打开指定网页并读取、报告标题及正文唯一标记'], completionCriteria: criteria,
+  return { environment: "browser", plan: item.plan as string[], completionCriteria: criteria,
     verificationContract: contract };
 }

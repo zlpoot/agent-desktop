@@ -4,7 +4,8 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname,basename} from 'node:path';
 import {parseTaskPlan} from '../src/agent/task-planner.js';
-import {readonlyBrowserContract,readonlyBrowserStagePlan} from '../src/agent/readonly-browser-plan.js';
+import {prepareReadonlyBrowserTask,readonlyBrowserStagePlan} from '../src/agent/readonly-browser-plan.js';
+import {readonlyFixture} from './fixtures/readonly-browser.js';
 import {FakeModel} from '../src/agent/model-adapter.js';
 import {StageWorkflowModel} from '../src/agent/stage-workflow-model.js';
 import {FakeRuntime} from '../src/runtime/runtime-adapter.js';
@@ -24,11 +25,11 @@ function raw(target=goal,field='windowTitleIncludes',source='window') {
     successConditions:{[field]:title},evidenceSources:{[field]:source},verifierStrategy:'rules_then_jev'}});
 }
 function plannedState(){
-  const plan=parseTaskPlan(raw(),[],goal);
+  const plan=readonlyFixture(goal,url,title,marker);
   return {...initialState('synthetic-planning',goal,plan.plan,plan.completionCriteria),
     verificationContract:plan.verificationContract,
     contractCoverage:auditTaskContractCoverage(goal,plan.completionCriteria),
-    taskContract:{target:goal,environment:'browser' as const,constraint:'只读',stageActionLimit:4,taskActionLimit:4}};
+    taskContract:{...plan.taskContract,stageActionLimit:4,taskActionLimit:4}};
 }
 function cleanup(dir:string){
   const path=resolve(dir);
@@ -36,20 +37,22 @@ function cleanup(dir:string){
   rmSync(path,{recursive:true,force:true});
 }
 
-test('raw planning freezes all explicit page requirements before execution, replacing unsupported browser chrome',()=>{
+test('trusted structured opt-in freezes page requirements; raw model/text planning never auto-upgrades',()=>{
   const state=plannedState();
-  assert.deepEqual(state.verificationContract,readonlyBrowserContract(goal));
+  assert.deepEqual(state.verificationContract,readonlyFixture(goal,url,title,marker).verificationContract);
   assert.deepEqual(state.completionCriteria,{urlIncludes:url,domIncludes:`<title>${title}</title>`,pageTextIncludes:marker});
   assert.equal(state.contractCoverage.covered,true);
   assert.equal(readonlyBrowserStagePlan(state)?.isFinal,true,'initial blank page may have a final target');
   assert.throws(()=>parseTaskPlan(raw(goal,'invented','dom'),[],goal),/Success Conditions/);
+  assert.throws(()=>parseTaskPlan(raw(),[],goal),/window\/UIA/,'旧中文样本无 opt-in 仍按通用来源校验');
+  assert.deepEqual(parseTaskPlan(raw(goal,'pageTextIncludes','dom'),[],goal).completionCriteria,{pageTextIncludes:title});
 });
 
 test('unknown wording, added goals, inconsistent targets and legacy executing stages never get rewritten',()=>{
   for(const target of [goal+' 然后填写表单',goal.replace('并报告观察结果','并保存报告'),
     goal.replace(`最终 URL 为 ${url}`,`最终 URL 为 ${url}?other=1`),
     goal.replace(`正文含唯一标记 ${marker}`,`正文含唯一标记 OTHER-MARKER`)]){
-    assert.equal(readonlyBrowserContract(target),undefined);
+    assert.throws(()=>prepareReadonlyBrowserTask(target,readonlyFixture(goal,url,title,marker).request),/invalid-opt-in/);
     assert.throws(()=>parseTaskPlan(raw(target),[],target),/window\/UIA/);
   }
   const state=plannedState();
@@ -82,7 +85,7 @@ class PlanningRuntime extends FakeRuntime {
     const o:Observation={url:blank?'about:blank':url,
       dom:`<html><head><title>${blank?'Blank':title}</title></head><body>${blank?'Blank':marker}</body></html>`,
       pageText:blank?'Blank':marker,textEvidence:[{source:'dom',text:blank?'Blank':marker}],
-      capture:{epoch:'synthetic',sequence,object:'page:synthetic',startedAt:sequence*10,finishedAt:sequence*10+1,
+      capture:{epoch:'synthetic',sequence,object:'page:synthetic',startedAt:Date.now(),finishedAt:Date.now(),
         clock:'collector',atomic:false,fields:{url:{complete:true,source:'api'},dom:{complete:true,source:'dom'},pageText:{complete:true,source:'dom'}}}};
     if(!blank)this.change?.(o);
     return o;
@@ -91,6 +94,7 @@ class PlanningRuntime extends FakeRuntime {
 
 test('planning -> frozen contract -> first final stage -> independent acceptance uses no auxiliary model or network',async t=>{
   const fetchMock=t.mock.method(globalThis,'fetch',async()=>{throw Error('No network permitted');});
+  let auxiliaryCalls=0;
   for(const variant of ['pass','wrong-title','missing-marker','partial-capture'] as const){
     const dir=mkdtempSync(join(tmpdir(),'readonly-planning-'));
     const trace=new SqliteTrace(join(dir,'trace.sqlite')),store=new WorkflowStore(join(dir,'workflows.sqlite'));
@@ -102,7 +106,8 @@ test('planning -> frozen contract -> first final stage -> independent acceptance
     });
     const state=plannedState();
     try{
-      const result=await createAgentLoop({model:new StageWorkflowModel(model,store,undefined,'browser'),runtime,trace,maxSteps:4}).invoke(state);
+      const result=await createAgentLoop({model:new StageWorkflowModel(model,store,undefined,'browser'),runtime,trace,maxSteps:4,
+        acceptanceVerifier:{async evaluate(){auxiliaryCalls++;throw Error('只读证据不得交给辅助模型');}}}).invoke(state);
       assert.equal(model.stageCalls,0,'closed request uses Host planning before any action');
       assert.deepEqual(result.verificationContract,state.verificationContract,'frozen contract stays unchanged');
       assert.equal(runtime.executed.length,1);
@@ -114,6 +119,7 @@ test('planning -> frozen contract -> first final stage -> independent acceptance
     }finally{trace.close();store.close();cleanup(dir);}
   }
   assert.equal(fetchMock.mock.calls.length,0);
+  assert.equal(auxiliaryCalls,0);
 });
 
 test('the production stage action fence rejects input and every other URL before execution',async()=>{
@@ -123,7 +129,7 @@ test('the production stage action fence rejects input and every other URL before
   const actions:ComputerAction[]=[{kind:'navigate',url:url+'?other=1'},
     {kind:'click',target:{kind:'text',text:'Button'}},{kind:'type',text:'bad',target:{kind:'text',text:'Input'}}];
   try{
-    for(const action of actions)await assert.rejects(new StageWorkflowModel(new FakeModel([action]),store,undefined,'browser').decide({...state,stage}),/单页只读/);
+    for(const action of actions)await assert.rejects(new StageWorkflowModel(new FakeModel([action]),store,undefined,'browser').decide({...state,stage}),/单页只读|当前任务契约不允许/);
     const allowed=await new StageWorkflowModel(new FakeModel([{kind:'navigate',url}]),store,undefined,'browser').decide({...state,stage});
     assert.deepEqual(allowed,{kind:'navigate',url});
   }finally{store.close();cleanup(dir);}

@@ -9,7 +9,8 @@ import {createAgentLoop} from '../src/graph/graph.js';
 import {initialState} from '../src/graph/state.js';
 import {SqliteTrace} from '../src/trace/sqlite-trace.js';
 import {auditTaskContractCoverage} from '../src/verification/task-contract-coverage.js';
-import {isReadonlyBrowserContract,readonlyBrowserAcceptance} from '../src/verifier/readonly-browser-verifier.js';
+import {isReadonlyBrowserContract as validReadonlyContract,readonlyBrowserAcceptance as acceptReadonly} from '../src/verifier/readonly-browser-verifier.js';
+import {readonlyFixture} from './fixtures/readonly-browser.js';
 import type {Observation} from '../src/actions/schema.js';
 import type {CompletionCriteria} from '../src/verifier/verifier.js';
 import type {PlannedVerificationContract} from '../src/agent/task-planner.js';
@@ -24,10 +25,16 @@ const criteria:CompletionCriteria={urlIncludes:url,domIncludes:`<title>${title}<
 const contract:PlannedVerificationContract={goal,successConditions:criteria,
   evidenceSources:{urlIncludes:'browser',domIncludes:'dom',pageTextIncludes:'dom'},
   verifierStrategy:'rules_then_jev'};
+const trusted = readonlyFixture(goal,url,title,marker);
+const isReadonlyBrowserContract = (target:string, frozen:PlannedVerificationContract) =>
+  validReadonlyContract(target,frozen,trusted.taskContract);
+const readonlyBrowserAcceptance = (target:string, conditions:CompletionCriteria|undefined,
+  observation:Observation|undefined, frozen:PlannedVerificationContract) =>
+  acceptReadonly(target,conditions,observation,frozen,trusted.taskContract);
 function observed():Observation {
   return {url,dom:`<html><head><title>${title}</title></head><body><h1>${title}</h1><p>${marker}</p></body></html>`,
     pageText:`${title}\n${marker}`,textEvidence:[{source:'dom',text:marker}],
-    capture:{epoch:'synthetic',sequence:2,object:'page:synthetic',startedAt:10,finishedAt:11,
+    capture:{epoch:'synthetic',sequence:2,object:'page:synthetic',startedAt:Date.now(),finishedAt:Date.now(),
       clock:'collector',atomic:false,fields:{url:{complete:true,source:'api'},
         dom:{complete:true,source:'dom'},pageText:{complete:true,source:'dom'}}}};
 }
@@ -38,7 +45,7 @@ test('readonly identity uses current source-bound rules without any fetch',t=>{
   assert.equal(isReadonlyBrowserContract(goal,contract),true);
   assert.equal(result.verdict,'pass');
   assert.equal(result.auxiliary,undefined);
-  assert.equal(result.checks.length,5);
+  assert.equal(result.checks.length,6);
   assert.equal(fetchMock.mock.calls.length,0);
 });
 
@@ -88,12 +95,19 @@ test('missing, partial, foreign or unsupported evidence remains UNKNOWN',()=>{
   const cases:Array<(o:Observation)=>void>=[
     o=>{delete o.capture;},
     o=>{delete o.url;},
+    o=>{delete o.dom;},
+    o=>{delete o.pageText;},
     o=>{o.capture!.fields.dom.complete=false;},
     o=>{o.capture!.fields.pageText.complete=false;},
     o=>{o.capture!.fields.url.source='dom';},
+    o=>{o.capture!.fields.dom.source='uia';},
     o=>{o.capture!.object='page:other-epoch';},
     o=>{o.capture!.finishedAt=9;},
+    o=>{o.capture!.startedAt=Date.now()-6000;o.capture!.finishedAt=Date.now()-6000;},
+    o=>{o.capture!.finishedAt=Date.now()+2000;},
     o=>{o.dom='<h1>Synthetic Readonly Title</h1>';},
+    o=>{o.dom=`<head><title>${title}</title></head><head><title>${title}</title></head><body>${marker}</body>`;},
+    o=>{o.pageText=`${marker} ${marker}`;},
     o=>{o.textEvidence=[{source:'visual_model',text:marker}];},
   ];
   for(const change of cases){const o=observed();change(o);
@@ -145,8 +159,14 @@ test('production graph closes a frozen readonly final stage despite browser chro
       const state={...initialState(`readonly-${variant}`,goal,undefined,frozenCriteria),
         verificationContract:frozenContract,contractCoverage:variant==='coverage-blocked'
           ?{...coverage,covered:false,reason:'test-missing-proof',reviewRequired:true}:coverage,
-        // Generic production Task contracts do not have an environment field.
-        taskContract:{target:goal,constraint:'只读',stageActionLimit:4,taskActionLimit:4}};
+        taskContract:{...trusted.taskContract,stageActionLimit:4,taskActionLimit:4},
+        ...(variant==='non-final'?{stagePlanVersion:1,stage:{id:'existing',goal:'中间阶段',
+          successCondition:'地址栏可见',isFinal:false,startedAtStep:0,actionCount:0,planVersion:1}}:{})};
+      if(variant==='plain-title') {
+        await assert.rejects(createAgentLoop({model,runtime,trace,maxSteps:4}).invoke(state),/只读/);
+        assert.equal(runtime.executed.length,0,'失配不能解除围栏，连导航也不发出');
+        continue;
+      }
       const result=await createAgentLoop({model,runtime,trace,maxSteps:4}).invoke(state);
       assert.equal(runtime.executed.length,1);
       assert.equal(runtime.executed[0].kind,'navigate');
@@ -160,7 +180,7 @@ test('production graph closes a frozen readonly final stage despite browser chro
       }else{
         assert.notEqual(result.status,'done',variant);
         assert.notEqual(result.goalVerification?.ok,true,variant);
-        assert.equal(model.visualChecks,variant==='non-final'||variant==='plain-title'?3:2,
+        assert.equal(model.visualChecks,variant==='non-final'?3:2,
           'unsupported contracts retain the original stage verifier; eligible rules do not fall back');
       }
     }finally{
@@ -181,16 +201,16 @@ test('an additional product price requirement cannot pass the readonly identity 
   assert.equal(isReadonlyBrowserContract(priceGoal,incompleteContract),false);
   assert.equal(readonlyBrowserAcceptance(priceGoal,criteria,observed(),incompleteContract).verdict,'unknown');
   const dir=mkdtempSync(join(tmpdir(),'readonly-browser-')),trace=new SqliteTrace(join(dir,'trace.sqlite'));
-  const model=new ReadonlyModel([{kind:'navigate',url},{kind:'done',summary:'only title and marker observed'}]);
+  const model=new ReadonlyModel([{kind:'done',summary:'only title and marker observed'}]);
   try{
     const result=await createAgentLoop({model,runtime:new ReadonlyRuntime(),trace,maxSteps:4}).invoke({
       ...initialState('readonly-price',priceGoal,undefined,criteria),verificationContract:incompleteContract,
       contractCoverage:auditTaskContractCoverage(priceGoal,criteria),
-      taskContract:{target:priceGoal,constraint:'只读',stageActionLimit:4,taskActionLimit:4}});
+      taskContract:{...trusted.taskContract,stageActionLimit:4,taskActionLimit:4}});
     assert.notEqual(result.status,'done');
     assert.notEqual(result.goalVerification?.ok,true);
-    assert.equal(result.acceptanceReport,undefined);
-    assert.equal(model.visualChecks,3,'unsupported goal stays on the existing verification path');
+    assert.equal(result.acceptanceReport?.verdict,'unknown','失配的显式只读任务不退回一般验收');
+    assert.equal(result.acceptanceReport?.auxiliary,undefined);
     assert.equal(fetchMock.mock.calls.length,0);
   }finally{
     trace.close();
