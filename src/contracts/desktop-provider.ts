@@ -1,8 +1,15 @@
 import type { Server } from "node:http";
 
 /**
+ * Legacy Hyper-V 管理 / 传输契约。新桌面环境请使用 `desktop-environment.ts`。
+ *
+ * 本模块与 `desktop-environment.ts` 是**两个职责不同且不互相继承**的契约：
+ * - 这里：VM/Session 的管理面 + Web 传输挂接（register/list/get/attach/poll/close）。
+ * - 那里：真实环境的发现与 Session 生命周期（discover/open/capabilities/close）。
+ * 旧管理面在此保留显式名称 `LegacyDesktopProvider`，不再导出同名 `DesktopProvider` 别名，
+ * 以免与 `desktop-environment.ts` 中唯一的 `DesktopProvider` 混淆。
  * 桌面控制的职责边界（Kernel 只依赖本文件，不接触 VM/传输实现）：
- * - DesktopProvider：桌面的发现、注册、状态、轮询与连接的生命周期管理面。
+ * - LegacyDesktopProvider：桌面的发现、注册、状态、轮询与连接的生命周期管理面。
  *   它不拥有 Web 传输；传输（WebSocket 心跳/画面流、HTTP 状态接口）由实现
  *   通过 attach(server) 挂接到网页服务器，帧协议属于 Infrastructure 细节。
  * - DesktopSessionView：稳定身份 + 当前连接状态 + Worker 端点的只读能力视图。
@@ -40,9 +47,6 @@ export interface LegacyDesktopProvider {
   poll(): Promise<void>;
   close(): Promise<void>;
 }
-
-/** @deprecated Compatibility alias for existing consumers; not the environment Provider. */
-export type DesktopProvider = LegacyDesktopProvider;
 
 /** Agent/Human 输入所有权与租约边界；紧急停止与恢复由实现保持。 */
 export interface InputControl {
