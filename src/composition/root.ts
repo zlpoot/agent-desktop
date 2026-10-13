@@ -9,11 +9,8 @@ import { configuredModelProvider, configuredVerifier } from "../agent/local-conf
 import { GuestDesktopRuntime } from "../runtime/desktop/guest-runtime.js";
 import { SqliteTrace } from "../trace/sqlite-trace.js";
 import { WorkflowStore } from "../workflows/store.js";
-import { createDefaultExtensionRegistry } from "../extensions/index.js";
-import type { ExtensionRegistry } from "../contracts/extension.js";
-import { FacetRegistry } from "../contracts/facets.js";
-import { ContributorRegistry } from "../contracts/verifier-contributor.js";
-import { createDomainEvaluator } from "../verification/domain-evaluator.js";
+import { ExtensionRegistry } from "../contracts/extension.js";
+import { extensionVerification } from './extension-verification.js';
 import type { LegacyDesktopProvider } from "../contracts/desktop-provider.js";
 import type { DesktopProvider as EnvironmentProvider } from "../contracts/desktop-environment.js";
 import { HyperVDesktopProvider } from "../desktop-provider/hyperv-provider.js";
@@ -71,6 +68,7 @@ export interface RootAssemblyOptions {
   traceStore?: (path: string) => TraceStore;
   workflowStore?: (path: string) => WorkflowStoreContract;
   workerClientFactory?: WorkerClientFactory;
+  /** Business extensions are disabled by default; trusted callers explicitly inject opt-in registrations. */
   extensionRegistry?: ExtensionRegistry;
   /** Legacy Hyper-V 管理面（register/list/attach/poll/close）；环境 Provider 见 environmentProviders。 */
   desktop?: LegacyDesktopProvider;
@@ -132,7 +130,7 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
     await mountInspected(root, {
       name: "infrastructure",
       apply(ctx) {
-        const extensionRegistry = options.extensionRegistry ?? createDefaultExtensionRegistry({ rootDir });
+        const extensionRegistry = options.extensionRegistry ?? new ExtensionRegistry();
         const modelProvider = options.model ?? configuredModelProvider(rootDir);
         const traceStore = options.traceStore ?? ((path: string) => new SqliteTrace(path));
         const workflowStore = options.workflowStore ?? ((path: string) => new WorkflowStore(path));
@@ -207,23 +205,16 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
       name: "taskController",
       inject: ["extensionRegistry", "modelProvider", "traceStore", "workflowStore", "workerClientFactory", "desktopEnvironmentProviders", "hyperVCompatibility", "physicalCompatibility", "localWorkspaceCompatibility", "environmentApps"],
       apply(ctx) {
-        // 从业务扩展注册表组装核心的 facet / contributor 注册表（核心本身不内置任何业务域）。
-        const facetRegistry = new FacetRegistry();
-        for (const provider of ctx.extensionRegistry.listFacetProviders()) facetRegistry.register(provider);
-        const contributorRegistry = new ContributorRegistry();
-        for (const contributor of ctx.extensionRegistry.listVerifierContributors()) {
-          contributorRegistry.register(contributor);
-        }
-        const domainEvaluator = createDomainEvaluator(contributorRegistry, facetRegistry);
+        // 消费当前有效注册；控制器、运行中 Graph 与长期 Verifier 引用均受撤销门约束。
+        const verification = extensionVerification(ctx.extensionRegistry);
         const created = new DesktopTaskController(rootDir, {
           environmentApps: ctx.environmentApps,
           environmentAppManagement: options.environmentAppManagement === true || !!options.workbenchApps,
           configuredWorkbenchAppTarget: options.workbenchApps?.scope,
-          acceptanceVerifier: configuredVerifier(rootDir,
-            { facets: facetRegistry, contributors: contributorRegistry }),
+          acceptanceVerifier: configuredVerifier(rootDir, verification),
           registry: ctx.extensionRegistry,
-          facetProviders: [...ctx.extensionRegistry.listFacetProviders()],
-          domainEvaluator,
+          get facetProviders() { return verification.facetProviders; },
+          domainEvaluator: verification.domainEvaluator,
           modelProvider: ctx.modelProvider,
           traceStore: ctx.traceStore,
           workflowStore: ctx.workflowStore,

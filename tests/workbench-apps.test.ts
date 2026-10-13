@@ -25,6 +25,7 @@ test('opening B while A runs preserves A, its preview and lease; B failures rele
   const preview = (id: string) => root.controller.manageApps({ action: 'preview', desktopTarget: target,
     sessionId: view.sessionId, revision: view.revision, requestId: crypto.randomUUID(), appBindingId: id, expectedRevision: selected(id).revision });
   try {
+    assert.deepEqual(root.inspect().extensions, [], 'APP 保存/打开/预览/关闭不依赖默认业务扩展');
     for (const path of ['C:\\Synthetic\\Editor.exe', 'D:\\Synthetic\\Viewer.exe']) await act('path', { path, save: true });
     const [a, b] = view.registered;
     await open(a.appBindingId);

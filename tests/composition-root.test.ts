@@ -11,6 +11,26 @@ import { DesktopSessionManager } from "../src/desktop-session/session-manager.js
 import { SqliteTrace } from "../src/trace/sqlite-trace.js";
 import type { ModelProvider, PlanningModel } from "../src/contracts/model-provider.js";
 import type { WorkerClient } from "../src/contracts/worker-client.js";
+import { ExtensionRegistry } from "../src/contracts/extension.js";
+import { createDefaultExtensionRegistry } from "../src/extensions/index.js";
+import { routeTask } from "../src/app/task-routing.js";
+import { initialState } from "../src/graph/state.js";
+
+const businessGoals = ["打开网易云播放稻香", "在异环里把主音量调到 50%",
+  "进入炉石传说佣兵之书", "打开 Windows Agent TestBench 模拟商城"];
+
+function assertNoBusinessRegistrations(registry: ExtensionRegistry): void {
+  assert.deepEqual(registry.listExtensions(), []);
+  assert.deepEqual(registry.listFacetProviders(), []);
+  assert.deepEqual(registry.listVerifierContributors(), []);
+  for (const goal of businessGoals) {
+    assert.deepEqual(routeTask(goal, {}, registry), { kind: "generic", goal });
+    assert.equal(registry.profileFor(goal), undefined);
+    assert.throws(() => routeTask(goal, { admin: true }, registry), /通用任务暂不支持管理员权限提升/);
+  }
+  assert.equal(registry.capabilityById("netease.play"), undefined);
+  assert.equal(registry.capabilityById("nte.volume.50"), undefined);
+}
 
 /** 假模型：planTask 立即中断，用于证明装配后的控制器真实可提交通用任务。 */
 function haltedModel(): ModelProvider {
@@ -55,7 +75,7 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs = 10000): Pr
   throw new Error("等待条件超时");
 }
 
-test("装配就绪：Root Context 注册全部服务，控制器可真实提交通用任务", async () => {
+test("默认 Root 无业务注册/专用路由，通用任务可提交，缺失执行器恢复 fail-closed", async () => {
   const dir = mkdtempSync(join(tmpdir(), "composition-ready-"));
   mkdirSync(join(dir, "config"), { recursive: true });
   writeFileSync(join(dir, "config", "agent-desktop-apps.json"), "[]", "utf8");
@@ -69,6 +89,10 @@ test("装配就绪：Root Context 注册全部服务，控制器可真实提交�
     assert.ok(assembly.root.modelProvider, "应注册模型提供方服务");
     assert.ok(assembly.root.taskController, "应注册任务控制器服务");
     assert.ok(assembly.root.desktopProvider, "应注册桌面提供方服务");
+    assertNoBusinessRegistrations(assembly.root.extensionRegistry);
+    assert.deepEqual(assembly.inspect().extensions, []);
+    assert.throws(() => assembly.controller.submit(businessGoals[1], { admin: true }),
+      /通用任务暂不支持管理员权限提升/);
     // VM 目标走假 Worker（Guest 路径），规划步骤被假模型中断。
     const taskId = assembly.root.taskController.submit("VM: 在记事本输入测试文字");
     assert.ok(taskId, "装配后的控制器应能提交通用任务");
@@ -80,11 +104,124 @@ test("装配就绪：Root Context 注册全部服务，控制器可真实提交�
     try {
       const state = trace.load(taskId);
       assert.match(state?.error ?? "", /PLAN_HALT/, "任务应到达假模型的规划步骤");
+      assert.equal(state?.executorId, undefined);
+      const missing = { ...initialState("missing-extension", businessGoals[0]), status: "waiting_user" as const,
+        executorId: "netease.play", taskBindingVersion: 1 as const,
+        taskContract: { target: businessGoals[0], environment: "browser" as const, constraint: "",
+          stageActionLimit: 1, taskActionLimit: 1 } };
+      trace.save("waiting_user", missing);
+      const before = trace.load(missing.taskId);
+      assert.throws(() => assembly.controller.resume(missing.taskId, { approved: true }), /专用能力 netease.play 已卸载/);
+      assert.deepEqual(trace.load(missing.taskId), before, "缺失专用执行器不得改路由/运行或重写任务");
     } finally { trace.close(); }
   } finally {
     await assembly.dispose();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("显式注入恢复内置能力/Facet/Contributor/Profile，隔离默认 Root，dispose 幂等清空注册", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "composition-opt-in-"));
+  const registry = createDefaultExtensionRegistry({ rootDir: dir });
+  let disposed = 0;
+  registry.register({ id: "synthetic-cleanup", async dispose() { disposed++; } });
+  mkdirSync(join(dir, "enabled")); mkdirSync(join(dir, "default"));
+  const assembly = await createRootAssembly({ rootDir: join(dir, "enabled"), model: haltedModel(), extensionRegistry: registry });
+  let isolated: RootAssembly | undefined;
+  try {
+    assert.equal(assembly.root.extensionRegistry, registry, "必须使用显式注入的同一注册表");
+    assert.equal(assembly.inspect().extensions.length, 6);
+    const music = routeTask(businessGoals[0], {}, registry);
+    assert.equal(music.kind, "specialized");
+    if (music.kind === "specialized") assert.equal(music.capability.id, "netease.play");
+    const nte = routeTask(businessGoals[1], { admin: true }, registry);
+    assert.equal(nte.kind, "specialized");
+    if (nte.kind === "specialized") assert.equal(nte.capability.id, "nte.volume.50");
+    assert.equal(registry.profileFor(businessGoals[2])?.id, "hearthstone.mercenaries.navigation");
+    assert.equal(registry.profileFor(businessGoals[3])?.id, "windows-agent-testbench-shopping");
+    for (const id of ["music.netease", "shop.jd"]) {
+      assert.ok(registry.listFacetProviders().some(provider => provider.id === id));
+      assert.ok(registry.listVerifierContributors().some(contributor => contributor.id === id));
+    }
+    // 启用能力也不能绕过现有桌面目标绑定门；不派发真实业务操作。
+    assert.throws(() => assembly.controller.submit(businessGoals[0]), /desktop-target-required/);
+    isolated = await createRootAssembly({ rootDir: join(dir, "default"), model: haltedModel() });
+    assert.notEqual(isolated.root.extensionRegistry, registry);
+    assertNoBusinessRegistrations(isolated.root.extensionRegistry);
+    assert.deepEqual(isolated.inspect().extensions, []);
+    await Promise.all([assembly.dispose(), assembly.dispose()]);
+    await assembly.dispose();
+    assert.equal(disposed, 1);
+    assertNoBusinessRegistrations(registry);
+    assert.throws(() => assembly.controller.submit("任意任务"), /任务控制器已关闭/);
+  } finally {
+    await isolated?.dispose(); await assembly.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Root 显式注入合成能力可提交/恢复，撤销后恢复拒绝且不进入通用执行器", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "composition-injected-executor-"));
+  const registry = new ExtensionRegistry();
+  const trace = new SqliteTrace(join(dir, "web-tasks.sqlite"));
+  let submitted = 0, resumed = 0, disposed = 0;
+  registry.register({ id: "synthetic-browser", capabilities: [{
+    id: "synthetic.run", matches: goal => goal === "合成专用任务",
+    prepare: goal => ({ kind: "specialized", environment: "browser", goal, plan: [], facts: {}, operations: [] }),
+    submit(request) {
+      submitted++;
+      trace.save("waiting_user", { ...initialState("synthetic-task", request.goal),
+        status: "waiting_user", executorId: "synthetic.run", taskBindingVersion: 1,
+        taskContract: { target: request.goal, environment: "browser", constraint: "",
+          stageActionLimit: 1, taskActionLimit: 1 } });
+      return "synthetic-task";
+    },
+    resume() { resumed++; },
+  }], profiles: [{ id: "synthetic.profile", matches: goal => goal === "合成专用任务" }],
+    dispose() { disposed++; } });
+  const assembly = await createRootAssembly({ rootDir: dir, extensionRegistry: registry,
+    model: { createModel() { throw new Error("不得进入通用执行器"); } } });
+  try {
+    const taskId = assembly.controller.submit("合成专用任务");
+    assert.equal(taskId, "synthetic-task"); assert.equal(submitted, 1);
+    assert.equal(registry.profileFor("合成专用任务")?.id, "synthetic.profile");
+    assembly.controller.resume(taskId, { approved: true });
+    assert.equal(resumed, 1);
+    await registry.unregister("synthetic-browser");
+    const before = trace.load(taskId);
+    assert.throws(() => assembly.controller.resume(taskId, { approved: true }), /专用能力 synthetic.run 已卸载/);
+    assert.equal(resumed, 1); assert.equal(submitted, 1);
+    assert.equal(registry.profileFor("合成专用任务"), undefined);
+    assert.deepEqual(trace.load(taskId), before);
+    await assembly.dispose(); await assembly.dispose();
+    assert.equal(disposed, 1);
+  } finally { await assembly.dispose(); trace.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("显式扩展 Root 初始化失败清空所有注册且按原顺序释放，可重新默认装配", async t => {
+  const dir = mkdtempSync(join(tmpdir(), "composition-opt-in-failure-"));
+  const registry = createDefaultExtensionRegistry({ rootDir: dir });
+  const events: string[] = [];
+  registry.register({ id: "synthetic-cleanup", dispose() { events.push("extension"); } });
+  const desktop = new DesktopSessionManager(dir, "", 1000);
+  const close = desktop.close.bind(desktop);
+  t.mock.method(desktop, "close", async () => { events.push("desktop"); await close(); });
+  let failedController: RootAssembly["controller"] | undefined;
+  const boom = { name: "opt-in-boom", inject: ["taskController"],
+    apply(ctx: { taskController: RootAssembly["controller"] }) {
+      failedController = ctx.taskController; throw new Error("opt-in-init-boom");
+    } };
+  try {
+    await assert.rejects(createRootAssembly({ rootDir: dir, model: haltedModel(), desktop,
+      extensionRegistry: registry, extraPlugins: [boom] }), /opt-in-init-boom/);
+    assertNoBusinessRegistrations(registry);
+    assert.deepEqual(events, ["extension", "desktop"], "先释放扩展，再关闭 Provider，且各一次");
+    assert.ok(failedController);
+    assert.throws(() => failedController!.submit("任意任务"), /任务控制器已关闭/);
+    const retry = await createRootAssembly({ rootDir: dir, model: haltedModel() });
+    try { assertNoBusinessRegistrations(retry.root.extensionRegistry); }
+    finally { await retry.dispose(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("初始化失败回收：任一插件失败即回收整个 Root，已创建服务被关闭", async () => {
