@@ -4,7 +4,6 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
-const traceGoldens:string[]=[];
 import {Command,MemorySaver} from '@langchain/langgraph';
 import {FakeModel} from '../src/agent/model-adapter.js';
 import type {ComputerAction,Observation} from '../src/actions/schema.js';
@@ -15,6 +14,9 @@ import {FakeRuntime} from '../src/runtime/runtime-adapter.js';
 import {createTaskBudget,meteredModelRequest,runWithTaskBudget} from '../src/runtime/model-budget.js';
 import {SqliteTrace} from '../src/trace/sqlite-trace.js';
 
+import {actionIsRisky,impactFingerprint,observationSignature,focusLost,riskDecision} from '../src/graph/guards.js';
+
+const traceGoldens:string[]=[];
 const observation:Observation={url:'https://example.test/current',dom:'<main>before</main>',accessibility:'before'};
 const signature=createHash('sha256').update(JSON.stringify({url:observation.url,
   dom:observation.dom,accessibility:observation.accessibility})).digest('hex');
@@ -178,5 +180,33 @@ test('U9a golden complete persisted Trace states',()=>{
   assert.equal(traceGoldens.length,35);
   assert.equal(createHash('sha256').update(JSON.stringify(traceGoldens)).digest('hex'),
     '1936f41e6e820f37553572941301ef57cb7a46b250f59dd263180bc0ac68bb15');
+});
+
+for(const row of cases)test('U9a pure risk decision: '+row.name,()=>{
+  const state={...initialState('pure','synthetic goal'),lastAction:row.action,observation,...row.seed};
+  const before=structuredClone(state);
+  assert.equal(riskDecision(state),row.gate);
+  assert.deepEqual(state,before);
+});
+test('U9a pure predicates retain original risk, impact, signature and focus semantics',()=>{
+  assert.equal(riskDecision(initialState('empty','goal')),'allow');
+  for(const [action,expected] of [[pay,true],[ordinary,false],[click('buy','link'),false],
+    [{kind:'type',target:{kind:'text',text:'submit'},text:'delete'},false]] as const)
+    assert.equal(actionIsRisky(action),expected);
+  for(const action of [pay,{kind:'double_click',target:{kind:'text',text:'x'}},
+    {kind:'drag',source:{kind:'text',text:'a'},destination:{kind:'text',text:'b'}},
+    {kind:'keypress',keys:'ENTER'},{kind:'keypress',keys:'Return'}] satisfies ComputerAction[])
+    assert.equal(impactFingerprint(action),JSON.stringify(action));
+  for(const action of [{kind:'keypress',keys:'Ctrl+Enter'},{kind:'keypress',keys:'Space'},
+    {kind:'navigate',url:'https://example.test'},{kind:'done',summary:'x'}] satisfies ComputerAction[])
+    assert.equal(impactFingerprint(action),undefined);
+  assert.equal(observationSignature(undefined),undefined);
+  assert.equal(observationSignature(observation),signature);
+  assert.equal(observationSignature({...observation,pageText:'ignored',screenshotHash:'ignored'}),signature);
+  for(const delta of [{url:'old'},{dom:'changed'},{accessibility:'changed'}])
+    assert.notEqual(observationSignature({...observation,...delta}),signature);
+  for(const error of ['目标窗口不在前台','目标窗口前台不可用','Window is not FOREGROUND'])
+    assert.equal(focusLost({error}),true);
+  assert.equal(focusLost({}),false);assert.equal(focusLost({error:'worker unavailable'}),false);
 });
 

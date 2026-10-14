@@ -27,6 +27,7 @@ import {captureRebindBaseline,ingestRebindObservation,evaluateRebindTask,
   hasRebindCondition,rebindConditionIndexes,type RebindStateMap} from '../verification/structured-rebind.js';
 import type {VerificationInput,VerificationReport} from '../verification/contracts.js';
 import type { ComputerState } from "./state.js";
+import { impactFingerprint, observationSignature, focusLost, riskDecision } from "./guards.js";
 import { TargetWindowLostError, WorkerConnectionError } from "../contracts/worker-error.js";
 import { WorkflowRecoveryError, type WorkflowRecoveryDecision } from "../workflows/recovery.js";
 import { currentBudgetStopReason, isBudgetExceeded } from '../runtime/model-budget.js';
@@ -184,38 +185,6 @@ export interface AgentLoopOptions {
   onStageCompleted?: (state: ComputerState,
     stage: NonNullable<ComputerState["completedStages"]>[number]) => Promise<{
       workflowId?: string; workflowVersion?: number } | void>;
-}
-
-const risky = /\b(pay|purchase|buy|delete|remove|send|submit|checkout|transfer)\b|支付|购买|下单|删除|发送|提交|转账/i;
-
-function actionIsRisky(action: ComputerAction): boolean {
-  if (action.kind === "click" || action.kind === "double_click") {
-    // 导航语义：点击 link 仅打开新页面，无状态修改副作用（购买/删除等交易动作
-    // 必然发生在 button/checkbox/form 控件上）。真实站点商品链接文本常含
-    // 销量描述（如「下单100+人」「800+人付款」），按文本判风险会误伤只读导航。
-    const target = action.target;
-    if (target.kind === "role" && target.role === "link") return false;
-    return risky.test(JSON.stringify(action.target));
-  }
-  if (action.kind === "drag") return risky.test(JSON.stringify(action.destination));
-  return false;
-}
-
-function impactFingerprint(action: ComputerAction): string | undefined {
-  return action.kind === "click" || action.kind === "double_click" ||
-    action.kind === "drag" ||
-    (action.kind === "keypress" && /^(enter|return)$/i.test(action.keys))
-    ? JSON.stringify(action) : undefined;
-}
-
-function observationSignature(observation: ComputerState["observation"]): string | undefined {
-  if (!observation) return undefined;
-  return createHash("sha256").update(JSON.stringify({ url: observation.url,
-    dom: observation.dom, accessibility: observation.accessibility })).digest("hex");
-}
-
-function focusLost(state: ComputerState): boolean {
-  return /目标窗口.*前台|目标窗口前台|window.*foreground/i.test(state.error ?? "");
 }
 
 export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, model, runtime, trace, maxSteps = 20, maxRetries = 2,
@@ -682,28 +651,18 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       }
     }))
     .addNode("risk_check", timed("risk_check", "system", "风险规则", async (state) => {
-      const action = state.lastAction;
-      const fingerprint = action && impactFingerprint(action);
-      const previousImpact = [...(state.recentHistory ?? [])].reverse()
-        .find((item) => impactFingerprint(item.action));
-      const resetByNavigation = previousImpact &&
-        impactFingerprint(previousImpact.action) !== fingerprint && previousImpact.verification?.ok;
-      const duplicate = !!fingerprint && !!state.executedImpactActions?.includes(fingerprint) &&
-        !resetByNavigation;
-      const approved = action && state.approvedActionFingerprint === JSON.stringify(action) &&
-          state.approvalContextUrl === state.observation?.url &&
-          state.approvalContextSignature === observationSignature(state.observation);
-      if (duplicate && !approved) {
+      const decision = riskDecision(state);
+      if (decision === "duplicate") {
         return save("risk_check", state, { status: "waiting_user",
           approvalContextUrl: state.observation?.url,
           approvalContextSignature: observationSignature(state.observation),
           error: "重复执行可能产生副作用，需人工处理" });
       }
-      if (action && (actionIsRisky(action) || duplicate) && approved) {
+      if (decision === "approved") {
         return save("risk_check", state, { status: "running", approvedActionFingerprint: undefined,
           resumePendingAction: false, error: undefined });
       }
-      return save("risk_check", state, action && actionIsRisky(action)
+      return save("risk_check", state, decision === "risky"
         ? { status: "waiting_user", approvalContextUrl: state.observation?.url,
           approvalContextSignature: observationSignature(state.observation),
           approvedActionFingerprint: undefined, resumePendingAction: false,
