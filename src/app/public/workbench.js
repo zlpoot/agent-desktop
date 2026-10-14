@@ -24,7 +24,7 @@ window.Workbench = (() => {
   };
   document.title = 'Agent Desktop · 工作台';
   document.querySelector('.brand strong').textContent = 'Agent Desktop';
-  document.querySelector('.brand small').textContent = '任务与桌面工作台';
+  document.querySelector('.brand small').textContent = '学习技能 · 执行任务';
   const shell = window.createAppShell(navigate);
   const filters = create('div', 'run-filters');
   const search = create('input', '');
@@ -63,7 +63,7 @@ window.Workbench = (() => {
   workspace.append(taskPane); main.append(workspace);
   const home = create('section', 'workspace-home'); home.id = 'workspace-home';
   const homeHeader = create('header', 'home-header');
-  homeHeader.append(create('h1', '', '今天想让 Agent 做什么？'), create('p', '', '描述目标，明确选择环境，再查看执行范围。'));
+  homeHeader.append(create('h1', '', '今天想完成什么？'), create('p', '', '让 Agent 完成任务，把学会的方法保存为技能。'));
   const homeLayout = create('div', 'home-layout');
   const homeContextToggle = create('button', 'context-toggle', '收起准备上下文'); homeContextToggle.type = 'button';
   homeContextToggle.setAttribute('aria-expanded', 'true');
@@ -82,9 +82,9 @@ window.Workbench = (() => {
   environment.type = 'button'; environment.onclick = () => navigate('desktop');
   const homeCurrent = create('section', 'panel home-current'); homeCurrent.setAttribute('aria-label', '当前任务');
   const recent = create('section', 'panel home-recent'); recent.setAttribute('aria-label', '最近完成');
-  const draftContext = create('p', '', '选择环境后显示真实支持范围。'); draftContext.id = 'workspace-draft-context';
-  const workflowEntry = create('button', '', '查看已保存工作流'); workflowEntry.type = 'button'; workflowEntry.onclick = () => navigate('workflows');
-  idleContext.append(create('h2', '', '准备与上下文'), environment, draftContext, workflowEntry, homeCurrent, recent);
+  const draftContext = create('p', '', '选择执行环境和运行方式，开始一项任务。'); draftContext.id = 'workspace-draft-context';
+  const workflowEntry = create('button', '', '查看已保存的技能'); workflowEntry.type = 'button'; workflowEntry.onclick = () => navigate('workflows');
+  idleContext.append(create('h2', '', '本次任务'), environment, draftContext, workflowEntry, homeCurrent, recent);
   homeLayout.append(homeMain, idleContext); home.append(homeHeader, homeLayout); taskPane.prepend(home);
   const desktopPage = create('section', 'workspace-desktop'); desktopPage.append(desktop); main.append(desktopPage);
   const connectionPanel = create('section', 'desktop-overview panel'); connectionPanel.setAttribute('aria-label', '连接检查');
