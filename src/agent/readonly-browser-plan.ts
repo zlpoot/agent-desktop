@@ -28,7 +28,7 @@ function validIdentity(url: unknown, title: unknown, marker: unknown): boolean {
     || title.trim().length < 2 || title.length > 185 || /[<>&]/.test(title) || typeof marker !== 'string'
     || marker.trim().length < 2 || marker.length > 200) return false;
   try { const parsed = new URL(url); return ['http:', 'https:'].includes(parsed.protocol)
-    && parsed.href === url && !parsed.username && !parsed.password; } catch { return false; }
+    && parsed.href === url && !parsed.username && !parsed.password && !parsed.hash; } catch { return false; }
 }
 function identityId(sourceId: string, goal: string, url: string, title: string, marker: string): string {
   // Integrity descriptor, authored at the trusted Task boundary; not an authentication credential.
@@ -93,7 +93,7 @@ export function isReadonlyBrowserRestricted(task?: TaskContract): boolean {
   return (typeof task?.profileId === 'string' && task.profileId.startsWith(prefix)) || exactActions(task?.allowedActions);
 }
 
-/** Ambiguous old three-field checkpoints have no trusted opt-in identity: require a new explicit task. */
+/** Candidate shape only: the controller must check trusted creation records before declaring it legacy. */
 export function isLegacyReadonlyBrowserContract(state: Readonly<ComputerState>): boolean {
   const frozen = state.verificationContract;
   return !state.workflowRef?.explicit && !isReadonlyBrowserRestricted(state.taskContract)
@@ -106,8 +106,9 @@ export function isLegacyReadonlyBrowserContract(state: Readonly<ComputerState>):
 }
 
 export function assertReadonlyBrowserAction(state: Readonly<ComputerState>, action: ComputerAction): void {
-  if (!isReadonlyBrowserRestricted(state.taskContract)
-    && !((state.resumeReconcile || state.recoveryRequired) && isLegacyReadonlyBrowserContract(state))) return;
+  // Ambiguous legacy checkpoints are rejected by the controller using creation provenance.
+  // Their criteria shape alone cannot establish a restriction on a new generic task.
+  if (!isReadonlyBrowserRestricted(state.taskContract)) return;
   if (['done', 'ask_user', 'wait'].includes(action.kind)) return;
   if (matchesReadonlyBrowserContract(state.goal, state.verificationContract, state.completionCriteria, state.taskContract)
     && action.kind === 'navigate' && action.url === state.completionCriteria!.urlIncludes) return;

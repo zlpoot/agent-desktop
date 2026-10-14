@@ -212,7 +212,15 @@ export class DesktopTaskController implements TaskController {
     throw new Error('legacy-desktop-target-required: explicitly select compatibility target or submit a new task');
   }
   private assertSavedTaskCompatibility(state: import('../graph/state.js').ComputerState): void {
-    if (isLegacyReadonlyBrowserContract(state)) throw Error('readonly-browser-legacy-contract-requires-explicit-opt-in');
+    if (isLegacyReadonlyBrowserContract(state)) {
+      const trace = this.traceStore(this.tracePath);
+      try {
+        const creation = trace.events(state.taskId).slice(0, 2);
+        const currentGeneric = creation[0]?.node === 'queued' && creation[1]?.node === 'generic_task_contract_v1'
+          && creation.every(event => event.state.goal === state.goal && !isReadonlyBrowserRestricted(event.state.taskContract));
+        if (!currentGeneric) throw Error('readonly-browser-legacy-contract-requires-explicit-opt-in');
+      } finally { trace.close(); }
+    }
     if (isReadonlyBrowserRestricted(state.taskContract) &&
       !matchesReadonlyBrowserContract(state.goal, state.verificationContract, state.completionCriteria, state.taskContract)) {
       throw Error('readonly-browser-frozen-contract-mismatch');
@@ -337,11 +345,15 @@ export class DesktopTaskController implements TaskController {
       .run(taskId, destination ?? null, new Date().toISOString()); }
     finally { db.close(); }
     const trace = this.traceStore(this.tracePath);
-    try { trace.save("queued", { ...initialState(taskId, goal), taskBindingVersion: 1,
+    try { const queued = { ...initialState(taskId, goal), taskBindingVersion: 1 as const,
       ...(readonlyTask ? { plan: readonlyTask.plan, completionCriteria: readonlyTask.completionCriteria,
         verificationContract: readonlyTask.verificationContract } : {}),
       ...(target ? { desktopTarget: desktopTarget(target.providerId, target.environmentId) } : {}), ...(contract ? { taskContract: contract } : {}),
-      ...(workflowRef ? { workflowRef } : {}), summary: workflowRef ? '已绑定指定流程，等待准备执行环境' : "等待模型规划任务" }); }
+      ...(workflowRef ? { workflowRef } : {}), summary: workflowRef ? '已绑定指定流程，等待准备执行环境' : "等待模型规划任务" };
+      trace.save('queued', queued);
+      // Trusted creation provenance in the existing append-only event layout, never model-authored.
+      if (!readonlyTask && !workflowRef) trace.save('generic_task_contract_v1', queued);
+    }
     finally { trace.close(); }
     this.enqueue(() => this.runGeneric(taskId), taskId);
     return taskId;
@@ -596,7 +608,9 @@ export class DesktopTaskController implements TaskController {
           })()
         : environment === "browser"
         ? await PlaywrightRuntime.launch({ headless: false, artifactDir: resolve(dir, "screenshots"),
-            userDataDir: resolve(dir, "browser-profile") })
+            ...(isReadonlyBrowserRestricted(queued.taskContract)
+              ? { readonlyBrowserUrl: verificationContract!.successConditions.urlIncludes! }
+              : { userDataDir: resolve(dir, "browser-profile") }) })
         : (() => { throw new Error('desktop-target-required'); })());
       if (environment === "windows") {
         checkSetupPause();
