@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import shutil
 import tempfile
 import subprocess
 import sys
@@ -13,10 +14,11 @@ spec = importlib.util.spec_from_file_location('workbench_app_worker', Path(__fil
 worker = importlib.util.module_from_spec(spec); spec.loader.exec_module(worker)
 
 
-class StdioTests(unittest.TestCase):
-    def test_chinese_profile_uses_utf8_even_with_windows_gbk_default(self):
-        # Exercise the actual dispatcher with a fake owner; never loads Win32 APIs.
-        script = '''import importlib.util, threading
+def fake_stdio_script(path):
+    # Exercise the actual dispatcher with a fake owner; never loads Win32 APIs.
+    return '''import ctypes, importlib.util, threading
+def forbidden_dll(*args, **kwargs): raise AssertionError('WinDLL initialization forbidden in Fake smoke')
+ctypes.WinDLL = forbidden_dll
 spec = importlib.util.spec_from_file_location('worker', %r)
 w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
 class FakeOwner:
@@ -30,7 +32,12 @@ class FakeOwner:
     def preview(self, profile): raise w.NativeDiagnostic('workbench-preview-invalid-capture-geometry', width=4096, height=2160)
 w.OwnedApp = FakeOwner
 w.main()
-''' % str(spec.origin)
+''' % str(path)
+
+
+class StdioTests(unittest.TestCase):
+    def test_chinese_profile_uses_utf8_even_with_windows_gbk_default(self):
+        script = fake_stdio_script(spec.origin)
         import os
         environment = {**os.environ, 'PYTHONIOENCODING': 'gbk'}
         requests = [dict(id=1, method='init', fields=dict(config={}, scope={}, registry='synthetic')),
@@ -48,6 +55,71 @@ w.main()
         self.assertEqual(replies[4]['error'], 'workbench-preview-invalid-capture-geometry')
         self.assertEqual(replies[4]['diagnostic']['width'], 4096)
         self.assertEqual(replies[4]['diagnostic']['height'], 2160)
+
+
+class DeploymentTests(unittest.TestCase):
+    def copy_formal(self, root):
+        source = Path(__file__).resolve().parents[1]
+        files = ('src/desktop-provider/workbench_app_worker.py', 'guest/app_launch.py', 'guest/app_discovery.py',
+                 'src/native/agent_desktop_native/__init__.py', 'src/native/agent_desktop_native/windows/__init__.py',
+                 'src/native/agent_desktop_native/windows/win32.py', 'src/native/agent_desktop_native/windows/policy.py')
+        for relative in files:
+            destination = root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source / relative, destination)
+        return root / files[0]
+
+    def test_formal_only_copy_imports_without_dlls_and_completes_fake_stdio_from_unrelated_cwd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'installation'
+            path = self.copy_formal(root)
+            self.assertFalse((root / 'spikes').exists())
+            cwd = Path(directory) / 'untrusted-cwd'; cwd.mkdir()
+            # These legacy names must not be imported from cwd or global PYTHONPATH.
+            for name in ('win32', 'policy'):
+                (cwd / (name + '.py')).write_text("raise AssertionError('legacy module loaded')", encoding='utf-8')
+            requests = [dict(id=1, method='init', fields=dict(config={}, scope={}, registry='synthetic')),
+                        dict(id=2, method='instances', fields=dict(profile=dict(displayName='合成应用'))),
+                        dict(id=3, method='click'), dict(id=4, method='close')]
+            result = subprocess.run([sys.executable, '-c', fake_stdio_script(path)], cwd=cwd,
+                                    input=('\n'.join(json.dumps(item, ensure_ascii=False) for item in requests)+'\n').encode('utf-8'),
+                                    capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
+            replies = [json.loads(line) for line in result.stdout.decode('utf-8').splitlines()]
+            self.assertTrue(replies[0]['result']['initialized'])
+            self.assertEqual(replies[1]['result'], ['合成应用'])
+            self.assertEqual(replies[2]['error'], 'workbench-command-unavailable')
+            self.assertEqual(replies[3]['result'], {'cleaned': True})
+            imported = '''import ctypes, importlib.util, pathlib, sys
+ctypes.WinDLL = lambda *a, **k: (_ for _ in ()).throw(AssertionError('DLL loaded'))
+spec = importlib.util.spec_from_file_location('worker', %r)
+w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
+from agent_desktop_native.windows import win32, policy
+assert w.Api is win32.Api and w.Blocked is win32.Blocked is policy.Blocked
+assert not any('spikes' in str(getattr(module, '__file__', '')) for module in sys.modules.values())
+assert pathlib.Path(win32.__file__).resolve() == w.NATIVE_ROOT / 'agent_desktop_native/windows/win32.py'
+''' % str(path)
+            result = subprocess.run([sys.executable, '-I', '-c', imported], cwd=cwd, capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
+
+    def test_missing_or_broken_formal_module_never_falls_back_to_experimental_or_global_names(self):
+        for missing in ('agent_desktop_native/__init__.py', 'agent_desktop_native/windows/win32.py',
+                        'agent_desktop_native/windows/policy.py', 'broken-policy'):
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); path = self.copy_formal(root)
+                poison = root / 'spikes/local-workspace'; poison.mkdir(parents=True)
+                for name in ('win32', 'policy', 'agent_desktop_native'):
+                    (poison / (name+'.py')).write_text("raise AssertionError('FALLBACK_USED')", encoding='utf-8')
+                if missing == 'broken-policy':
+                    (root / 'src/native/agent_desktop_native/windows/policy.py').write_text('invalid syntax !', encoding='utf-8')
+                else: (root / 'src/native' / missing).unlink()
+                script = 'import sys,runpy; sys.path.insert(0, %r); runpy.run_path(%r)' % (str(poison), str(path))
+                result = subprocess.run([sys.executable, '-c', script], cwd=poison, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, b'')
+                error = result.stderr.decode('utf-8', errors='replace')
+                self.assertNotIn('FALLBACK_USED', error)
+                self.assertIn('SyntaxError' if missing == 'broken-policy' else 'workbench-native-package-unavailable', error)
 
 
 class ManualWorkerTests(unittest.TestCase):
@@ -197,7 +269,7 @@ class GenericWindowTests(unittest.TestCase):
 
 class PreviewTests(unittest.TestCase):
     def owner(self, directory):
-        from policy import png_rgb
+        from agent_desktop_native.windows.policy import png_rgb
         owner=worker.OwnedApp.__new__(worker.OwnedApp)
         owner.preview_files=set();owner.preview_dir=Path(directory)/'frames';owner.preview_id='a'*32
         owner.pid=42;owner.hwnd=10;owner.name='synthetic-owned';owner.context={'windowsSessionId':1};owner.expires_at='2099-01-01T00:00:00Z'
@@ -237,7 +309,7 @@ class PreviewTests(unittest.TestCase):
 
     def test_actual_capture_guard_reports_geometry_or_ownership_without_gdi_or_pixels(self):
         import ctypes as C
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         with tempfile.TemporaryDirectory() as directory:
             for mutation, geometry, code in (
                     ({'pid': 99}, (640, 480), 'target-pid-mismatch'),
@@ -267,7 +339,7 @@ class PreviewTests(unittest.TestCase):
 
     def test_actual_printwindow_capture_with_synthetic_gdi_reaches_private_png_transport(self):
         import ctypes as C
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         with tempfile.TemporaryDirectory() as directory:
             owner, _ = self.owner(directory)
             api = Api.__new__(Api); api.u = Mock(); api.g = Mock(); api.assert_default = Mock()
@@ -296,7 +368,7 @@ class PreviewTests(unittest.TestCase):
 class CaptureDesktopIdentityTests(unittest.TestCase):
     def api(self):
         import ctypes as C
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         api = Api.__new__(Api); api.u = Mock(); api.k = Mock(); api.assert_default = Mock()
         api.owned_job_name = 'synthetic-owned-job'; api.session = Mock(return_value=1)
         state = {'windows': [10], 'complete': True, 'in_job': True, 'pid': 42, 'after_pid': 42, 'calls': 0}

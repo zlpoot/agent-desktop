@@ -18,6 +18,16 @@ from monitor import Monitor
 
 
 class SafetyTests(unittest.TestCase):
+    def test_d0_and_formal_native_share_api_exception_and_pure_primitives(self):
+        import policy
+        from agent_desktop_native.windows import win32, policy as native_policy
+        from monitor import Api
+        self.assertIs(Api, win32.Api)
+        self.assertIs(Blocked, native_policy.Blocked)
+        self.assertIs(Blocked, win32.Blocked)
+        self.assertIs(policy.png_rgb, native_policy.png_rgb)
+        self.assertIs(policy.validate_target, native_policy.validate_target)
+
     def monitor_api(self, desktop="Default", cursor_ok=True):
         api = Mock()
         api.assert_default = Mock()
@@ -99,7 +109,8 @@ class SafetyTests(unittest.TestCase):
         forbidden = {"SwitchDesktop", "SendInput", "mouse_event", "keybd_event", "SetCursorPos",
                      "SetForegroundWindow", "AttachThreadInput", "SetActiveWindow", "SetFocus",
                      "pyautogui", "pywinauto", "human_input", "action_worker"}
-        for path in HERE.glob("*.py"):
+        from agent_desktop_native.windows import win32
+        for path in [*HERE.glob("*.py"), Path(win32.__file__)]:
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if isinstance(node, ast.Attribute):
@@ -170,7 +181,7 @@ class SafetyTests(unittest.TestCase):
         api.u.OpenDesktopW.return_value = None
         monitor = Mock()
         monitor.close.return_value = {"human_parallel_input": "NOT_RUN"}
-        with tempfile.TemporaryDirectory() as directory, patch("win32.Api", return_value=api), patch("monitor.Monitor", return_value=monitor):
+        with tempfile.TemporaryDirectory() as directory, patch("agent_desktop_native.windows.win32.Api", return_value=api), patch("monitor.Monitor", return_value=monitor):
             controller = Controller(directory, real=True)
             try:
                 state = controller.start("fixture")
@@ -188,7 +199,7 @@ class SafetyTests(unittest.TestCase):
         api.name.return_value = "WinSta0"
         monitor.start.side_effect = RuntimeError("cursor_read_denied")
         monitor.close.return_value = {"error": "cursor_read_denied"}
-        with tempfile.TemporaryDirectory() as directory, patch("win32.Api", return_value=api), patch("monitor.Monitor", return_value=monitor):
+        with tempfile.TemporaryDirectory() as directory, patch("agent_desktop_native.windows.win32.Api", return_value=api), patch("monitor.Monitor", return_value=monitor):
             controller = Controller(directory, real=True)
             try:
                 state = controller.start("fixture")
@@ -245,7 +256,7 @@ class SafetyTests(unittest.TestCase):
             finally: controller.close()
 
     def test_cleanup_can_close_owned_window_after_stop_but_cannot_close_foreign_window(self):
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         api = Api.__new__(Api)
         expected = {"pid": 7, "desktop": "AgentD0_test", "session": 1}
         api.assert_default = Mock()
@@ -261,12 +272,12 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(api.u.PostMessageW.call_count, 1)
 
     def test_existing_job_is_rejected_without_setting_limits_or_terminating_members(self):
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         api = Api.__new__(Api)
         api.k = Mock()
         api.k.CreateJobObjectW.return_value = 99
         api.checked = lambda value, label: value
-        with patch("win32.C.get_last_error", return_value=183), self.assertRaises(Blocked):
+        with patch("agent_desktop_native.windows.win32.C.get_last_error", return_value=183), self.assertRaises(Blocked):
             api.job("AgentD0_collision")
         api.k.CloseHandle.assert_called_once_with(99)
         api.k.SetInformationJobObject.assert_not_called()

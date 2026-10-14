@@ -14,12 +14,17 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
+NATIVE_ROOT = ROOT / 'src/native'
+for relative in ('agent_desktop_native/__init__.py', 'agent_desktop_native/windows/__init__.py',
+                 'agent_desktop_native/windows/win32.py', 'agent_desktop_native/windows/policy.py'):
+    if not (NATIVE_ROOT / relative).is_file():
+        raise ImportError('workbench-native-package-unavailable: ' + relative)
 sys.path.insert(0, str(ROOT / 'guest'))
-sys.path.insert(0, str(ROOT / 'spikes/local-workspace'))
+sys.path.insert(0, str(NATIVE_ROOT))
 from app_launch import WindowsNativeLauncher, definition, LaunchFailure
 from app_discovery import installation_scope_id
-from win32 import Api, ENUMPROC
-from policy import Blocked
+from agent_desktop_native.windows.win32 import Api, ENUMPROC
+from agent_desktop_native.windows.policy import Blocked
 
 
 class NativeDiagnostic(ValueError):

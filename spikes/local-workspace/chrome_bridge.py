@@ -3,6 +3,7 @@
 Only the separately launched hidden worker inspects native Chrome identity. The
 bridge uses the existing D0 desktop, Job, duration and lease primitives unchanged.
 """
+import _native_path
 import argparse
 import json
 import os
@@ -20,7 +21,7 @@ from storage import read_json, write_json
 
 
 def worker(directory):
-    from win32 import Api
+    from agent_desktop_native.windows.win32 import Api
     import psutil
     api = Api()
     config = read_json(directory / 'config.json')
@@ -83,7 +84,7 @@ def worker(directory):
 
 class Bridge:
     def __init__(self, directory, path):
-        from win32 import Api
+        from agent_desktop_native.windows.win32 import Api
         self.api = Api()
         self.directory, self.path = directory.resolve(), path.resolve()
         self.lock = threading.RLock()

@@ -1,10 +1,11 @@
 """Disposable capture process: host watchdog kills the owned job on a hang."""
+import _native_path
 import argparse
 import hashlib
 from pathlib import Path
 import time
 from storage import read_json, write_bytes, write_json
-from win32 import Api
+from agent_desktop_native.windows.win32 import Api
 from policy import Blocked
 
 
