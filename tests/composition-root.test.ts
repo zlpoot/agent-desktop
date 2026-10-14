@@ -523,3 +523,57 @@ test("活跃 Session 随 Root 一起释放：轮询停止、控制关闭、无�
   await new Promise<void>((resolve) => worker.close(() => resolve()));
   rmSync(dir, { recursive: true, force: true });
 });
+
+for (const fault of ["invalid-state", "provider-write"] as const) {
+  test(`Session 构造失败 (${fault}) 释放 SQLite，隔离 A/B 并支持并发卸载`, async t => {
+    const dir = mkdtempSync(join(tmpdir(), "composition-session-init-fail-"));
+    const desktop = new DesktopSessionManager(dir, "", 1000);
+    const assembly = await createRootAssembly({ rootDir: dir, model: haltedModel(), desktop });
+    const base = { root: assembly.root, rootDir: dir, token: "", controlBus: assembly.controlBus,
+      requireReconnect: false, endpoint: "http://127.0.0.1:9", intervalMs: 60000 };
+    const scopeA = mountSessionScope({ ...base, sessionId: "session-a", vmId: "vm-a" });
+    const scopeB = mountSessionScope({ ...base, sessionId: "session-b", vmId: "vm-b" });
+    await scopeA.fiber; await scopeB.fiber;
+    let failedDb: DatabaseSync | undefined;
+    try {
+      const failure = new Error("synthetic-session-write-failed");
+      if (fault === "invalid-state") {
+        const seed = new DatabaseSync(join(dir, "desktop-control.sqlite"));
+        try { seed.prepare("INSERT INTO control_state VALUES (?, ?)").run("failed", "{invalid"); }
+        finally { seed.close(); }
+      } else {
+        const setCurrentTask = desktop.setCurrentTask.bind(desktop);
+        t.mock.method(desktop, "setCurrentTask", (id: string, taskId: string | null) => {
+          if (id === "failed") throw failure;
+          setCurrentTask(id, taskId);
+        });
+      }
+      const prepare = DatabaseSync.prototype.prepare;
+      const capture = t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, sql: string) {
+        if (sql === "SELECT value FROM control_state WHERE id=?") failedDb = this;
+        return prepare.call(this, sql);
+      });
+      assert.throws(() => mountSessionScope({ ...base, sessionId: "failed", vmId: "vm-failed" }),
+        error => fault === "invalid-state" ? error instanceof SyntaxError : error === failure);
+      capture.mock.restore();
+      assert.ok(failedDb, "捕获已打开但构造未完成的真实临时 SQLite 句柄");
+      await assert.rejects(assembly.controlBus.dispatch("failed", "old", { command: "take" }), /已卸载/);
+      assert.equal(assembly.controller.getDesktopControl(), scopeB.control);
+      for (const id of ["session-a", "session-b"]) {
+        await assert.rejects(assembly.controlBus.dispatch(id, "client", { command: "input", event: {} }),
+          /当前页面没有人工输入权/);
+      }
+      await Promise.all([assembly.dispose(), assembly.dispose(), scopeA.dispose(), scopeB.dispose()]);
+      await scopeA.dispose(); await scopeB.dispose();
+      for (const id of ["failed", "session-a", "session-b"]) {
+        await assert.rejects(assembly.controlBus.dispatch(id, "old", { command: "take" }), /已卸载/);
+      }
+      assert.throws(() => assembly.controller.submit("VM: test"), /任务控制器已关闭/);
+      assert.equal(failedDb.isOpen, false, "Root 失败回收也必须释放未完成构造的控制数据库");
+    } finally {
+      await assembly.dispose();
+      if (failedDb?.isOpen) failedDb.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
