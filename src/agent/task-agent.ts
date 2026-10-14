@@ -24,6 +24,7 @@ export interface TaskAgentRequest extends TaskDesktopFields {
   verificationContract?: import('./task-planner.js').PlannedVerificationContract;
   contractCoverage?: import('../verification/task-contract-coverage.js').TaskContractCoverage;
   plan?: string[];
+  appOnboarding?: ComputerState['appOnboarding'];
 }
 
 export interface TaskAgentResult {
@@ -69,6 +70,7 @@ export async function runTaskAgent(request: TaskAgentRequest, dependencies: {
     } catch (error) {
       if (isBudgetExceeded(error)) throw error;
       dependencies.trace.save("workflow_search_error", { ...initialState(taskId, request.goal), ...taskDesktopFields(request),
+        appOnboarding: request.appOnboarding,
         summary: `语义检索不可用，转入探索：${String(error)}` });
     } finally {
       dependencies.trace.recordNodeMetric(taskId, { step: 0, node: "workflow_search",
@@ -96,6 +98,7 @@ export async function runTaskAgent(request: TaskAgentRequest, dependencies: {
     workflow?.steps.map((step) => step.goal) ?? request.plan,
     request.completionCriteria);
   Object.assign(state, taskDesktopFields(request));
+  state.appOnboarding = request.appOnboarding;
   state.verificationContract = request.verificationContract;
   // Workflow selection happens here, after the window planner. Freeze its declared
   // file results before replay starts so a reusable file workflow keeps its proof.

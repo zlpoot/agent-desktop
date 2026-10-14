@@ -75,6 +75,12 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
   async call<T>(method: string, fields: object = {}): Promise<T> {
     await this.initialize();
     const result = await this.send<T>(method, fields);
+    if (method === 'task_observe' && (result as any)?.capture) {
+      const value = result as any;
+      const capture = value.capture;
+      const preview = await this.readPreview(capture);
+      return { observation: value.observation, preview: { png: preview.png, sha256: capture.sha256 } } as T;
+    }
     return method === 'preview' ? await this.readPreview(result) as T : result;
   }
   async close() {

@@ -134,7 +134,7 @@ window.createTaskExperience = function () {
   const appLabel = el('label', '应用（可选）'); const app = el('select', ''); app.disabled = true;
   app.id = 'task-application'; app.setAttribute('aria-label', '应用（可选）');
   appLabel.append(app);choices.append(appLabel);
-  app.title = '选择所选环境的应用，通过“打开应用”显式启动；任务仍在后台独立核对目标。';
+  app.title = '选择任务应用后发送任务，后台核对登记并启动；“打开应用”用于单独查看窗口。';
   const appPanel = el('section', '', 'workbench-app-panel');
   appPanel.setAttribute('aria-label', '打开环境中的应用'); choices.after(appPanel);
   const appLauncher = window.createWorkbenchAppLauncher(appPanel, app);
@@ -267,6 +267,8 @@ window.createTaskExperience = function () {
   };
   const retry = el('button', '以此任务新建草稿'); retry.type = 'button'; document.querySelector('.hero').append(retry);
   const recorded = $('task-recorded');
+  const cleanupStatus = el('p', ''); cleanupStatus.id = 'task-resource-cleanup'; cleanupStatus.hidden = true;
+  recorded.append(cleanupStatus);
   const evidenceTitle = el('h2', '最近记录的画面');
   const evidenceCaption = el('p', '');
   const evidenceImage = el('img', ''); evidenceImage.alt = '任务历史截图，仅供查看';
@@ -316,6 +318,9 @@ window.createTaskExperience = function () {
     scenarioLabel.hidden = !catalog.length && !scenario.value;
     const finite = !!scenario.value;
     appPanel.hidden = !item;
+    const ownedAppTask = item?.providerId === 'workbench-apps';
+    appLabel.firstChild.textContent = ownedAppTask ? '任务应用' : '应用（可选）';
+    app.setAttribute('aria-label', ownedAppTask ? '任务应用' : '应用（可选）');
     fields.goal.disabled = finite; fields.criteria.disabled = finite; fields.constraints.disabled = finite; $('task-admin').disabled = finite;
     const mode = modes.find(([id])=>id === modeField.value);
     const modeProblem = !finite && modeField.value !== 'autonomous'
@@ -323,12 +328,13 @@ window.createTaskExperience = function () {
     for (const radio of radios) {radio.checked = radio.value === modeField.value;radio.disabled = finite;}
     modeDescription.textContent = finite ? '按所选执行计划运行，并记录结果。' : mode[2];
     const problem = selection.problem(scenario.value) || modeProblem;
-    const admissionProblem = problem || (!finite && target.value === 'browser' ? modelProblem : '');
+    const admissionProblem = problem || (!finite && ownedAppTask && !app.value.startsWith('app:') ? '请选择要执行任务的应用。' : '') ||
+      (!finite && (target.value === 'browser' || ownedAppTask) ? modelProblem : '');
     const blocked = !!admissionProblem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
     refreshEntry.disabled = busy;
     directoryStatus.textContent = selection.description();
-    modelStatus.hidden = finite || target.value !== 'browser'; settingsLink.hidden = modelStatus.hidden;
+    modelStatus.hidden = finite || target.value !== 'browser' && !ownedAppTask; settingsLink.hidden = modelStatus.hidden;
     readiness.dataset.state = admissionProblem || !budgetReady ? 'blocked' : 'ready';
     heading.textContent = '运行配置';
     hint.textContent = (selection.synthetic() ? '合成体验：无真实桌面输入、应用启动或模型调用；NOT HUMAN VERIFIED。' : '') +
@@ -375,6 +381,8 @@ window.createTaskExperience = function () {
   form.addEventListener('input', () => { clearAdmissionMessage(); save(); update(); });
   target.addEventListener('change', () => { clearAdmissionMessage(); draftScenario = undefined; update(); save(); });
   scenario.addEventListener('change', () => { clearAdmissionMessage(); save(); update(); });
+  app.addEventListener('change', () => { clearAdmissionMessage(); update(); });
+  document.addEventListener('workbench:app-selection', update);
   retry.onclick = () => {
     if (!currentRun) return;
     fields.goal.value = currentRun.goal;
@@ -404,6 +412,7 @@ window.createTaskExperience = function () {
       if (scenario.value) return { desktopTarget: selected.desktopTarget, scenarioId: scenario.value,
         ...(Object.keys(budget).length ? { budget } : {}) };
       return { ...selected, criteria: fields.criteria.value.trim(), constraints: fields.constraints.value.trim(),
+        ...(app.value.startsWith('app:') ? { appBindingId: app.value.slice(4) } : {}),
         ...(Object.keys(budget).length ? { budget } : {}) };
     },
     submitted() { fields.goal.value = ''; fields.criteria.value = ''; fields.constraints.value = '';
@@ -437,6 +446,10 @@ window.createTaskExperience = function () {
       requestBox.hidden = !waiting && !paused && !['failed', 'stopped', 'blocked', 'unknown'].includes(run.status) && !(run.canPause && run.status === 'running');
       reason.textContent = run.error || run.summary || '尚未记录具体原因，请查看执行过程。';
       reason.hidden = run.status === 'running';
+      cleanupStatus.hidden = run.desktopTarget?.providerId !== 'workbench-apps';
+      cleanupStatus.textContent = ({ done: '本次任务的进程与隐藏桌面已确认清理。',
+        error: '资源清理未确认，请查看执行记录。',
+        retained: '输入权已释放，任务现场暂留至原资源期限；继续时重新核对。' })[run.desktopTaskCleanup] || '资源清理状态待记录。';
       requestTitle.textContent = waiting ? ({ app_onboarding: '需要确认应用配置', question: '需要补充信息', final_review: '请确认最终结果', approval: '需要批准下一步动作' }[run.interactionKind] || '需要你处理') : '任务已暂停或正在暂停';
       requestNext.textContent = waiting ? run.interactionKind === 'final_review' ? '核对下方结果与截图后，再确认完成；未满足目标请选择“尚未完成”。' : run.interactionKind === 'question' ? '提交回答后任务继续处理。' : '查看动作说明后决定是否允许。' : run.recoveryRequired && run.canPause ? '任务现场已保留。先确认环境就绪，继续时会重新观察，再判断下一步。' : '核对原因与已有证据；下一步操作以当前任务的控制资格为准。';
       if (run.status === 'failed' || run.status === 'stopped') { requestTitle.textContent = run.status === 'failed' ? '任务未完成' : '任务已停止'; requestNext.textContent = '查看原因和历史证据，可用下方“新建草稿”修改要求后重新提交。'; }

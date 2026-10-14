@@ -138,6 +138,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
       const confirm = button('确认并打开', () => act('confirm', { confirmationId: display.confirmationId, digest: display.digest, allowLaunch: true }));
       confirm.disabled = busy; confirmation.append(confirm);
     }
+    document.dispatchEvent(new Event('workbench:app-selection'));
   }
   async function load() {
     reset(); if (!scope) { status.textContent = '选择桌面环境后，可选择并打开应用。'; return; }

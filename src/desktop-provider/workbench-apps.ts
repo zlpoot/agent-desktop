@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import type { DesktopProvider, DesktopCapabilities } from '../contracts/desktop-environment.js';
+import type { DesktopProvider, DesktopSessionIdentity } from '../contracts/desktop-environment.js';
 import type { EnvironmentAppScope, AppLaunchSpec, EnvironmentAppService } from '../contracts/environment-apps.js';
 import type { ManagedAppLaunchBackend } from '../contracts/app-launch.js';
 import { ScopedAppDiscovery } from '../environment-apps/discovery.js';
@@ -10,6 +10,8 @@ import { launchDefinition } from '../environment-apps/launcher.js';
 
 import { NativeWorkbenchAppClient, type WorkbenchAppClient } from './workbench-app-native-client.js';
 import { createWorkbenchAppLaunchBackend } from './workbench-app-launch-backend.js';
+import { ResourceInputControl } from './resource-input-control.js';
+import { WorkbenchTaskSession, workbenchTaskCapabilities, registerWorkbenchInput } from './workbench-task-executor.js';
 export { NativeWorkbenchAppClient, type WorkbenchAppClient } from './workbench-app-native-client.js';
 
 /** Optional legacy seed; manual imports are persisted by the environment Registry. */
@@ -28,7 +30,7 @@ export function loadWorkbenchAppConfig(project: string, explicitPath?: string): 
   if (!existsSync(path)) { if (explicitPath) throw Error('workbench-app-config-missing'); return; }
   return workbenchAppConfig(JSON.parse(readFileSync(path, 'utf8')));
 }
-/** Configured App opening only. Never supplies a Task runtime or input authority. */
+/** Scoped App management and read-only task Session handshake. Actions use a separate executor. */
 export class WorkbenchApps implements DesktopProvider {
   readonly id = 'workbench-apps'; readonly kind = 'local-workspace' as const;
   readonly scope: EnvironmentAppScope;
@@ -38,10 +40,13 @@ export class WorkbenchApps implements DesktopProvider {
   readonly preview: NonNullable<EnvironmentAppService['preview']>;
   readonly stop: NonNullable<EnvironmentAppService['stop']>;
   private closed = false;
-  constructor(readonly config: WorkbenchAppConfig | undefined, installationScopeId: string, private readonly client: WorkbenchAppClient, available = process.platform === 'win32') {
+  readonly inputControl = new ResourceInputControl();
+  private readonly sessions = new Set<WorkbenchTaskSession>();
+  constructor(readonly config: WorkbenchAppConfig | undefined, installationScopeId: string, readonly client: WorkbenchAppClient, available = process.platform === 'win32') {
     this.config = config ? workbenchAppConfig(config) : undefined;
     this.available = available;
     this.scope = Object.freeze({ providerId: this.id, environmentId: 'local-workspace:apps', installationScopeId });
+    registerWorkbenchInput(this, this.inputControl);
     const spec: AppLaunchSpec | undefined = config ? { kind: 'exe', executable: config.path, args: [] } : undefined;
     this.launchBackend = createWorkbenchAppLaunchBackend({ scope: this.scope, client,
       isClosed: () => this.closed, close: () => this.close() });
@@ -66,10 +71,29 @@ export class WorkbenchApps implements DesktopProvider {
       } });
   }
   private readonly available: boolean;
+  taskAvailable() { return this.available && !this.closed; }
+  ownsSession(value: WorkbenchTaskSession) { return this.sessions.has(value); }
+  hasSessionIdentity(value: DesktopSessionIdentity) {
+    return [...this.sessions].some(session => !session.closed && session.providerId === value.providerId && session.environmentId === value.environmentId &&
+      session.sessionId === value.sessionId && session.instanceId === value.instanceId && session.inputResourceId === value.inputResourceId);
+  }
   async discover() { return this.available && !this.closed ? [{ ...this.scope, kind: this.kind }] : []; }
-  async capabilities(): Promise<DesktopCapabilities> { return { 'input.globalInput': [{ state: 'forbidden', scope: {} }], 'input.rawIsolated': [{ state: 'forbidden', scope: {} }] }; }
-  async open(): Promise<never> { throw Error('workbench-app-only-no-task-runtime'); }
-  async close() { if (this.closed) return; this.closed = true; await this.client.close(); }
+  async capabilities() { return workbenchTaskCapabilities(); }
+  async open(environmentId: string) {
+    if (!this.taskAvailable() || environmentId !== this.scope.environmentId) throw Error('workbench-task-environment-unavailable');
+    const value = await this.client.call<DesktopSessionIdentity>('task_session_open');
+    const session = new WorkbenchTaskSession(this, value);
+    this.sessions.add(session);
+    if (this.closed) { await session.close(); throw Error('workbench-task-environment-closed'); }
+    return session;
+  }
+  async close() {
+    if (this.closed) return; this.closed = true;
+    const results = await Promise.allSettled([...this.sessions].map(session => session.close()));
+    await this.client.close();
+    const errors = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+    if (errors.length) throw new AggregateError(errors, 'workbench-task-cleanup-unconfirmed');
+  }
 }
 export async function nativeWorkbenchApps(config: WorkbenchAppConfig | undefined, project: string, registry: string) {
   const identity = await readDashboardInstallationIdentity('python', resolve(project, 'scripts/dashboard-app-identity.py'));

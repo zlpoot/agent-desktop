@@ -114,7 +114,10 @@ export class TaskAppOnboarding {
       await this.ports.guard(state); state = this.ports.load(taskId);
       this.eligible(state);
       const service = this.service(state); app.scope = service.registry.scope;
-      const known = service.registry.resolveName(name);
+      const selected = state.appOnboarding?.appBindingId ? service.registry.get(state.appOnboarding.appBindingId) : undefined;
+      if (state.appOnboarding?.appBindingId && (!selected || selected.profileRevision !== state.appOnboarding.profileRevision ||
+          selected.profileDigest !== state.appOnboarding.profileDigest)) throw new Error('app-onboarding-profile-no-longer-current');
+      const known = selected ? { kind: 'unique' as const, app: selected } : service.registry.resolveName(name);
       if (known.kind === 'unique' && known.app.validity === 'current' && known.app.trust !== 'discovered') {
         assertAppAdmission(service.registry, known.app.appBindingId);
         app.state = 'reusing'; this.write(state, app, 'app_profile_reuse_started');

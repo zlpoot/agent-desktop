@@ -37,6 +37,7 @@ import { composeEnvironmentApps, type EnvironmentAppInfrastructure } from './env
 import { SqliteEnvironmentAppStore } from '../environment-apps/sqlite-registry.js';
 import type { EnvironmentAppServices } from '../contracts/environment-apps.js';
 import type { WorkbenchApps } from '../desktop-provider/workbench-apps.js';
+import { WorkbenchTaskExecutor } from '../desktop-provider/workbench-task-executor.js';
 
 /**
  * 控制总线：DesktopSessionManager 的 controlMessage/controlDisconnected 是单回调，
@@ -240,6 +241,12 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
               hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
                 [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
+              ...(options.workbenchApps ? [[options.workbenchApps.id, new WorkbenchTaskExecutor(options.workbenchApps, ctx.environmentApps,
+                (taskId, outcome) => {
+                  const trace = ctx.traceStore(resolve(rootDir, 'web-tasks.sqlite'));
+                  try { const state = trace.load(taskId); if (state) trace.save(`desktop_task_cleanup_${outcome}`, state); }
+                  finally { trace.close(); }
+                })] as const] : []),
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
             !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&
