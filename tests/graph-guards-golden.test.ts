@@ -59,7 +59,11 @@ async function fixture(run:(trace:SqliteTrace,dir:string)=>Promise<void>){
   const dir=mkdtempSync(join(tmpdir(),'u9a-golden-')),trace=new SqliteTrace(join(dir,'trace.sqlite'));
   try{await run(trace,dir);
     // Compare every persisted state and event order; wall-clock fields are not policy inputs.
-    const states=['risk','human','pause','budget','limit','unknown'].flatMap(id=>trace.events(id).map(({node,state})=>({node,state})));
+    const states=['risk','human','pause','budget','limit','unknown'].flatMap(id=>trace.events(id)
+      // U9b adds exactly one terminal event to the two no-checkpointer pause cases.
+      // Keep the original U9a digest for their unchanged prefix and every other scenario.
+      .filter(({node})=>!(id==="pause" && node==="pause_interrupt"))
+      .map(({node,state})=>({node,state})));
     const stable=JSON.stringify(states,(key,value)=>key==='frozenAt'?'<clock>':value);
     traceGoldens.push(createHash('sha256').update(stable).digest('hex'));
   }finally{trace.close();rmSync(dir,{recursive:true,force:true});}
@@ -122,13 +126,18 @@ for(const checkpoint of [false,true])test('U9a golden pause '+boundary+' checkpo
     ...(checkpoint?{checkpointer:new MemorySaver()}:{}),pauseRequested:()=>++calls===(boundary==='pause_check'?1:2)});
   const config={configurable:{thread_id:'pause'}};
   const invoke=()=>graph.invoke(initialState('pause','synthetic goal'),config);
-  if(checkpoint)await invoke();else await assert.rejects(invoke,/No checkpointer set/);
-  const saved=trace.load('pause')!;
+  const result=await invoke();
+  const saved=trace.events("pause").find(e=>e.node===boundary)!.state;
   assert.equal(saved.status,'paused');assert.equal(saved.summary,boundary==='pause_check'?'已在安全边界暂停':'动作尚未发出，已暂停');
   assert.equal(saved.error,undefined);assert.equal(calls,boundary==='pause_check'?1:2);
   assert.equal(runtime.executed.length,0);
-  assert.deepEqual(trace.events('pause').map(e=>e.node),boundary==='pause_check'?['observe','pause_check']:
-    ['observe','decide','ground','resolve_action','pause_before_execute']);
+  const prefix=boundary==="pause_check"?["observe","pause_check"]:
+    ["observe","decide","ground","resolve_action","pause_before_execute"];
+  assert.deepEqual(trace.events("pause").map(e=>e.node),[...prefix,...(checkpoint?[]:["pause_interrupt"])]);
+  if(checkpoint)assert.equal(result.status,"paused");
+  else assert.deepEqual(trace.load("pause"),{...saved,status:"failed",
+    error:`${saved.summary}；未配置 Checkpointer，无法安全继续；任务已终止`,
+    summary:"未配置 Checkpointer，已安全终止；不能继续此任务"});
 }));
 
 for(const boundary of ['pause_check','pause_before_execute'] as const)

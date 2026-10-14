@@ -919,6 +919,13 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           ...(budgetReason ? { error: budgetReason } : {}) }) : {};
     }))
     .addNode("pause_interrupt", timed("pause_interrupt", "human", "等待继续", async (state) => {
+      // Trace is audit evidence, not a resumable LangGraph checkpoint.
+      if (!checkpointer) return new Command({
+        update: save("pause_interrupt", state, { status: "failed",
+          error: `${state.error ?? state.summary ?? "任务请求暂停"}；未配置 Checkpointer，无法安全继续；任务已终止`,
+          summary: "未配置 Checkpointer，已安全终止；不能继续此任务" }),
+        goto: END,
+      });
       interrupt({ kind: "pause", taskId: state.taskId, question: "任务已暂停，可手动操作后继续" });
       const replayState = state.workflowReplayState?.activeIndex !== undefined &&
           state.lastResult === undefined
@@ -932,7 +939,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         workflowReplayState: replayState,
         resumeReconcile: true, focusRecoveryCount: 0,
         summary: "继续前重新观察当前状态" }), goto: "observe" });
-    }), { ends: ["observe"] })
+    }), { ends: ["observe", END] })
     .addNode("stage_plan", timed("stage_plan", state=>readonlyBrowserStagePlan(state)?'rule':'model', "阶段规划", async (state) => {
       if (pauseRequested?.(state.taskId)) return save("stage_plan", state, {
         status: "paused", summary: "已在阶段边界暂停" });
