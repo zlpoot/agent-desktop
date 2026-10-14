@@ -11,7 +11,7 @@ from host import Controller
 from input_engine import Inputs
 from policy import Blocked, Revoked, HUMAN_LIMIT, TEXT, TEXT_LIMIT, expected_edit, validate_epoch, validate_human_event
 from storage import read_json, write_json
-from win32 import Api
+from agent_desktop_native.windows.win32 import Api
 
 
 class SyntheticApi:

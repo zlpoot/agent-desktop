@@ -1,7 +1,8 @@
 """Synthetic native Win32 controls; no desktop input or personal data."""
+import _native_path
 import ctypes as C
 from ctypes import wintypes as W
-from win32 import Api, WNDCLASS, WNDPROC
+from agent_desktop_native.windows.win32 import Api, WNDCLASS, WNDPROC
 
 
 def main():

@@ -1,11 +1,12 @@
 """D0-C disposable installed-app worker. No Default Desktop input or models."""
+import _native_path
 import argparse
 from pathlib import Path
 import sys
 import time
 from policy import Blocked, Revoked
 from storage import read_json, write_json
-from win32 import Api, C, W
+from agent_desktop_native.windows.win32 import Api, C, W
 
 HERE = Path(__file__).resolve().parent
 

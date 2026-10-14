@@ -348,7 +348,7 @@ test("unconfirmed owner revoke and cleanup permanently block aliased input resou
 
 test("D0 provider paths contain no system-input or default-desktop fallback calls", () => {
   const files = ["src/desktop-provider/local-workspace-provider.ts", "spikes/local-workspace/provider_worker.py",
-    "spikes/local-workspace/host.py", "spikes/local-workspace/win32.py", "spikes/local-workspace/worker.py",
+    "spikes/local-workspace/host.py", "src/native/agent_desktop_native/windows/win32.py", "spikes/local-workspace/worker.py",
     "spikes/local-workspace/netease_worker.py", "spikes/local-workspace/input_engine.py"];
   const forbidden = /\b(?:SendInput|SetCursorPos|SwitchDesktop)\s*\(|\bPyAutoGUI\b|\bpyautogui\b/i;
   for (const file of files) assert.doesNotMatch(readFileSync(resolve(file), "utf8"), forbidden, file);

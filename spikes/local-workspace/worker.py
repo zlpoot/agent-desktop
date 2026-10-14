@@ -1,4 +1,5 @@
 """D0-A/B worker runs only on the assigned non-input Desktop."""
+import _native_path
 import argparse
 from pathlib import Path
 import sys
@@ -6,7 +7,7 @@ import time
 from policy import Blocked
 from input_engine import Inputs
 from storage import read_json, write_json
-from win32 import Api
+from agent_desktop_native.windows.win32 import Api
 
 HERE = Path(__file__).resolve().parent
 

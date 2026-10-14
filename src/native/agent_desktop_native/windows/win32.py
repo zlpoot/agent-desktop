@@ -5,7 +5,7 @@ Importing this module does not load DLLs; Api() is Windows-only and explicit.
 import ctypes as C
 from ctypes import wintypes as W
 import subprocess
-from policy import Blocked, png_rgb, validate_target
+from .policy import Blocked, png_rgb, validate_target
 
 UPTR = C.c_size_t
 SPTR = C.c_ssize_t

@@ -1,4 +1,5 @@
 """Standalone D0 controller. --fake never loads Win32 or starts an app."""
+import _native_path
 import argparse
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -81,7 +82,7 @@ class Controller:
             try:
                 if os.name != "nt":
                     raise Blocked("windows_required")
-                from win32 import Api
+                from agent_desktop_native.windows.win32 import Api
                 from monitor import Monitor
                 notepad = notepad_preflight() if app == "notepad" else None
                 music = None

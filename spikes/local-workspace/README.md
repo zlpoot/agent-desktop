@@ -8,6 +8,13 @@
 
 ## 入口
 
+U7 仅调整共享原生层的代码归属：Win32 `Api` 和 `Blocked/validate_target/png_rgb`
+现在唯一实现位于 `src/native/agent_desktop_native/windows/`。D0 脚本通过
+`_native_path.py` 从脚本所在仓库定位正式包，直接引用它；输入、epoch、lease 等
+实验策略仍在本目录 `policy.py`。不保留旧 `win32.py` 副本或行为 shim。
+脚本、数据目录和历史验证入口保持；这项合成重构不改变实机授权或历史验收结论。
+正式 Worker 的最小部署文件见 [Native 基础层说明](../../src/native/README.md)。
+
 在仓库根目录运行；只验证了 Windows 10.0.26200、Node 24.21.0、Python 3.11.5。Python 使用标准库，无需新的 pip 依赖、模型账户、密钥、数据库、VM 或第三方站点。
 
 ```powershell

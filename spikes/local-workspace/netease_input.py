@@ -1,4 +1,5 @@
 """Finite NetEase search/play task using owned UIA patterns and HWND messages."""
+import _native_path
 import time
 from policy import Blocked, Revoked, validate_epoch, validate_human_event
 from netease import exact_song_row
@@ -78,7 +79,7 @@ class MusicInputs:
         identity = self.api.identity(child)
         expected = {k: identity[k] for k in ("pid", "session", "desktop")}
         self.api.guard(child, expected)
-        from win32 import C, W
+        from agent_desktop_native.windows.win32 import C, W
         origin, bounds = W.POINT(), W.RECT()
         self.api.checked(self.api.u.ClientToScreen(child, C.byref(origin)), "music_renderer_origin")
         self.api.checked(self.api.u.GetClientRect(child, C.byref(bounds)), "music_renderer_bounds")
@@ -125,7 +126,7 @@ class MusicInputs:
                 "mechanism": "owned-hwnd-message"}
 
     def viewer_click_node(self, event):
-        from win32 import C, W
+        from agent_desktop_native.windows.win32 import C, W
         rect = W.RECT(); self.api.checked(self.api.u.GetWindowRect(self.target, C.byref(rect)), "music_window_rect")
         if (rect.right-rect.left, rect.bottom-rect.top) != (event["width"], event["height"]): raise Blocked("frame_geometry_changed")
         sx, sy = rect.left + event["x"], rect.top + event["y"]

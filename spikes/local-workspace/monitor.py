@@ -1,9 +1,10 @@
 """Read-only Default-desktop evidence. Never records window titles or text."""
+import _native_path
 import ctypes as C
 from ctypes import wintypes as W
 import threading
 import time
-from win32 import Api, EVENTPROC
+from agent_desktop_native.windows.win32 import Api, EVENTPROC
 
 
 class Monitor:
