@@ -36,10 +36,12 @@ export type StructuredCondition = NonNullable<CompletionCriteria['structuredStat
 export interface RawControl {
   role: string;
   name?: string;
+  text?: string;
   value?: string;
   checked?: boolean;
   runtimeId: string;
   nameComplete?: boolean;
+  textComplete?: boolean;
   valueComplete?: boolean;
 }
 
@@ -89,7 +91,8 @@ export function parseRawControls(observation: Observation | undefined,
   if (source === 'uia') {
     const dom = observation?.dom;
     if (typeof dom !== 'string' || !dom.trim()) return undefined;
-    if (observation?.capture?.fields.dom?.source !== 'uia') return undefined;
+    if (observation?.capture?.fields.dom?.source !== 'uia' ||
+        observation.capture.fields.dom.complete !== true) return undefined;
     if (!observation.capture?.enumerationComplete) return undefined;
     let parsed: unknown;
     try { parsed = JSON.parse(dom); } catch { return undefined; }
@@ -103,6 +106,10 @@ export function parseRawControls(observation: Observation | undefined,
         role: node.role,
         runtimeId: JSON.stringify(node.runtimeId),
         ...(typeof node.name === 'string' ? { name: node.name } : {}),
+        // Existing UIA compatibility semantics: target text is the complete
+        // raw Name. A separate JSON text/value or flattened banner is not proof.
+        ...(typeof node.name === 'string' ? { text: node.name } : {}),
+        textComplete: node.nameComplete === true,
         ...(typeof node.value === 'string' ? { value: node.value } : {}),
         ...(node.nameComplete === false ? { nameComplete: false } : {}),
         ...(node.valueComplete === false ? { valueComplete: false } : {}),
@@ -114,13 +121,20 @@ export function parseRawControls(observation: Observation | undefined,
   // dom：Browser 当次结构化枚举。identity（页面加载世代 + DOM 路径）即运行时身份；
   // 跨导航必变，同页内唯一。任何一项缺 identity 都视为不可解析（fail closed）。
   const structured = observation?.structured;
-  if (!structured || structured.source !== 'dom' || !structured.complete) return undefined;
+  const stamped = observation?.capture?.fields.structured;
+  if (!structured || structured.source !== 'dom' || !structured.complete ||
+      stamped?.source !== 'dom' || stamped.complete !== true) return undefined;
   const controls: RawControl[] = [];
   for (const item of structured.items) {
     if (!item.identity) return undefined;
     controls.push({
       role: item.role,
       ...(item.name !== undefined ? { name: item.name } : {}),
+      ...(typeof item.text === 'string' ? { text: item.text } : {}),
+      // DOM text belongs to this node; never substitute its accessible name or
+      // input value. Missing legacy completeness cannot certify target text.
+      textComplete: item.complete === true &&
+        (item as {textComplete?:boolean}).textComplete !== false,
       ...(item.value !== undefined ? { value: item.value } : {}),
       ...(item.checked !== undefined ? { checked: item.checked } : {}),
       runtimeId: item.identity,
@@ -148,19 +162,34 @@ function roleMatches(control: RawControl, target: StructuredCondition['target'])
   return control.role.toLowerCase() === target.role.toLowerCase();
 }
 
-function nameMatches(control: RawControl, target: StructuredCondition['target']): boolean {
-  if (target.name !== undefined) {
-    if (control.name !== target.name || control.nameComplete === false) return false;
-    return roleMatches(control, target);
-  }
-  return roleMatches(control, target);
+/** True/false require readable attributes; undefined is a possible target whose
+ * label cannot be verified. Such a candidate blocks uniqueness AND absence. */
+function targetMatches(control: RawControl, target: StructuredCondition['target']): boolean | undefined {
+  if (!roleMatches(control, target)) return false;
+  const nameKnown = typeof control.name === 'string' && control.nameComplete !== false;
+  const textKnown = typeof control.text === 'string' && control.textComplete === true;
+  // Preserve exact name-only matching; only text uses the existing whitespace
+  // normalization. A known mismatch can exclude a candidate despite another
+  // unreadable attribute, since all configured target attributes must match.
+  if (target.name !== undefined && nameKnown && control.name !== target.name) return false;
+  const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
+  if (target.text !== undefined && textKnown && clean(control.text!) !== clean(target.text)) return false;
+  if ((target.name !== undefined && !nameKnown) || (target.text !== undefined && !textKnown)) return undefined;
+  return true;
 }
 
-/** 在完整枚举中唯一定位目标：0 缺席 / 1 唯一 / >1 歧义。 */
+/** 0 means absence only when unavailable is false; >1 remains ambiguous. */
 export function locateTarget(controls: readonly RawControl[], condition: StructuredCondition):
-  { count: number; control?: RawControl } {
-  const matched = controls.filter((control) => nameMatches(control, condition.target));
-  return { count: matched.length, ...(matched.length === 1 ? { control: matched[0] } : {}) };
+  { count: number; control?: RawControl; unavailable: boolean } {
+  const matched: RawControl[] = [];
+  let unavailable = false;
+  for (const control of controls) {
+    const match = targetMatches(control, condition.target);
+    if (match === true) matched.push(control);
+    else if (match === undefined) unavailable = true;
+  }
+  return { count: matched.length, unavailable,
+    ...(matched.length === 1 && !unavailable ? { control: matched[0] } : {}) };
 }
 
 /** step0 冻结基线身份与旧值。仅在唯一、可读时写入；否则保持缺失→终态 UNKNOWN。 */
@@ -197,6 +226,7 @@ export function ingestRebindObservation(previous: RebindConditionState | undefin
   const located = locateTarget(controls, condition);
   const sequence = observation?.capture?.sequence ?? 0;
   if (located.count > 1) { next.ambiguous = true; return next; }
+  if (located.unavailable) return next; // Unreadable text is never a leave/commit boundary.
 
   // 阶段1：确认 Agent 在同一身份 R0 上把缓冲改成了≠A 的新值。
   if (next.committedSequence === undefined) {
@@ -226,10 +256,9 @@ export function ingestRebindObservation(previous: RebindConditionState | undefin
 }
 
 function rebindCheck(condition: StructuredCondition, index: number, state: RebindConditionState | undefined,
-  terminal: Observation | undefined): RebindCheck {
+  terminal: Observation | undefined, source: 'dom' | 'uia'): RebindCheck {
   const criterion = `structuredStates:${index}`;
   const expected = condition.equals;
-  const source = evidenceSourceOf(terminal) ?? 'uia';
   const unknown = (reason: RebindReason, message: string, actual?: string | boolean): RebindCheck => ({
     criterion, verdict: 'unknown', reason, message,
     evidence: { source, target: condition.target, field: condition.field, expected,
@@ -250,6 +279,8 @@ function rebindCheck(condition: StructuredCondition, index: number, state: Rebin
   const located = locateTarget(controls, condition);
   if (located.count > 1)
     return unknown('target_ambiguous', '终态目标控件不唯一');
+  if (located.unavailable)
+    return unknown('evidence_unavailable', '目标 name/text 证据缺失或不完整，无法证明唯一目标或缺席');
   if (located.count === 0)
     return unknown('rebound_control_absent', '终态完整枚举中重投影控件已缺席，终态与重绑身份不一致');
   const control = located.control!;
@@ -288,7 +319,7 @@ export function evaluateRebindTask(criteria: CompletionCriteria,
   const checks: RebindCheck[] = [];
   for (const [index, condition] of (criteria.structuredStates ?? []).entries()) {
     if (condition.persistedAfter === 'rebind') {
-      checks.push(rebindCheck(condition, index, rebind?.[index], terminal));
+      checks.push(rebindCheck(condition, index, rebind?.[index], terminal, source));
     } else {
       const checked = source === 'dom' || source === 'uia'
         ? checkStructuredState(condition, terminal, source)
