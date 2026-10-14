@@ -279,6 +279,7 @@ window.createTaskExperience = function () {
   evidenceImage.onerror = () => { evidenceImage.hidden = true; evidenceLink.hidden = true; missingEvidence.hidden = false; missingEvidence.textContent = '截图文件不可读取，请查看执行记录中的文字证据。'; };
   let busy = false, currentRun = null, budgetReady = false, globalBudget = null;
   let modelProblem = '正在读取模型配置。', modelRequest = 0;
+  let lastAdmissionProblem = '';
   const storageKey = 'agent-desktop.task-draft.v2';
   let draftDestination, draftScenario, renderedDestination;
   try {
@@ -331,6 +332,8 @@ window.createTaskExperience = function () {
     const admissionProblem = problem || (!finite && ownedAppTask && !app.value.startsWith('app:') ? '请选择要执行任务的应用。' : '') ||
       (!finite && (target.value === 'browser' || ownedAppTask) ? modelProblem : '');
     const blocked = !!admissionProblem;
+    if (admissionProblem && admissionProblem !== lastAdmissionProblem) readiness.open = true;
+    lastAdmissionProblem = admissionProblem;
     $('task-submit').disabled = busy || !!blocked || !budgetReady;
     refreshEntry.disabled = busy;
     directoryStatus.textContent = selection.description();
@@ -343,7 +346,7 @@ window.createTaskExperience = function () {
     const budgetText = globalBudget ? [['deepseek', 'DeepSeek'], ['jev', 'JEV']].map(([key, name]) =>
       `${name} ${fields[key + 'Calls'].value || globalBudget[key].maxCalls} 次 / ${fields[key + 'Tokens'].value || globalBudget[key].maxTokens} Token`).join('；') : '预算服务未就绪';
     previewText.textContent = `运行方式：${finite ? '执行计划' : mode[1]}\n执行环境：${label || '待选择'}\n任务计划：${finite ? scenario.selectedOptions[0]?.textContent : mode[2]}\n应用：${app.selectedOptions[0]?.textContent || '按任务选择'}\n预算：${finite ? '规则执行；不调用模型' : budgetText}\n结果：执行进度、验证结论与证据保存在任务记录中。`;
-    submitStatus.textContent = busy ? '提交处理中，请勿重复发送。' : blocked || !budgetReady ? '提交前请核对运行配置。' : '';
+    submitStatus.textContent = busy ? '提交处理中，请勿重复发送。' : admissionProblem || (!budgetReady ? '正在读取任务预算，请稍后刷新。' : '');
     window.Workbench?.draft({label,description:finite ? scenario.selectedOptions[0]?.textContent || '' : mode[2]});
   }
   function loadBudget() {
@@ -364,7 +367,7 @@ window.createTaskExperience = function () {
           typeof state.keyConfigured !== 'boolean' || typeof state.ready !== 'boolean' || !Array.isArray(state.reasons) ||
           !state.sources || !['endpoint', 'model', 'apiKey'].every(key => Object.hasOwn(sources, state.sources[key])) ||
           data.appliesTo !== 'next-task-start') throw Error('invalid-model-status');
-      modelProblem = state.ready ? '' : `模型配置不完整：${state.reasons.join('；')}。请到设置保存，再重新读取。`;
+      modelProblem = state.ready ? '' : `请先完成模型配置：${state.reasons.map(reason => reason.replace(/（[^）]*）/g, '')).join('；')}。`;
       modelStatus.textContent = `模型：${state.model || '待配置'} · ${state.ready ? '配置已保存' : '请完成模型配置'}` +
         (Object.values(state.sources).includes('environment') ? ' · 使用环境变量配置' : '');
     } catch {
