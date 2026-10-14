@@ -6,6 +6,7 @@ import type { PreparedDesktopScenario } from '../contracts/desktop-scenario.js';
 import type { DesktopTaskExecutor } from '../app/task-desktop-sessions.js';
 import { DesktopExecutionAdmission } from './execution-admission.js';
 import { LocalWorkspaceDesktopProvider } from './local-workspace-provider.js';
+import { LocalWorkspaceAgentRuntime } from './local-workspace-agent-runtime.js';
 
 interface Claim {
   taskId?: string;
@@ -15,13 +16,33 @@ interface Claim {
   claiming?: boolean;
   prepared?: PreparedDesktopScenario;
   releasing?: Promise<boolean>;
+  runtime?: LocalWorkspaceAgentRuntime;
 }
-/** Finite Task bridge only. Does not expose WorkerClient or a generic action dispatcher. */
+/** Legacy finite scenes plus explicitly configured Task-owned NetEase search; app-only receipts grant no input. */
 export class LocalWorkspaceTaskExecutor implements DesktopTaskExecutor {
   private readonly claims = new WeakMap<DesktopSession, Claim>();
-  constructor(private readonly provider: LocalWorkspaceDesktopProvider) {}
-  assertAvailable(): never { throw new Error('desktop-task-executor-unavailable'); }
-  connectRuntime(): never { throw new Error('desktop-task-executor-unavailable'); }
+  constructor(private readonly provider: LocalWorkspaceDesktopProvider,
+    private readonly cleanupEvidence?: (taskId: string, error?: unknown) => void) {}
+  assertAvailable(): void { this.provider.assertAgentTasksAvailable(); }
+  taskCoverage() {
+    return { covered: false, reviewRequired: true, requiredFiles: [],
+      reason: 'netease-agent-search-only: favorite state/effect and full goal coverage unavailable' };
+  }
+  async connectRuntime(session: DesktopSession, artifactDir: string) {
+    this.assertAvailable();
+    const claim = this.claims.get(session);
+    if (!claim?.authority || !claim.taskId || claim.closed || claim.prepared || claim.runtime || claim.releasing)
+      throw Error('local-workspace-task-input-not-owned');
+    const runtime = this.provider.connectRuntime(session, claim.authority, artifactDir);
+    try {
+      await runtime.bind();
+      if (!runtime.executeAction || !runtime.inspectWindow) throw Error('local-workspace-agent-runtime-unavailable');
+      return claim.runtime = new LocalWorkspaceAgentRuntime(runtime, () => {
+        if (!claim.authority || !claim.taskId || claim.closed || claim.releasing) throw Error('local-workspace-task-input-not-owned');
+        this.provider.inputControl.assertAuthority(session, claim.authority);
+      });
+    } catch (error) { await runtime.close(); throw error; }
+  }
   scenario(target: TaskDesktopTarget, id: string) {
     if (target.providerId !== this.provider.id) throw new Error('desktop-target-binding-mismatch');
     return this.provider.scenario(target.environmentId, id);
@@ -40,11 +61,16 @@ export class LocalWorkspaceTaskExecutor implements DesktopTaskExecutor {
         this.provider.inputControl.assertAuthority(session, claim.authority);
       },
       beginTask: async taskId => {
-        if (!taskId || !claim.prepared || claim.closed || claim.claiming || claim.taskId || claim.releasing) throw new Error('local-workspace-task-not-prepared');
+        if (!taskId || claim.closed || claim.claiming || claim.taskId || claim.releasing) throw new Error('local-workspace-task-not-prepared');
+        if (!claim.prepared) {
+          try { this.assertAvailable(); }
+          catch { throw Error('local-workspace-task-not-prepared'); }
+        }
         claim.claiming = true;
         try {
           // Re-evaluate immediately before acquire; preparation does not cache authorization.
-          await claim.prepared.preflight();
+          if (claim.prepared) await claim.prepared.preflight();
+          else if ((await session.status()).state !== 'open') throw Error('stale-desktop-binding');
           if (claim.closed) throw new Error('local-workspace-task-not-prepared');
           claim.authority = await this.provider.inputControl.acquire(session, { kind: 'agent', clientId: taskId });
           claim.taskId = taskId;
@@ -54,9 +80,19 @@ export class LocalWorkspaceTaskExecutor implements DesktopTaskExecutor {
         if (claim.taskId !== taskId) throw new Error('foreign-task');
         return claim.releasing ??= (async () => {
           // Revoke first: in-flight work is fenced synchronously, then drained by P4.
-          await this.provider.inputControl.revokeSession(session);
-          await claim.prepared?.close();
+          const errors: unknown[] = [];
+          for (const close of [() => this.provider.inputControl.revokeSession(session),
+            () => claim.prepared?.close(), () => claim.runtime?.close(), () => claim.runtime ? session.close() : undefined]) {
+            try { await close(); } catch (error) { errors.push(error); }
+          }
+          if (!claim.prepared) {
+            // Close even if runtime construction failed after input was acquired.
+            if (!claim.runtime) { try { await session.close(); } catch (error) { errors.push(error); } }
+            claim.closed = true;
+            this.cleanupEvidence?.(taskId, errors.length ? new AggregateError(errors, 'local-workspace-agent-cleanup-unconfirmed') : undefined);
+          }
           claim.authority = undefined; claim.taskId = undefined;
+          if (errors.length) throw new AggregateError(errors, 'local-workspace-task-cleanup-unconfirmed');
           return false;
         })();
       },

@@ -237,10 +237,10 @@ function renderDetail() {
     ? `${run.desktopScenarioResult.execution} · 后台场景执行结果`
     : results.length ? `动作回执：成功 ${results.filter(step => step.result.ok === true).length} / 失败 ${results.filter(step => step.result.ok === false).length}；${groundingNote}副作用结果须核对逐步证据，不代表目标完成。`
       : `UNKNOWN · ${groundingNote}未记录执行回执或副作用结果`;
-  byId('task-cleanup-fact').textContent = run.desktopScenarioResult?.cleanup
-    ? `${run.desktopScenarioResult.cleanup} · 后台场景清理结果；不代表目标验收`
+  byId('task-cleanup-fact').textContent = (run.desktopScenarioResult?.cleanup || run.desktopTaskCleanup)
+    ? `${run.desktopScenarioResult?.cleanup || run.desktopTaskCleanup} · 后台所属资源清理结果；不代表目标验收`
     : 'UNKNOWN · 未记录可靠的清理 / 遗留状态';
-  byId('task-cleanup-fact').dataset.verdict = run.desktopScenarioResult?.cleanup?.toLowerCase() || 'unknown';
+  byId('task-cleanup-fact').dataset.verdict = (run.desktopScenarioResult?.cleanup || run.desktopTaskCleanup)?.toLowerCase() || 'unknown';
   acceptanceRecord.textContent = run.acceptanceReport
     ? `验收报告：${run.acceptanceReport.mode || '来源未记录'} · ${run.acceptanceReport.verdict?.toUpperCase() || 'UNKNOWN'} · ${run.acceptanceReport.message || '说明未记录'}；与人工核对记录分别展示。`
     : '验收报告：未记录。人工核对不能替代自动验收，清理成功不能替代目标完成。';

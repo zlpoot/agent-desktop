@@ -230,7 +230,17 @@ export async function createRootAssembly(options: RootAssemblyOptions): Promise<
               [ctx.physicalCompatibility.id, new PhysicalTaskExecutor(ctx.physicalCompatibility,
                 ctx.physicalCompatibility.inputControl, options.physicalInputPolicy)],
               hiddenChrome?[hiddenChrome.id,new HiddenChromeTaskExecutor(hiddenChrome,rootDir,options.hiddenChrome?.creationAuthorization)]:
-                [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility)],
+                [ctx.localWorkspaceCompatibility.id, new LocalWorkspaceTaskExecutor(ctx.localWorkspaceCompatibility, (taskId, error) => {
+                  const trace = ctx.traceStore(resolve(rootDir, 'web-tasks.sqlite'));
+                  try {
+                    const state = trace.load(taskId);
+                    if (state) trace.save(error ? 'desktop_task_cleanup_error' : 'desktop_task_cleanup_done', {
+                      ...state, ...(error ? { status: 'failed' as const, recoveryRequired: true, recoveryUncertain: true,
+                        error: [state.error, 'local-workspace-agent-cleanup-unconfirmed'].filter(Boolean).join('; ') } : {}),
+                      summary: error ? 'Task-owned Workspace 清理未确认，输入资源保持阻断' : state.summary,
+                    });
+                  } finally { trace.close(); }
+                })],
             ])),
           legacyDesktopTarget: (state, environment, target) => environment === 'agent_desktop' &&
             !!state.desktopVmId && target.providerId === ctx.hyperVCompatibility.id &&

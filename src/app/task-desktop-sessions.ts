@@ -21,6 +21,8 @@ export interface TaskAppDispatchBinding extends TaskAppRuntimeBinding {
 }
 /** Composition-owned executor; core never selects a backend from goal text or Provider kind. */
 export interface DesktopTaskExecutor {
+  /** Infrastructure may declare a completion gap; a model cannot promote a partial connector to complete. */
+  taskCoverage?(): import('../verification/task-contract-coverage.js').TaskContractCoverage;
   /** Fail before opening a Session when this executor cannot admit a generic Task. */
   assertAvailable?(): void;
   scenario?(target: TaskDesktopTarget, id: string): DesktopScenarioDefinition;

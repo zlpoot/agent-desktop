@@ -440,11 +440,13 @@ export class DesktopTaskController implements TaskController {
       }
       this.assertTaskCompatibility(queued, route.environment);
       let desktopApps: RegisteredApp[] = [];
+      let desktopCoverage: import('../verification/task-contract-coverage.js').TaskContractCoverage | undefined;
       if (queued.desktopTarget) {
         const entry = await this.requireDesktopSessions().acquire(taskId, queued, binding => {
           queued = { ...queued!, desktopExecutionBinding: binding };
           trace.save('desktop_bound', queued);
         });
+        desktopCoverage = entry.executor.taskCoverage?.();
         if (this.closed) throw new Error("任务控制器已关闭，任务已取消");
         control = entry.control;
         if (this.activeTask?.id === taskId) this.activeTask.control = control;
@@ -564,6 +566,8 @@ export class DesktopTaskController implements TaskController {
         contractCoverage = auditTaskContractCoverage(queued.goal,completionCriteria,
           explicit?.ref.requiredFiles?.map(file=>file.path)
             ??desktopFileExpectationsFromGoal(queued.goal).map(file=>file.path));
+        if (desktopCoverage?.covered === false) contractCoverage = { ...contractCoverage, covered: false,
+          reviewRequired: true, reason: [contractCoverage.reason, desktopCoverage.reason].filter(Boolean).join('; ') };
         trace.save('contract_preflight',{...queued,plan,completionCriteria,verificationContract,
           contractCoverage,summary:contractCoverage.covered?'完成契约覆盖审计通过':
             `完成契约存在证据缺口，执行后需人工结果验收：${contractCoverage.reason}`});
