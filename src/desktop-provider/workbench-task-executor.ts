@@ -160,88 +160,96 @@ export class WorkbenchTaskExecutor implements DesktopTaskExecutor {
       this.session(session); dispatch.assertCurrentTrust(); issuer.assertIssuedTargetHandoff(claim.handoff!, session);
     };
     assertTrust();
-    const target = await this.provider.client.call<TargetBinding>('task_bind', {
-      session: identity(session), profile: dispatch.profile, target: dispatch.target });
-    assertTrust();
-    if (!sameSession(target, session) || target.application !== dispatch.profile.applicationId ||
-        target.applicationVersion !== dispatch.profile.identity?.version) throw new Error('workbench-task-native-target-unconfirmed');
-    let closed = false;
-    const authority = () => {
+    try {
+      const target = await this.provider.client.call<TargetBinding>('task_bind', {
+        session: identity(session), profile: dispatch.profile, target: dispatch.target });
       assertTrust();
-      if (closed || !claim.authority || claim.heartbeatFailure || claim.releasing) throw new Error('workbench-task-input-not-owned');
-      this.provider.inputControl.assertAuthority(session, claim.authority); return claim.authority;
-    };
-    const call = async <T>(method: string, fields: object = {}): Promise<T> => {
-      if (closed) throw new Error('workbench-task-runtime-closed');
-      assertTrust();
-      const result = await this.provider.client.call<T>(method, { ...fields, session: identity(session) });
-      assertTrust(); return result;
-    };
-    const operation = (action: ComputerAction) => {
-      if (!actions.includes(action.kind)) throw new Error('workbench-task-action-unavailable');
-      const semantic = action.kind === 'type' || action.kind === 'paste_text';
-      const read = action.kind === 'wait' || action.kind === 'screenshot';
-      return { action: action.kind, mechanism: read ? 'read-only' : semantic ? 'uia-value' : 'window-message',
-        required: read ? ['observation.pixels' as const] : ['control.leaseProtected' as const,
-          semantic ? 'input.semantic' as const : 'input.targetedWindow' as const] };
-    };
-    const backend: DesktopExecutionBackend<{ action: ComputerAction; actionId: string }, ActionResult> = {
-      bind: async selector => { if (selector !== target.targetId) throw new Error('workbench-task-target-mismatch'); return target; },
-      targetStatus: async binding => {
-        if (!sameSession(binding, target) || binding.targetId !== target.targetId) throw new Error('workbench-task-target-mismatch');
-        await call('task_probe');
-        return { binding: target, state: 'bound', capabilities: workbenchTaskCapabilities(), readiness: readiness() };
-      },
-      requirements: async (_binding, request) => operation(request.action),
-      execute: request => {
-        authority(); assertTrust();
-        return call<ActionResult>('task_execute', { action: request.action.action, actionId: request.action.actionId,
-          observation: request.observation, target: request.target, authority: request.authority });
-      },
-    };
-    const gate = new DesktopExecutionAdmission(this.provider, session, this.provider.inputControl, backend);
-    await gate.bind(target.targetId);
-    const runtime: WorkerClient = {
-      listWindows: filter => call('task_windows', { filter }),
-      ensureApp: async () => { throw new Error('workbench-task-relaunch-forbidden'); },
-      attach: options => call<void>('task_attach', { options }),
-      probe: () => call('task_probe'),
-      recoverFocus: () => call<void>('task_attach', { options: {} }),
-      restore: observation => call<void>('task_restore', { observation }),
-      observe: async (screenCapture = true) => {
-        const result = await call<{ observation: Observation; preview?: { png: string; sha256: string } }>('task_observe', { screenCapture });
-        if (result.preview) {
-          const png = Buffer.from(result.preview.png, 'base64');
-          if (png.length > 4 * 1024 * 1024 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
-              createHash('sha256').update(png).digest('hex') !== result.preview.sha256) throw new Error('workbench-task-preview-unconfirmed');
-          await mkdir(artifactDir, { recursive: true });
-          const path = resolve(artifactDir, `${randomUUID()}.png`); await writeFile(path, png, { flag: 'wx' });
-          result.observation.screenshot = path; result.observation.screenshotHash = result.preview.sha256;
-        }
-        return result.observation;
-      },
-      ground: action => call('task_ground', { action }),
-      resolveAction: async action => {
-        try { operation(action); await call('task_probe'); return { selected: WORKBENCH_TASK_PROVIDER,
-          reason: '原启动目标上的 UIA 与定向窗口消息', candidates: [{ provider: WORKBENCH_TASK_PROVIDER, available: true, reason: '按动作重新检查目标与输入权' }] }; }
-        catch (error) { return { selected: WORKBENCH_TASK_PROVIDER, reason: String(error),
-          candidates: [{ provider: WORKBENCH_TASK_PROVIDER, available: false, reason: String(error) }] }; }
-      },
-      execute: async (action, resolution, actionId) => {
-        if (resolution && resolution.selected !== WORKBENCH_TASK_PROVIDER) return { ok: false, effect: 'none', message: 'workbench-task-provider-mismatch' };
-        authority(); operation(action);
-        // Re-resolve after Graph's independent before-observation, never use an old UIA index.
-        const prepared = await call<{ observation: import('../contracts/desktop-environment.js').DesktopObservationBinding }>('task_prepare', { action });
-        return gate.execute({ target, observation: prepared.observation, authority: authority(),
-          action: { action, actionId: actionId ?? randomUUID() } });
-      },
-      close: async () => {
-        if (closed) return; closed = true; gate.invalidate();
-        await this.provider.client.call('task_reset', { session: identity(session) });
-      },
-    };
-    claim.runtime = runtime;
-    return runtime;
+      if (!sameSession(target, session) || target.application !== dispatch.profile.applicationId ||
+          target.applicationVersion !== dispatch.profile.identity?.version) throw new Error('workbench-task-native-target-unconfirmed');
+      let closed = false;
+      const authority = () => {
+        assertTrust();
+        if (closed || !claim.authority || claim.heartbeatFailure || claim.releasing) throw new Error('workbench-task-input-not-owned');
+        this.provider.inputControl.assertAuthority(session, claim.authority); return claim.authority;
+      };
+      const call = async <T>(method: string, fields: object = {}): Promise<T> => {
+        if (closed) throw new Error('workbench-task-runtime-closed');
+        assertTrust();
+        const result = await this.provider.client.call<T>(method, { ...fields, session: identity(session) });
+        assertTrust(); return result;
+      };
+      const operation = (action: ComputerAction) => {
+        if (!actions.includes(action.kind)) throw new Error('workbench-task-action-unavailable');
+        const semantic = action.kind === 'type' || action.kind === 'paste_text';
+        const read = action.kind === 'wait' || action.kind === 'screenshot';
+        return { action: action.kind, mechanism: read ? 'read-only' : semantic ? 'uia-value' : 'window-message',
+          required: read ? ['observation.pixels' as const] : ['control.leaseProtected' as const,
+            semantic ? 'input.semantic' as const : 'input.targetedWindow' as const] };
+      };
+      const backend: DesktopExecutionBackend<{ action: ComputerAction; actionId: string }, ActionResult> = {
+        bind: async selector => { if (selector !== target.targetId) throw new Error('workbench-task-target-mismatch'); return target; },
+        targetStatus: async binding => {
+          if (!sameSession(binding, target) || binding.targetId !== target.targetId) throw new Error('workbench-task-target-mismatch');
+          await call('task_probe');
+          return { binding: target, state: 'bound', capabilities: workbenchTaskCapabilities(), readiness: readiness() };
+        },
+        requirements: async (_binding, request) => operation(request.action),
+        execute: request => {
+          authority(); assertTrust();
+          return call<ActionResult>('task_execute', { action: request.action.action, actionId: request.action.actionId,
+            observation: request.observation, target: request.target, authority: request.authority });
+        },
+      };
+      const gate = new DesktopExecutionAdmission(this.provider, session, this.provider.inputControl, backend);
+      await gate.bind(target.targetId);
+      const runtime: WorkerClient = {
+        listWindows: filter => call('task_windows', { filter }),
+        ensureApp: async () => { throw new Error('workbench-task-relaunch-forbidden'); },
+        attach: options => call<void>('task_attach', { options }),
+        probe: () => call('task_probe'),
+        recoverFocus: () => call<void>('task_attach', { options: {} }),
+        restore: observation => call<void>('task_restore', { observation }),
+        observe: async (screenCapture = true) => {
+          const result = await call<{ observation: Observation; preview?: { png: string; sha256: string } }>('task_observe', { screenCapture });
+          if (result.preview) {
+            const png = Buffer.from(result.preview.png, 'base64');
+            if (png.length > 4 * 1024 * 1024 || png.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a' ||
+                createHash('sha256').update(png).digest('hex') !== result.preview.sha256) throw new Error('workbench-task-preview-unconfirmed');
+            await mkdir(artifactDir, { recursive: true });
+            const path = resolve(artifactDir, `${randomUUID()}.png`); await writeFile(path, png, { flag: 'wx' });
+            result.observation.screenshot = path; result.observation.screenshotHash = result.preview.sha256;
+          }
+          return result.observation;
+        },
+        ground: action => call('task_ground', { action }),
+        resolveAction: async action => {
+          try { operation(action); await call('task_probe'); return { selected: WORKBENCH_TASK_PROVIDER,
+            reason: '原启动目标上的 UIA 与定向窗口消息', candidates: [{ provider: WORKBENCH_TASK_PROVIDER, available: true, reason: '按动作重新检查目标与输入权' }] }; }
+          catch (error) { return { selected: WORKBENCH_TASK_PROVIDER, reason: String(error),
+            candidates: [{ provider: WORKBENCH_TASK_PROVIDER, available: false, reason: String(error) }] }; }
+        },
+        execute: async (action, resolution, actionId) => {
+          if (resolution && resolution.selected !== WORKBENCH_TASK_PROVIDER) return { ok: false, effect: 'none', message: 'workbench-task-provider-mismatch' };
+          authority(); operation(action);
+          // Re-resolve after Graph's independent before-observation, never use an old UIA index.
+          const prepared = await call<{ observation: import('../contracts/desktop-environment.js').DesktopObservationBinding }>('task_prepare', { action });
+          return gate.execute({ target, observation: prepared.observation, authority: authority(),
+            action: { action, actionId: actionId ?? randomUUID() } });
+        },
+        close: async () => {
+          if (closed) return; closed = true; gate.invalidate();
+          await this.provider.client.call('task_reset', { session: identity(session) });
+        },
+      };
+      claim.runtime = runtime;
+      return runtime;
+    } catch (error) {
+      // Connection is read-only but may already hold the issued APP lifetime.
+      // Close this exact Session, never leave its resources until service teardown.
+      try { await session.close(); }
+      catch (cleanup) { throw new AggregateError([error, cleanup], 'workbench-task-binding-cleanup-unconfirmed'); }
+      throw error;
+    }
   }
   async completeTask(value: DesktopSession, taskId: string) {
     const session = this.session(value), claim = this.claims.get(session);

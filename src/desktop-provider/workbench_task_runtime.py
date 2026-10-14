@@ -145,8 +145,8 @@ class WorkbenchTasks:
                 'target': {**record['session'], 'targetId': uuid.uuid4().hex,
                            'application': profile['applicationId'], 'applicationVersion': profile['identity']['version'],
                            'targetRole': 'owned-window'}})
-        self.target_current(record)
         self.worker.api.join_job_view(self.worker.name + '_job')
+        self.target_current(record)
         return record['target']
 
     def status(self, record):

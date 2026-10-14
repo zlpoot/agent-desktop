@@ -512,9 +512,13 @@ def main():
         except Exception as error:
             reason = str(error)
             code = reason if isinstance(error, (ValueError, LaunchFailure, Blocked)) and re.fullmatch(r'(workbench|app|unsupported|invalid)-[a-z0-9-]{1,100}', reason) else 'workbench-native-operation-failed'
+            if isinstance(error, Blocked) and re.fullmatch(r'[a-z][a-z0-9_]{1,100}', reason):
+                code = 'workbench-task-' + reason.replace('_', '-')
             output({'id': request['id'], 'error': code,
                     'failureKind': error.kind if isinstance(error, LaunchFailure) else 'unknown',
-                    **({'diagnostic': error.details} if isinstance(error, NativeDiagnostic) else {})})
+                    'diagnostic': {'operation': request.get('method'), 'exception': type(error).__name__,
+                                   'winerror': getattr(error, 'winerror', None), 'errno': getattr(error, 'errno', None),
+                                   'code': code, **(error.details if isinstance(error, NativeDiagnostic) else {})}})
         finally:
             if reserved: task_slots.release()
     try:
