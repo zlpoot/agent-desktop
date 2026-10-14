@@ -70,4 +70,3 @@ Graph 保留原来的所有 save、字段赋值、错误字符串和节点顺序
 按 Issue #90 和本轮指令，不跑 full offline / python / browser、无关大型 CI、真实模型或付费请求、第三方网站、Windows / VM / APP 实机操作。B5a/B5b 的真实全场景验收仍 NOTRUN；A5 safety FAIL、Windows PAUSED、overall INCOMPLETE 不变。
 
 未改 Workflow Schema、Guest、Native、APP / composition 主线、verification / verifier、依赖、权限、预算或输入控制；PR #68 未改未合并。仅 Draft PR 交付，等待 exact HEAD 独立评审。不 merge、close Issue、Release、部署或进入 U9b / U10 / U11。
-

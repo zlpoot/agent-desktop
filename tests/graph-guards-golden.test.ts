@@ -209,4 +209,3 @@ test('U9a pure predicates retain original risk, impact, signature and focus sema
     assert.equal(focusLost({error}),true);
   assert.equal(focusLost({}),false);assert.equal(focusLost({error:'worker unavailable'}),false);
 });
-
