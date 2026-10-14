@@ -39,6 +39,8 @@ class ProviderWorker:
         self.control_token = None
         self.observation = None
         self.bound_session = None
+        self.task_action_ids = set()
+        self.last_task_frame = 0
         self._prebinding_controller = None
         self._prebinding_observed = self._prebinding_changed = False
 
@@ -179,7 +181,9 @@ class ProviderWorker:
         app, netease = args.get("app"), args.get("netease")
         if app not in ("fixture", "netease") or (app == "netease") != isinstance(netease, dict):
             raise Blocked("unsupported_workspace_configuration")
-        if app == "netease" and (netease.get("song") != "我怀念的" or netease.get("artist") != "孙燕姿"):
+        if app == 'netease' and netease.get('taskMode') == 'agent' and set(netease) != {'path', 'taskMode'}:
+            raise Blocked('unsupported_workspace_configuration')
+        if app == "netease" and netease.get('taskMode') != 'agent' and (netease.get("song") != "我怀念的" or netease.get("artist") != "孙燕姿"):
             raise Blocked("workspace_validated_song_artist_required")
         self.controller = Controller(self.directory, real=True, netease=netease,
                                      expected_netease_version="3.1.40.205461" if app == "netease" else None)
@@ -226,7 +230,7 @@ class ProviderWorker:
                    "agent_total", "input", "stage", "app_version", "desktop", "stop_reason", "reason",
                    "cleanup", "track_matches", "playing", "text_length", "clicks", "human_actions",
                    "input_class", "uia_elements", "input_ready", "script_started", "human_remaining",
-                   "netease_available", "resume_observation", "resume_observation_pending")
+                   "netease_available", "resume_observation", "resume_observation_pending", 'task_window')
         return {key: value[key] for key in allowed if key in value}
 
     def state(self, _args):
@@ -295,6 +299,15 @@ class ProviderWorker:
         if not self.controller or self.controller.record.get("status") != "ready":
             raise Blocked("workspace_not_ready")
         image, metadata = self.controller.frame_packet()
+        agent_mode = self.controller.netease and self.controller.netease.get('taskMode') == 'agent'
+        if agent_mode:
+            until = time.monotonic() + 1
+            while type(metadata.get('sequence')) is int and metadata['sequence'] <= self.last_task_frame:
+                self.assert_grant(args.get('authority'), owner='agent')
+                if time.monotonic() >= until:
+                    raise Blocked('workspace_frame_not_refreshed')
+                time.sleep(0.02)
+                image, metadata = self.controller.frame_packet()
         if not image or len(image) > 16 * 1024 * 1024:
             raise Blocked("workspace_frame_unavailable")
         expires = metadata.get("heartbeat", 0) + 2
@@ -310,14 +323,24 @@ class ProviderWorker:
             uia = read_json(path, [])
             if not isinstance(uia, list) or not uia or len(uia) > 1000:
                 raise Blocked("workspace_uia_invalid")
+            if agent_mode and not 0 <= time.monotonic() - self.controller.snapshot().get('task_uia_observed_at', 0) < 2:
+                raise Blocked('workspace_uia_stale')
         token = uuid.uuid4().hex
         self.observation = {"token": token, "instance": self.backend_instance_id, "target": self.current_target_id(),
                             "run": self.run_id, "grant": self.grant, "epoch": self.controller.epoch,
                             "sequence": metadata.get("sequence"), "expires": expires}
+        if agent_mode:
+            self.observation['uia'] = uia
+        window = self.controller.snapshot().get('task_window') if agent_mode else None
+        if agent_mode:
+            self.last_task_frame = metadata['sequence']
         return {"png": base64.b64encode(image).decode("ascii"), "metadata": metadata, "uia": uia,
+                **({'window': window} if window else {}),
                 "observationToken": token, "validForMs": max(0, (expires - time.monotonic()) * 1000)}
 
     def act(self, args):
+        if self.controller and self.controller.netease and self.controller.netease.get('taskMode') == 'agent':
+            raise Blocked('workspace_fixed_script_forbidden')
         if not self.controller or args.get("run_id") != self.run_id or type(args.get("epoch")) is not int:
             raise Blocked("stale_workspace")
         with self.control_lock:
@@ -333,6 +356,43 @@ class ProviderWorker:
                 raise Blocked("workspace_observation_revoked_or_expired")
             self.observation = None
             return self.public_state(self.controller.act(self.run_id, state["epoch"], observation_deadline=observed["expires"]))
+
+    def task_action(self, args):
+        with self.control_lock:
+            if not self.controller or not self.controller.netease or self.controller.netease.get('taskMode') != 'agent':
+                raise Blocked('workspace_dynamic_task_unavailable')
+            # Reuse the fixed-scene token/identity checks; replacing the actual effect is explicit.
+            if args.get('run_id') != self.run_id or type(args.get('epoch')) is not int:
+                raise Blocked('stale_workspace')
+            state = self.assert_grant(args.get('authority'), args.get('epoch'), 'agent')
+            observed = self.observation
+            image, metadata = self.controller.frame_packet()
+            if (not observed or args.get('observationToken') != observed['token'] or
+                    observed['instance'] != self.backend_instance_id or observed['target'] != self.current_target_id() or
+                    observed['run'] != self.run_id or observed['grant'] != self.grant or observed['epoch'] != state['epoch'] or
+                    time.monotonic() >= observed['expires'] or not image or metadata.get('error') or
+                    type(metadata.get('sequence')) is not int or metadata['sequence'] < observed['sequence'] or
+                    not 0 <= time.monotonic() - metadata.get('heartbeat', 0) < 2):
+                raise Blocked('workspace_observation_revoked_or_expired')
+            action_id = args.get('actionId')
+            if not isinstance(action_id, str) or not 1 <= len(action_id) <= 100 or action_id in self.task_action_ids or len(self.task_action_ids) >= 80:
+                raise Blocked('duplicate_or_unbounded_task_actions')
+            action = args.get('action')
+            target = action.get('target') if isinstance(action, dict) else None
+            roles = {'edit': 50004, 'button': 50000, 'tab': 50019}
+            if not isinstance(target, dict) or target.get('kind') != 'role':
+                raise Blocked('semantic_music_target_required')
+            matches = [row for row in observed.get('uia', []) if row.get('enabled') and not row.get('offscreen') and
+                       row.get('role') == roles.get(target.get('role')) and
+                       (target.get('name') is None or row.get('name') == target['name'])]
+            if len(matches) != 1 or not isinstance(matches[0].get('runtime_id'), list) or not matches[0]['runtime_id']:
+                raise Blocked('music_target_identity_unavailable')
+            self.task_action_ids.add(action_id)
+            self.observation = None
+            result = self.controller.task_action(self.run_id, state['epoch'], action, observed['expires'], matches[0])
+            if result.get('effect') == 'uncertain':
+                self.stale = True
+            return result
 
     def ping(self, args):
         if not self.controller:
@@ -385,7 +445,7 @@ class ProviderWorker:
         identity = message.get("id")
         try:
             method, args = message.get("method"), message.get("args", {})
-            if method in ("state", "activate_grant", "revoke_grant", "frame", "act", "ping"):
+            if method in ("state", "activate_grant", "revoke_grant", "frame", "act", "task_action", "ping"):
                 self.check_identity(message.get("identity"))
             if method == "start": result = self.start(args)
             elif method == "state": result = self.state(args)
@@ -393,6 +453,7 @@ class ProviderWorker:
             elif method == "revoke_grant": result = self.revoke_grant(args)
             elif method == "frame": result = self.frame(args)
             elif method == "act": result = self.act(args)
+            elif method == 'task_action': result = self.task_action(args)
             elif method == "ping": result = self.ping(args)
             elif method == "stop": result = self.stop(args)
             elif method == "close": result = self.close()

@@ -2,9 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
-import { resolve } from "node:path";
+import { resolve, win32 } from "node:path";
 import { inflateSync } from "node:zlib";
-import type { Observation } from "../actions/schema.js";
+import type { ActionResult, ComputerAction, Observation } from "../actions/schema.js";
+import type { WindowInfo } from '../runtime/desktop/desktop-runtime.js';
 import type { CapabilityContext, CapabilityDeclaration, CapabilityScope, CapabilityState, DesktopCapabilities, DesktopCapability,
   DesktopProvider, DesktopSession, DesktopSessionIdentity, DesktopSessionStatus, DesktopTargetBinding,
   DesktopReadiness } from "../contracts/desktop-environment.js";
@@ -16,18 +17,22 @@ import type { DesktopScenarioDefinition, DesktopScenarioOption, DesktopScenarioV
 
 export type LocalWorkspaceAppConfig =
   | { app: "fixture" }
-  | { app: "netease"; path: string; song: string; artist: string };
+  | { app: "netease"; path: string; song: string; artist: string; taskMode?: undefined }
+  | { app: "netease"; path: string; taskMode: 'agent' };
 export interface LocalWorkspaceState {
   status: string; app: string; run_id: string; owner?: string; epoch?: number; control_ready?: boolean;
   app_version?: string; desktop?: string; cleanup?: { status?: string; job_active?: number; desktop_absent?: boolean };
   [key: string]: unknown;
 }
 export interface LocalWorkspaceFrame {
+  /** Native worker's original owned window, required by the opt-in Task connector. */
+  window?: WindowInfo;
   observationToken: string;
   /** Remaining backend-clock lifetime; Host starts its conservative deadline before requesting the frame. */
   validForMs: number;
   png: string; metadata: { sequence: number; width: number; height: number; sha256: string; heartbeat: number };
   uia: Array<{ role: number; name: string; auto_id: string; class: string; enabled: boolean;
+    runtime_id?: number[]; value?: string; value_complete?: boolean;
     offscreen: boolean; rect: [number, number, number, number] }>;
 }
 export interface LocalWorkspaceConnection {
@@ -42,6 +47,8 @@ export interface LocalWorkspaceBackend {
   revokeGrant(runId: string, authority: InputAuthority): Promise<LocalWorkspaceState>;
   frame(authority: InputAuthority): Promise<LocalWorkspaceFrame>;
   act(runId: string, epoch: number, authority: InputAuthority, observationToken: string): Promise<LocalWorkspaceState>;
+  taskAction?(runId: string, epoch: number, authority: InputAuthority, observationToken: string,
+    action: ComputerAction, actionId: string): Promise<ActionResult>;
   ping(authority: InputAuthority): Promise<void>;
   stop(): Promise<LocalWorkspaceState>;
   viewerUrl(): string;
@@ -54,6 +61,8 @@ export interface LocalWorkspaceRuntime {
   observe(): Promise<Observation>;
   /** Only the prevalidated D0 scenario for this configured app can be started. */
   runValidatedScenario(): Promise<LocalWorkspaceState>;
+  inspectWindow?(): Promise<WindowInfo>;
+  executeAction?(action: ComputerAction, actionId: string): Promise<ActionResult>;
   close(): Promise<void>;
 }
 export interface LocalWorkspaceTarget extends DesktopTargetBinding {
@@ -148,7 +157,8 @@ class D0WorkspaceBackend implements LocalWorkspaceBackend {
   }
   async start(config: LocalWorkspaceAppConfig): Promise<LocalWorkspaceConnection> {
     const args = config.app === "fixture" ? { app: "fixture" } :
-      { app: "netease", netease: { path: config.path, song: config.song, artist: config.artist } };
+      { app: "netease", netease: config.taskMode === 'agent' ? { path: config.path, taskMode: 'agent' } :
+        { path: config.path, song: config.song, artist: config.artist } };
     const raw = await this.request<LocalWorkspaceConnection>("start", args, 45000);
     if (!Number.isInteger(raw.viewerPort) || raw.viewerPort < 1 || raw.viewerPort > 65535 ||
       typeof raw.viewerToken !== "string" || !raw.viewerToken || !Number.isInteger(raw.windowsSessionId) ||
@@ -167,6 +177,10 @@ class D0WorkspaceBackend implements LocalWorkspaceBackend {
   frame(authority: InputAuthority) { return this.request<LocalWorkspaceFrame>("frame", { authority }, 15000); }
   act(runId: string, epoch: number, authority: InputAuthority, observationToken: string) {
     return this.request<LocalWorkspaceState>("act", { run_id: runId, epoch, authority, observationToken });
+  }
+  taskAction(runId: string, epoch: number, authority: InputAuthority, observationToken: string,
+    action: ComputerAction, actionId: string) {
+    return this.request<ActionResult>('task_action', { run_id: runId, epoch, authority, observationToken, action, actionId }, 15000);
   }
   async ping(authority: InputAuthority): Promise<void> { await this.request("ping", { authority }); }
   stop() { return this.request<LocalWorkspaceState>("stop"); }
@@ -257,11 +271,13 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     this.config = Object.freeze({ ...(config ?? { app: "fixture" as const }) });
     if (this.config.app !== "fixture" && this.config.app !== "netease")
       throw new Error("Local Workspace supports only the validated fixture or NetEase app");
-    if (this.config.app === "netease" && (typeof this.config.path !== "string" || !this.config.path.trim() ||
+    if (this.config.app === 'netease' && this.config.taskMode === 'agent' &&
+        (typeof this.config.path !== 'string' || !this.config.path.trim())) throw Error('local-workspace-agent-path-required');
+    if (this.config.app === "netease" && this.config.taskMode !== 'agent' && (typeof this.config.path !== "string" || !this.config.path.trim() ||
         typeof this.config.song !== "string" || !this.config.song.trim() ||
         typeof this.config.artist !== "string" || !this.config.artist.trim()))
       throw new Error("Local Workspace NetEase requires an explicit executable, song, and artist");
-    if (this.config.app === "netease" && (this.config.song !== "我怀念的" || this.config.artist !== "孙燕姿"))
+    if (this.config.app === "netease" && this.config.taskMode !== 'agent' && (this.config.song !== "我怀念的" || this.config.artist !== "孙燕姿"))
       throw new Error("Local Workspace NetEase supports only the D0 validated song/artist");
     this.app = this.config.app === "fixture" ? "d0-synthetic-fixture" : "netease-cloud-music";
     this.appVersion = this.config.app === "fixture" ? FIXTURE_VERSION : NETEASE_VERSION;
@@ -289,6 +305,12 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       record.d0Epoch = next.epoch!;
       record.d0Owner = next.owner!;
     }, authority => this.activate(authority));
+  }
+
+  /** Explicit operator opt-in, not inferred from a goal or an app-only launch receipt. */
+  assertAgentTasksAvailable(): void {
+    if (!this.available || this.closed || this.config.app !== 'netease' || this.config.taskMode !== 'agent')
+      throw Error('desktop-task-executor-unavailable');
   }
 
   private valid(identity: DesktopSessionIdentity): boolean {
@@ -336,6 +358,8 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       state = this.config.app === "netease" ? "supported" : "not-proven";
     else if (capability === "isolation.separateOs") state = "unsupported";
     else state = "not-proven";
+    if (this.config.app === 'netease' && this.config.taskMode === 'agent' &&
+        ['input.semantic', 'control.humanTakeover', 'control.resumable'].includes(capability)) state = 'not-proven';
     if (capability === "observation.accessibility" || capability === "input.semantic") {
       scope.application = ["netease-cloud-music"]; scope.applicationVersion = [NETEASE_VERSION];
       scope.mechanism = [capability === "input.semantic" ? "uia-valuepattern" : "uia-owned-descendants"];
@@ -345,6 +369,9 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       const declaration = (targetRole: string[], action: string, mechanism: string): CapabilityDeclaration =>
         ({ state, scope: { ...scope, targetRole, action: [action], mechanism: [mechanism] }, evidence });
       return [declaration(["owned-main-window"], "run-validated-scenario", "owned-hwnd-message"),
+        ...(this.config.app === 'netease' && this.config.taskMode === 'agent'
+          ? [declaration(['search-button', 'singles-tab'], 'agent-search', 'owned-hwnd-message'),
+            declaration(['search-editor'], 'agent-query', 'owned-hwnd-message')] : []),
         declaration(this.config.app === "fixture" ? ["fixture-editor", "fixture-button"] : ["playback-button"],
           "viewer-click", "owned-hwnd-message"),
         ...(this.config.app === "fixture" ? [declaration(["fixture-editor"], "viewer-edit", "owned-hwnd-char")] : [])];
@@ -535,6 +562,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
   }
   /** Read-only finite selection, with no worker construction or input claim. */
   scenarios(environmentId: string): readonly DesktopScenarioOption[] {
+    if (this.config.app === 'netease' && this.config.taskMode === 'agent') return [];
     const id = this.config.app === 'fixture' ? 'd0-fixture-text-click-v1' : 'd0-netease-fixed-track-v1';
     const definition = this.scenario(environmentId, id);
     return Object.freeze([
@@ -550,6 +578,7 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
     ]);
   }
   scenario(environmentId: string, id: string): DesktopScenarioDefinition {
+    if (this.config.app === 'netease' && this.config.taskMode === 'agent') deny('local-workspace-scenario-not-proven');
     if (!this.available || this.closed) deny('local-workspace-unavailable');
     if (environmentId !== this.environmentId) deny('unknown-local-workspace-environment');
     const expected = this.config.app === 'fixture' ? 'd0-fixture-text-click-v1' : 'd0-netease-fixed-track-v1';
@@ -670,6 +699,20 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
       lastFrameDeadline = -Infinity,
       activeOperations = 0, closing: Promise<void> | undefined;
     let drained: (() => void) | undefined;
+    let window: WindowInfo | undefined;
+    const dispatched = new Set<string>();
+    const acceptWindow = (native: WindowInfo | undefined) => {
+      if (!native || !Number.isSafeInteger(native.handle) || native.handle <= 0 ||
+          !Number.isSafeInteger(native.processId) || native.processId <= 0 || native.windowClass !== 'OrpheusBrowserHost' ||
+          record.config.app !== 'netease' || typeof native.processPath !== 'string' ||
+          win32.normalize(native.processPath).toLowerCase() !== win32.normalize(record.config.path).toLowerCase() ||
+          native.targetElevated !== false || !native.visible || native.minimized ||
+          !native.rect || ![native.rect.left, native.rect.top, native.rect.width, native.rect.height].every(Number.isFinite) ||
+          native.rect.width <= 0 || native.rect.height <= 0 || typeof native.title !== 'string' ||
+          window && (native.handle !== window.handle || native.processId !== window.processId)) deny('local-workspace-agent-window-unproven');
+      window = structuredClone(native);
+      return structuredClone(window);
+    };
     const check = () => {
       if (closed) deny("local-workspace-runtime-closed");
       this.record(session); this.input.assertAuthority(session, authority);
@@ -704,6 +747,9 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
           await this.admit(record, "observation.pixels", "observe", "d0-local-workspace");
           const frameRequestedAt = performance.now();
           const frame = await record.backend.frame(authority);
+          if (record.config.app === 'netease' && record.config.taskMode === 'agent') {
+            acceptWindow(frame.window);
+          }
           if (typeof frame.observationToken !== "string" || !frame.observationToken ||
               !Number.isFinite(frame.validForMs) || frame.validForMs <= 0 || frame.validForMs > 2000)
             deny("local-workspace-observation-token-invalid");
@@ -740,18 +786,31 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
             role: ({ 50000: "button", 50004: "edit", 50007: "listitem", 50011: "text", 50018: "list",
               50019: "tab", 50026: "listitem", 50029: "text" } as Record<number, string>)[item.role] ?? "unknown",
             name: item.name, classTokens: item.class ? [item.class] : [], complete: true,
+            ...(window ? { text: item.name } : {}),
+            ...(item.value_complete === true && typeof item.value === 'string' ? { value: item.value } : {}),
           })) : [];
+          const taskControls = window ? frame.uia.map(item => ({
+            role: ({ 50000: 'button', 50004: 'edit', 50007: 'listitem', 50011: 'text', 50018: 'list',
+              50019: 'tab', 50026: 'listitem', 50029: 'text' } as Record<number, string>)[item.role] ?? 'unknown',
+            name: item.name, value: item.value ?? '', runtimeId: item.runtime_id ?? null,
+            nameComplete: true, valueComplete: item.value_complete === true, autoId: item.auto_id,
+            className: item.class, enabled: item.enabled, visible: !item.offscreen,
+          })) : undefined;
           const startedAt = performance.now();
           const observation: Observation = {
-            windowTitle: record.config.app === "netease" ? "NetEase Cloud Music (D0 owned window)" : "D0 synthetic fixture",
+            windowTitle: window?.title ?? (record.config.app === "netease" ? "NetEase Cloud Music (D0 owned window)" : "D0 synthetic fixture"),
+            ...(window ? { windowHandle: window.handle, windowRect: { ...window.rect } } : {}),
             screenshot, screenshotHash: hash,
             capture: { epoch: record.runId, sequence: frame.metadata.sequence, object: record.targetId,
               startedAt, finishedAt: performance.now(), clock: "collector", atomic: false,
               enumerationComplete: record.config.app === "netease",
               fields: { screenshot: { complete: true, source: "window" },
+                ...(taskControls ? { dom: { complete: true, source: 'uia' as const },
+                  structured: { complete: true, source: 'uia' as const } } : {}),
                 accessibility: { complete: record.config.app === "netease", source: "uia" } } },
             structured: record.config.app === "netease" ? { source: "uia", complete: true, items } : undefined,
             accessibility: record.config.app === "netease" ? JSON.stringify(items) : undefined,
+            ...(taskControls ? { dom: JSON.stringify(taskControls) } : {}),
           };
           await confirm();
           if (performance.now() >= deadline) deny("fresh-observation-required");
@@ -767,7 +826,42 @@ export class LocalWorkspaceDesktopProvider implements DesktopProvider {
         }
         finally { leave(); }
       },
+      ...(record.config.app === 'netease' && record.config.taskMode === 'agent' ? {
+        inspectWindow: async () => {
+          const leave = enter();
+          try { const state = await this.confirm(record); check(); return acceptWindow(state.task_window as WindowInfo | undefined); }
+          finally { leave(); }
+        },
+        executeAction: async (action: ComputerAction, actionId: string): Promise<ActionResult> => {
+          const leave = enter();
+          try {
+            if (!record.backend.taskAction || !actionId || dispatched.has(actionId) || dispatched.size >= 80)
+              deny('local-workspace-agent-dispatch-unavailable-or-repeated');
+            // Account-side favorite effects have no proven native state reader yet.
+            if (action.kind === 'set_checked') return { ok: false, effect: 'none', message: 'netease-favorite-state-unavailable: native evidence required' };
+            if (action.kind !== 'type' && action.kind !== 'click' || action.target.kind !== 'role' ||
+                !action.target.name && !(action.kind === 'type' && action.target.role === 'edit'))
+              deny('local-workspace-agent-semantic-target-required');
+            const typing = action.kind === 'type' && action.target.role === 'edit';
+            const role = action.kind === 'click' && action.target.role === 'button' && action.target.name === 'search' ? 'search-button' :
+              action.kind === 'click' && action.target.role === 'tab' && action.target.name === '单曲' ? 'singles-tab' : undefined;
+            if (!typing && !role) deny('local-workspace-agent-action-not-supported');
+            // Typing reuses D0's targeted search-editor primitive, never a global key/clipboard fallback.
+            await this.admit(record, 'input.targetedWindow', typing ? 'agent-query' : 'agent-search',
+              'owned-hwnd-message', typing ? 'search-editor' : role!);
+            check();
+            if (!bound || !observationToken || performance.now() >= observationDeadline) deny('fresh-observation-required');
+            const token = observationToken; observationToken = undefined; observationDeadline = -Infinity;
+            dispatched.add(actionId); // Unknown outcome is terminal, never dispatch this identifier twice.
+            const result = await record.backend.taskAction(record.runId, record.d0Epoch, authority, token, action, actionId);
+            if (result.effect === 'uncertain') { this.invalidate(record); return result; }
+            await confirm(); return result;
+          } catch (error) { if (!(closed && record.state === 'open')) this.invalidate(record); throw error; }
+          finally { leave(); }
+        },
+      } : {}),
       runValidatedScenario: async () => {
+        if (record.config.app === 'netease' && record.config.taskMode === 'agent') deny('local-workspace-fixed-script-forbidden');
         const leave = enter();
         if (!bound || !observationToken || performance.now() >= observationDeadline || record.scenarioStarted) {
           leave(); deny("fresh-observation-or-single-run-required");

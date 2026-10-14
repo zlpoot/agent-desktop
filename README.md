@@ -4,6 +4,8 @@
 
 **当前整体未完成。历史 A5 challenge-set 的结论是 `safety FAIL`，Windows 实验继续暂停。** 本仓库的离线回归只验证合成场景与接口契约，不能推翻该结论，也不能证明无人值守实机安全。实验启动链、真实结果及完整私有开发现场留在原工程，未迁入此仓库。
 
+2026-10-14，Owner 暂停 v0.2 Tag/Release，转入 [#97 产品核心能力闭环](https://github.com/zlpoot/agent-desktop/issues/97)。第一阶段接入 Task-owned 网易云动态观察与搜索的代码链，收藏状态读回、受控收藏、登录接管及两条真实用户任务仍未完成，状态保持 `MVP_PRODUCT_BLOCKED`。实现范围和独立 Review 入口见 [第一阶段接线说明](docs/issue97-local-workspace-agent.md)。
+
 提取阶段建立了新的 Git 历史，随后按用户授权推送到 GitHub。没有修改远端可见性或选择项目许可证；来源与授权待确认，暂不按已授权开源项目发布。
 
 ## v0.1 控制台源码版（发布准备中）

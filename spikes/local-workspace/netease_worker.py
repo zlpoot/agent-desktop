@@ -61,6 +61,10 @@ def main():
         while time.monotonic() < ready_at:
             check_control(); publish(); time.sleep(0.1)
         api.size_owned_window(target, expected, 1600, 1000)
+        task_elevated = None
+        if config['netease'].get('taskMode') == 'agent':
+            from netease_agent_input import require_medium_process
+            task_elevated = require_medium_process(expected['pid'])
         time.sleep(0.3)
         bounds = W.RECT()
         api.checked(api.u.GetWindowRect(target, C.byref(bounds)), "music_window_bounds")
@@ -73,9 +77,16 @@ def main():
         from uia import Uia
         uia = Uia(api, target, expected)
         uia.heartbeat = publish
-        from netease_input import MusicInputs
+        if config['netease'].get('taskMode') == 'agent':
+            from netease_agent_input import MusicAgentInputs as MusicInputs
+        else:
+            from netease_input import MusicInputs
+        def publish_uia(rows):
+            write_json(directory / 'uia.json', rows)
+            if config['netease'].get('taskMode') == 'agent':
+                state['task_uia_observed_at'] = time.monotonic()
         inputs = MusicInputs(api,uia,target,expected,config["netease"],lambda:read_json(directory/"control.json",{}),config["run_id"],publish,
-                             lambda rows: write_json(directory / "uia.json", rows))
+                             publish_uia)
         state.update(status="ready", stage="uia_observe", agent_progress=0, agent_total=4)
         until = time.monotonic() + 8
         while time.monotonic() < until:
@@ -103,6 +114,16 @@ def main():
                 if inputs.pending_effect:
                     raise Blocked("music_input_effect_unknown_fail_closed")
             state.update(inputs.view())
+            if config['netease'].get('taskMode') == 'agent':
+                bounds = W.RECT()
+                api.checked(api.u.GetWindowRect(target, C.byref(bounds)), 'music_window_bounds')
+                state['task_window'] = {'handle': target, 'title': api.text(target), 'windowClass': 'OrpheusBrowserHost',
+                    'processId': expected['pid'], 'processPath': config['netease']['path'], 'targetElevated': task_elevated,
+                    'visible': bool(api.u.IsWindowVisible(target)), 'minimized': bool(api.u.IsIconic(target)),
+                    'foreground': False, 'rect': {'left': bounds.left, 'top': bounds.top,
+                        'width': bounds.right - bounds.left, 'height': bounds.bottom - bounds.top}}
+                # Read-only UIA remains dynamic between Task actions; no fixed script starts.
+                inputs.observe()
             publish(); time.sleep(0.1)
     except Exception as error:
         state.update(status="blocked", reason=str(error), error=type(error).__name__)

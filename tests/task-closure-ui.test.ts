@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Server } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
+import { SqliteTrace } from '../src/trace/sqlite-trace.js';
 import { chromium, type Page } from 'playwright';
 import { createDashboardServer } from '../src/app/server.js';
 import { DesktopTaskController } from '../src/app/task-runner.js';
@@ -18,6 +19,34 @@ import { createFixtureDashboard } from '../src/composition/fixture-dashboard.js'
 import { ScenarioWorkspace } from '../src/testing/scenario-workspace.js';
 import { createRootAssembly } from '../src/composition/root.js';
 import { recoverDesktopTasks } from '../src/desktop-session/recovery.js';
+
+test('Task-owned cleanup evidence survives a fresh Dashboard read without claiming business or human PASS', { timeout: 30000 }, async () => {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve('.playwright-browsers');
+  const directory = mkdtempSync(join(tmpdir(), 'task-owned-cleanup-'));
+  const trace = new SqliteTrace(join(directory, 'web-tasks.sqlite'));
+  const { initialState } = await import('../src/graph/state.js');
+  const binding = { providerId: 'windows-local-workspace', environmentId: 'local-workspace:netease',
+    sessionId: 'synthetic-session', instanceId: 'synthetic-instance', inputResourceId: 'synthetic-resource' };
+  for (const [id, node] of [['cleanup-ok', 'desktop_task_cleanup_done'], ['cleanup-fail', 'desktop_task_cleanup_error']]) {
+    trace.save(node, { ...initialState(id, '合成 Task 清理观察'), status: 'failed', step: 1,
+      taskBindingVersion: 1, desktopTarget: { providerId: binding.providerId, environmentId: binding.environmentId },
+      desktopExecutionBinding: binding, error: 'synthetic business outcome UNKNOWN' });
+  }
+  trace.close();
+  const server = createDashboardServer(directory), browser = await chromium.launch({ headless: true });
+  const { base } = await listen(server);
+  try {
+    const page = await browser.newPage();
+    for (const [id, verdict] of [['cleanup-ok', 'PASS'], ['cleanup-fail', 'FAIL']]) {
+      const run = await (await page.request.get(`${base}/api/runs/web-tasks.sqlite/${id}`)).json();
+      assert.equal(run.desktopTaskCleanup, verdict); assert.equal(run.desktopScenarioResult, undefined);
+      await openRecord(page, base, id);
+      await page.locator('#task-cleanup-fact').filter({ hasText: verdict }).waitFor();
+      assert.match(await page.locator('#task-cleanup-fact').innerText(), /不代表目标验收/);
+      assert.equal(await page.locator('#task-human-fact').innerText(), '暂无可读取的系统内人工验收记录');
+    }
+  } finally { await browser.close(); await close(server); removeFixture(directory, 'task-owned-cleanup-'); }
+});
 
 async function listen(server: Server, port = 0) {
   await new Promise<void>(done => server.listen(port, '127.0.0.1', done));

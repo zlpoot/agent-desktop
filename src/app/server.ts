@@ -290,6 +290,8 @@ function readRun(rootDir: string, source: string, taskId: string) {
       appOnboarding: state.appOnboarding,
       desktopScenario: state.desktopScenario,
       desktopScenarioResult: scenarioResult,
+      desktopTaskCleanup: events.some(event => event.node === 'desktop_task_cleanup_error') ? 'FAIL' :
+        events.some(event => event.node === 'desktop_task_cleanup_done') && state.desktopExecutionBinding ? 'PASS' : undefined,
       desktopExecutionBinding: state.desktopExecutionBinding,
       desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
       workflowReplayState: state.workflowReplayState,

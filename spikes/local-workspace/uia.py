@@ -138,6 +138,46 @@ class Uia:
         element.call(14, (C.c_int, C.POINTER(GUID), C.POINTER(C.c_void_p)), (pattern, C.byref(guid), C.byref(pointer)))
         return Com(pointer)
 
+    def runtime_id(self, index):
+        """Read UIA's opaque RuntimeId, never fabricate identity from a row index.
+
+        ABI: IUIAutomationElement::GetRuntimeId(SAFEARRAY **), VT_I4.
+        https://learn.microsoft.com/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationelement-getruntimeid
+        """
+        element = self.elements[index]
+        self.owned(element)
+        array = C.c_void_p()
+        element.call(4, (C.POINTER(C.c_void_p),), (C.byref(array),))
+        if not array:
+            raise Blocked('uia_runtime_identity_unavailable')
+        for name in ('SafeArrayGetLBound', 'SafeArrayGetUBound'):
+            function = getattr(self.aut, name)
+            function.argtypes = [C.c_void_p, C.c_uint, C.POINTER(C.c_long)]
+            function.restype = C.c_long
+        self.aut.SafeArrayGetDim.argtypes = [C.c_void_p]
+        self.aut.SafeArrayGetDim.restype = C.c_uint
+        self.aut.SafeArrayGetVartype.argtypes = [C.c_void_p, C.POINTER(C.c_ushort)]
+        self.aut.SafeArrayGetVartype.restype = C.c_long
+        self.aut.SafeArrayGetElement.argtypes = [C.c_void_p, C.POINTER(C.c_long), C.c_void_p]
+        self.aut.SafeArrayGetElement.restype = C.c_long
+        self.aut.SafeArrayDestroy.argtypes = [C.c_void_p]
+        self.aut.SafeArrayDestroy.restype = C.c_long
+        try:
+            low, high, variant = C.c_long(), C.c_long(), C.c_ushort()
+            if (self.aut.SafeArrayGetDim(array) != 1 or self.aut.SafeArrayGetVartype(array, C.byref(variant)) < 0 or variant.value != 3 or
+                    self.aut.SafeArrayGetLBound(array, 1, C.byref(low)) < 0 or self.aut.SafeArrayGetUBound(array, 1, C.byref(high)) < 0 or
+                    not 1 <= high.value - low.value + 1 <= 32):
+                raise Blocked('uia_runtime_identity_invalid')
+            values = []
+            for number in range(low.value, high.value + 1):
+                at, value = C.c_long(number), C.c_int()
+                if self.aut.SafeArrayGetElement(array, C.byref(at), C.byref(value)) < 0:
+                    raise Blocked('uia_runtime_identity_unavailable')
+                values.append(value.value)
+            return values
+        finally:
+            self.aut.SafeArrayDestroy(array)
+
     def value(self, index):
         pattern = self.pattern(index, 10002, "a94cd8b1-0844-4cd6-9d2d-640537ab39e9", False)
         try:

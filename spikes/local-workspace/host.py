@@ -253,6 +253,33 @@ class Controller:
                 self.record.update(input="SIMULATED", text_verified=True, click_verified=True)
             return self.snapshot()
 
+    def task_action(self, run_id, epoch, action, observation_deadline, observed_target):
+        """One dynamic action in the existing owned worker; wait for native outcome, not queue ACK."""
+        with self.lock:
+            self.ready_epoch(run_id, epoch, 'agent')
+            if (not self.real or not self.netease or self.netease.get('taskMode') != 'agent' or
+                    not self.snapshot().get('input_ready') or time.monotonic() >= observation_deadline):
+                raise Blocked('workspace_dynamic_task_unavailable')
+            identifier = self.enqueue('task-action', task_action=action, expires=observation_deadline, observed_target=observed_target)
+        deadline = min(time.monotonic() + 8, self.deadline)
+        while time.monotonic() < deadline:
+            with self.lock:
+                current = self.snapshot()
+                last = current.get('last_command', {})
+                if last.get('id') == identifier:
+                    if last.get('effect') == 'uncertain':
+                        self.stop('music_input_effect_unknown_fail_closed')
+                        return {'ok': False, 'effect': 'uncertain', 'message': 'native_music_effect_unknown'}
+                    self.ready_epoch(run_id, epoch, 'agent')
+                    return {'ok': last.get('result') == 'APPLIED', 'effect': last.get('effect', 'none'),
+                            'message': 'Owned semantic action dispatched; independent result observation required'
+                            if last.get('result') == 'APPLIED' else last.get('reason', 'native_music_action_rejected')}
+                if current.get('status') != 'ready':
+                    break
+            time.sleep(0.01)
+        self.stop('music_task_action_outcome_unknown')
+        return {'ok': False, 'effect': 'uncertain', 'message': 'native_music_action_outcome_unknown'}
+
     def snapshot(self):
         with self.lock:
             result = dict(self.record)

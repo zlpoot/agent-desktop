@@ -8,7 +8,10 @@ from policy import Blocked
 def preflight(config):
     if not config or not config.get("path"):
         raise Blocked("netease_explicit_path_required")
-    for field in ("song", "artist"):
+    agent_mode = config.get('taskMode') == 'agent'
+    if config.get('taskMode') not in (None, 'agent'):
+        raise Blocked('unsupported_netease_task_mode')
+    for field in (() if agent_mode else ("song", "artist")):
         value = config.get(field)
         if not isinstance(value, str) or not 1 <= len(value) <= 80 or any(ord(c) < 32 or ord(c) > 65535 for c in value):
             raise Blocked("netease_bounded_bmp_query_required")
@@ -42,6 +45,8 @@ def preflight(config):
         raise Blocked("netease_installed_signature_or_product")
     if probe.get("existing") != 0:
         raise Blocked("netease_existing_instance_exit_first")
+    if agent_mode:
+        return {'path': str(path), 'version': probe['version'], 'taskMode': 'agent'}
     return {"path": str(path), "version": probe["version"], "song": config["song"], "artist": config["artist"],
             "query": config["artist"] + " " + config["song"]}
 

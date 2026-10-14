@@ -24,9 +24,10 @@ export function loadDesktopEnvironmentConfig(path?: string): {
   const workspace = config.localWorkspace;
   if (workspace !== undefined && (!workspace || typeof workspace !== 'object' || Array.isArray(workspace) ||
       !['fixture', 'netease'].includes(workspace.app) ||
-      Object.keys(workspace).some(key => !(workspace.app === 'fixture' ? ['app'] : ['app', 'path', 'song', 'artist']).includes(key)) ||
+      Object.keys(workspace).some(key => !(workspace.app === 'fixture' ? ['app'] : workspace.taskMode === 'agent'
+        ? ['app', 'path', 'taskMode'] : ['app', 'path', 'song', 'artist']).includes(key)) ||
       workspace.app === 'netease' && (typeof workspace.path !== 'string' || !workspace.path.trim() ||
-        workspace.song !== '我怀念的' || workspace.artist !== '孙燕姿'))) {
+        workspace.taskMode !== 'agent' && (workspace.song !== '我怀念的' || workspace.artist !== '孙燕姿')))) {
     throw new Error('invalid-local-workspace-config');
   }
   const chrome=config.hiddenChrome;
