@@ -7,7 +7,7 @@ import type { ModelAdapter } from "../agent/model-adapter.js";
 import type { TraceStore } from "../contracts/stores.js";
 import type { NodeMetric } from "../trace/sqlite-trace.js";
 import type { RuntimeAdapter } from "../runtime/runtime-adapter.js";
-import { applyAcceptance, deterministicChecks, type AcceptanceVerifier } from "../verifier/hybrid-verifier.js";
+import { applyAcceptance, deterministicChecks, normalizeEvidence, type AcceptanceVerifier } from "../verifier/hybrid-verifier.js";
 import { readonlyBrowserAcceptance } from '../verifier/readonly-browser-verifier.js';
 import { readonlyBrowserStagePlan, isReadonlyBrowserRestricted, assertReadonlyBrowserAction } from '../agent/readonly-browser-plan.js';
 import { verifyAction, verifyGoal } from "../verifier/verifier.js";
@@ -292,7 +292,9 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       operator:'规范化证据验收', ...(report.auxiliary ? {modelName:'jev', ...report.auxiliary.usage} : {})});
     return report;
   }
-  async function complete(state: ComputerState) {
+  type CompletionOutcome={result:ReturnType<typeof verifyGoal>;report?:ComputerState['acceptanceReport'];
+    terminalState?:Pick<ComputerState,'observation'|'rebindState'|'acceptanceReport'>};
+  async function complete(state: ComputerState):Promise<CompletionOutcome> {
     const frozenCoverage=state.contractCoverage;
     if(frozenCoverage && !frozenCoverage.covered) {
       const message=`执行前完成契约缺少原始目标所需的结果证明：${frozenCoverage.reason}`;
@@ -484,14 +486,20 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         verdict==='fail'?'完整任务存在可信明确反证':
           checks.find(check=>check.verdict==='unknown')?.message??'完整任务证据不足';
       const report:import('../verifier/hybrid-verifier.js').AcceptanceReport={mode:'assist',
-        verdict,observationId:observationSignature(terminal)??'',checks,
+        verdict,observationId:normalizeEvidence(terminal).observationId,checks,
         ...(verdict==='unknown'?{reason:checks.find(check=>check.verdict==='unknown')?.reason}:{}),message};
-      trace.save('acceptance_task',{...state,observation:terminal,rebindState:terminalChain,acceptanceReport:report});
+      const terminalState={observation:terminal,rebindState:terminalChain,acceptanceReport:report};
+      trace.save('acceptance_task',{...state,...terminalState});
       const current=verdict==='pass'?verifyGoal(criteria,terminal,domainEvaluator):undefined;
-      return {result:{...current,ok:verdict==='pass',message},report};
+      return {result:{...current,ok:verdict==='pass',message},report,terminalState};
     }
     const report = await acceptance(state, 'task');
     return {result:report ? applyAcceptance(original, report) : original, report};
+  }
+  // Carry the independent completion snapshot through both Graph updates and
+  // SQLite saves. A later node must not restore the model's older observation.
+  function saveCompletion(node:string,state:ComputerState,checked:CompletionOutcome,update:Partial<ComputerState>) {
+    return save(node,state,{...checked.terminalState,...update});
   }
   function hasStructuredTaskProof(checked?: Awaited<ReturnType<typeof complete>>) {
     const report = checked?.report;
@@ -908,8 +916,9 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           : (result.ok ? undefined : result.message) });
     }))
     .addNode("verify_task", timed("verify_task", "system", "完成验证器", async (state) => {
-      const {result, report} = await complete(state);
-      return save("verify_task", state, { goalVerification: result, acceptanceReport:report, ...blockedAcceptance(report,state),
+      const checked=await complete(state);
+      const {result,report}=checked;
+      return saveCompletion("verify_task", state, checked, { goalVerification: result, acceptanceReport:report, ...blockedAcceptance(report,state),
         error: result.ok ? undefined : result.message });
     }))
     .addNode("pause_check", timed("pause_check", "system", "暂停检查", async (state) => {
@@ -929,14 +938,15 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           workflowReplayState: decision.replay, summary: decision.reason,
           lastAction: undefined, lastResult: undefined, lastVerification: undefined });
       }
-      const {result, report} = await complete(state);
+      const checked=await complete(state);
+      const {result,report}=checked;
       if (report?.mode === 'assist' && report.verdict !== 'pass' && verifyGoal(state.completionCriteria, state.observation, domainEvaluator).ok)
-        return save('resume_reconcile', state, {...blockedAcceptance(report,state), goalVerification:result, resumeReconcile:false});
-      if (!result.ok && state.recoveryUncertain) return save("resume_reconcile", state, {
+        return saveCompletion('resume_reconcile', state, checked, {...blockedAcceptance(report,state), goalVerification:result, resumeReconcile:false});
+      if (!result.ok && state.recoveryUncertain) return saveCompletion("resume_reconcile", state, checked, {
         recoveryUncertain: true, resumeReconcile: false, status: "waiting_user",
         lastAction: { kind: "ask_user", question: "Host 中断时有动作可能已发出，无法确认结果。请核对当前现场并说明已完成的操作，避免重复执行。" },
         error: "崩溃前动作结果不确定，需要人工核对" });
-      return save("resume_reconcile", state, { resumeReconcile: false,
+      return saveCompletion("resume_reconcile", state, checked, { resumeReconcile: false,
         recoveryUncertain: false, inFlightAction: undefined,
         acceptanceReport:report, goalVerification: result, status: result.ok ? "done" : "running",
         lastAction: undefined, lastResult: undefined, groundedAction: undefined,
@@ -996,6 +1006,15 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       }
     }))
     .addNode("stage_check", timed("stage_check", "model", "阶段验收", async (state) => {
+      let completionState:CompletionOutcome['terminalState'];
+      const adoptCompletion=(checked:CompletionOutcome|undefined)=>{
+        if(checked?.terminalState) {
+          completionState=checked.terminalState;
+          state={...state,...completionState};
+        }
+      };
+      const saveStage=(node:string,current:ComputerState,update:Partial<ComputerState>)=>
+        save(node,current,{...completionState,...update});
       if (!state.stage) return {};
       if(shadowSink) {
         try {
@@ -1009,7 +1028,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
             status:normalized.input?'ready_for_normalization':'blocked',reasons:normalized.reason?[normalized.reason]:[]});
         } catch {shadow({kind:'stage-verification',taskId:state.taskId,step:state.step,status:'blocked',reasons:['shadow_pipeline_error']});}
       }
-      if (!model.verifyStage || !state.observation) return save("stage_check", state,
+      if (!model.verifyStage || !state.observation) return saveStage("stage_check", state,
         { status: "failed", error: "缺少阶段验收能力或当前观察" });
       try {
         // A final done action can use the frozen, source-bound task contract
@@ -1020,10 +1039,11 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         const precheckedFinal = frozenFinal || (state.stage.isFinal && state.lastAction?.kind === 'done' &&
           !!state.verificationContract?.successConditions.structuredStates?.length)
           ? await complete(state) : undefined;
+        adoptCompletion(precheckedFinal);
         const structuredFinal = hasStructuredTaskProof(precheckedFinal);
         const blockedFinal = state.lastAction?.kind === 'done' && precheckedFinal?.report?.mode === 'assist' &&
           precheckedFinal.report.verdict !== 'pass' && (frozenFinal || !precheckedFinal.report.auxiliary);
-        if (blockedFinal) return save('stage_check', state,
+        if (blockedFinal) return saveStage('stage_check', state,
           {...blockedAcceptance(precheckedFinal.report, state), stageCheckNeedsObserve:false});
         // A frozen final result contract is stronger than a visual stage guess.
         // Use one task check at this boundary: UNKNOWN means continue toward the result, and a
@@ -1031,7 +1051,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         const report = structuredFinal || frozenFinal ? undefined : await acceptance(state, 'stage');
         if (report?.mode === 'assist' && report.verdict !== 'pass' &&
             state.lastAction?.kind === 'done' && state.stage.isFinal)
-          return save('stage_check', state, {...blockedAcceptance(report), stageCheckNeedsObserve:false});
+          return saveStage('stage_check', state, {...blockedAcceptance(report), stageCheckNeedsObserve:false});
         const result = structuredFinal
           ? {ok:true, confidence:1, evidence:'冻结的任务完成条件已由当前结构化状态验证',
             source:precheckedFinal?.report?.checks.some(check => check.criterion.startsWith('structuredStates:') &&
@@ -1053,13 +1073,13 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
             const skipped = { id: state.stage.id, goal: state.stage.goal,
               successCondition: state.stage.successCondition, startStep: state.stage.startedAtStep,
               endStep: state.step, evidence: reconciled.evidence, source: "manual" as const };
-            return save("stage_reconciled", state, { stage: undefined,
+            return saveStage("stage_reconciled", state, { stage: undefined,
               completedStages: [...(state.completedStages ?? []), skipped], resumeReconcile: false,
               stageCheckNeedsObserve: false,
               summary: `人工操作已越过阶段：${skipped.goal}` });
           }
           if (reconciled.decision === "replan") {
-            return save("stage_reconciled", state, { stage: undefined,
+            return saveStage("stage_reconciled", state, { stage: undefined,
               resumeReconcile: false, stageCheckNeedsObserve: false,
               error: `当前画面需要重规划：${reconciled.evidence}` });
           }
@@ -1069,7 +1089,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           const attempts = state.diagnosisCount ?? 0;
           if (attempts >= 2) {
             const replans = (state.stageReplans ?? 0) + 1;
-            return save("stage_diagnosis_limit", state, replans > 3
+            return saveStage("stage_diagnosis_limit", state, replans > 3
               ? { status: checkpointer ? "paused" : "failed",
                 error: "多次调整策略后仍未到达阶段目标，请检查当前画面",
                 summary: "阶段无进展，已安全停下" }
@@ -1083,26 +1103,26 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
               decision: diagnosis.decision, step: state.step };
             if (diagnosis.decision === "replan") {
               const replans = (state.stageReplans ?? 0) + 1;
-              return save("stage_diagnosis", state, replans > 3
+              return saveStage("stage_diagnosis", state, replans > 3
                 ? { status: checkpointer ? "paused" : "failed", diagnosis: entry,
                   error: `重新规划次数已达上限：${entry.reason}`,
                   summary: "诊断后需要人工检查" }
                 : { stage: undefined, stageReplans: replans, diagnosis: entry,
                   lastStageVerification, summary: `诊断后重新规划：${entry.reason}` });
             }
-            return save("stage_diagnosis", state, { diagnosis: entry,
+            return saveStage("stage_diagnosis", state, { diagnosis: entry,
               diagnosisCount: attempts + 1,
               diagnosisAtActionCount: state.stage.actionCount,
               lastStageVerification, summary: `调整执行策略：${entry.reason}` });
           } catch (error) {
             if (isBudgetExceeded(error)) throw error;
-            return save("stage_diagnosis", state, { diagnosisAtActionCount: state.stage.actionCount,
+            return saveStage("stage_diagnosis", state, { diagnosisAtActionCount: state.stage.actionCount,
               error: `诊断模型暂不可用：${String(error)}` });
           }
         }
         if (!result.ok) {
           const repeatedDone = state.lastAction?.kind === "done";
-          return save("stage_check", state, { lastStageVerification,
+          return saveStage("stage_check", state, { lastStageVerification,
             stageVisualCandidate: undefined, stageCheckNeedsObserve: false,
             resumeReconcile: false,
             ...(repeatedDone ? { status: checkpointer ? 'paused' as const : 'waiting_user' as const,
@@ -1111,16 +1131,17 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
         }
         if (result.source === "visual_model" &&
             state.stageVisualCandidate?.stageId !== state.stage.id) {
-          return save("stage_check", state, { lastStageVerification,
+          return saveStage("stage_check", state, { lastStageVerification,
             stageVisualCandidate: { stageId: state.stage.id, evidence: result.evidence,
               screenshotHash: state.observation.screenshotHash },
             stageCheckNeedsObserve: true });
         }
         const finalAcceptance = precheckedFinal ?? (state.stage.isFinal && (state.completionCriteria || acceptanceVerifier)
           ? await complete(state) : undefined);
+        adoptCompletion(finalAcceptance);
         const independent = finalAcceptance?.result;
         if (state.stage.isFinal && independent && !independent.ok) {
-          return save("stage_check", state, { ...blockedAcceptance(finalAcceptance?.report), lastStageVerification: { ...lastStageVerification,
+          return saveStage("stage_check", state, { ...blockedAcceptance(finalAcceptance?.report), lastStageVerification: { ...lastStageVerification,
             ok: false, evidence: `阶段标记已出现，但总目标尚未验收：${independent.message}` },
             stageCheckNeedsObserve: false, error: independent.message });
         }
@@ -1156,17 +1177,17 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
           const learned = await onStageCompleted({ ...state, ...update }, completed);
           if (learned) Object.assign(completed, learned);
         }
-        return save("stage_completed", state, update);
+        return saveStage("stage_completed", state, update);
       } catch (error) {
-        if (isBudgetExceeded(error)) return save('budget_pause', state, { status: 'paused', error: error.message, summary: error.message });
+        if (isBudgetExceeded(error)) return saveStage('budget_pause', state, { status: 'paused', error: error.message, summary: error.message });
         if (checkpointer && error instanceof Error &&
             (error.name === 'TimeoutError' || (error.name === 'AbortError' && /timeout/i.test(error.message)))) {
-          return save('stage_check_timeout', state, { status: 'paused', recoveryRequired: true,
+          return saveStage('stage_check_timeout', state, { status: 'paused', recoveryRequired: true,
             stageCheckNeedsObserve: true,
             error: `阶段验收超时：${error.message}`,
             summary: '阶段验收超时，现场已保留；继续时重新观察，不重复执行上一步动作' });
         }
-        return save("stage_check", state, { status: "failed", error: `阶段验收失败：${String(error)}` });
+        return saveStage("stage_check", state, { status: "failed", error: `阶段验收失败：${String(error)}` });
       }
     }))
     .addNode("recover", timed("recover", "system", "重试规则", async (state) => {
@@ -1237,16 +1258,19 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       });
     }), { ends: ["observe", "finish", END] })
     .addNode("finish", timed("finish", "system", "结束规则", async (state) => {
+      let completionState:CompletionOutcome['terminalState'];
       // Legacy/manual checkpoints may predate the acceptance chain; never trust their old ok flag alone.
       if (acceptanceVerifier && state.status !== 'failed' && state.goalVerification?.ok && !state.acceptanceReport) {
-        const {result, report} = await complete(state);
-        if (!result.ok) return save('finish', state, {...blockedAcceptance(report,state), goalVerification:result});
+        const checked=await complete(state);
+        const {result,report}=checked;
+        completionState=checked.terminalState;
+        if (!result.ok) return saveCompletion('finish', state, checked, {...blockedAcceptance(report,state), goalVerification:result});
       }
       const action = state.lastAction;
       const update: Partial<ComputerState> = state.status === "failed" ? {} : state.goalVerification?.ok ? {
         status: "done", summary: action?.kind === "done" ? action.summary : state.summary,
       } : { status: "failed", error: "任务尚未通过独立完成验证" };
-      return save("finish", state, update);
+      return save("finish", state, {...completionState,...update});
     }))
     .addEdge(START, "observe")
     .addConditionalEdges("observe", (state) => state.status === "paused" ? "pause_interrupt" : state.observationFailed

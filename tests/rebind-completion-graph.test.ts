@@ -16,6 +16,8 @@ import {canManuallyReviewOutcome,reviewManualOutcome} from '../src/verification/
 import {FacetRegistry,type ObservationFacetProvider} from '../src/contracts/facets.js';
 import {ContributorRegistry,type VerifierContributor} from '../src/contracts/verifier-contributor.js';
 import {createDomainEvaluator} from '../src/verification/domain-evaluator.js';
+import {normalizeEvidence} from '../src/verifier/hybrid-verifier.js';
+import {MemorySaver,Command} from '@langchain/langgraph';
 
 const OLD='13900000001', NEW='13977770002';
 const goal='把手机号改成 13977770002 并保存';
@@ -69,10 +71,11 @@ async function run(terminal:(observation:Observation)=>Observation,
     const result=await createAgentLoop({model:new FakeModel(actions),runtime,trace,maxSteps:6,...options})
       .invoke(state,{recursionLimit:100});
     const events=trace.events(state.taskId);
+    const latest=trace.load(state.taskId)!;
     if(process.env.B5A_EVIDENCE_DIR) {
       mkdirSync(process.env.B5A_EVIDENCE_DIR,{recursive:true});
       writeFileSync(join(process.env.B5A_EVIDENCE_DIR,`trace-${runNumber++}.json`),
-        JSON.stringify({result,events,executed:runtime.executed},null,2));
+        JSON.stringify({result,latest,events,executed:runtime.executed},null,2));
     }
     assert.equal(runtime.executed.length,4,'save/navigation actions must not replay');
     const chain=events.filter(event=>event.node==='verify').at(-1)?.state.rebindState?.[0];
@@ -86,6 +89,7 @@ async function run(terminal:(observation:Observation)=>Observation,
     const acceptance=events.filter(event=>event.node==='acceptance_task').at(-1);
     assert.ok(acceptance,'raw Trace must retain the terminal acceptance');
     assert.deepEqual(acceptance.state.acceptanceReport,JSON.parse(JSON.stringify(result.acceptanceReport)));
+    assertCompletionBinding(result,latest,events);
     if(!result.goalVerification?.ok) {
       const paused={...result,status:'paused' as const};
       assert.equal(canManuallyReviewOutcome(paused),false,'Manual cannot upgrade missing/contradicted proof');
@@ -105,6 +109,26 @@ async function run(terminal:(observation:Observation)=>Observation,
 }
 
 let runNumber=0;
+
+function assertCompletionBinding(result:ComputerState,latest:ComputerState,
+  events:ReturnType<SqliteTrace['events']>) {
+  const accepted=events.filter(event=>event.node==='acceptance_task').at(-1)!.state;
+  const snapshot=JSON.parse(JSON.stringify({observation:accepted.observation,rebindState:accepted.rebindState}));
+  for(const [label,state] of [['Graph result',result],['SQLite latest task row',latest]] as const) {
+    assert.deepEqual(JSON.parse(JSON.stringify({observation:state.observation,rebindState:state.rebindState})),
+      snapshot,`${label} must retain the completion capture and chain`);
+    assert.deepEqual(JSON.parse(JSON.stringify(state.acceptanceReport)),accepted.acceptanceReport);
+    assert.equal(state.acceptanceReport?.observationId,normalizeEvidence(state.observation).observationId);
+  }
+  const observation=accepted.observation;
+  assert.equal(accepted.acceptanceReport?.observationId,normalizeEvidence(observation).observationId);
+  if(observation) {
+    const changedTitle={...observation,windowTitle:'仅改变窗口标题'};
+    assert.notEqual(result.acceptanceReport?.observationId,normalizeEvidence(changedTitle).observationId);
+    const changedCapture={...observation,capture:{...observation.capture!,sequence:observation.capture!.sequence-1}};
+    assert.notEqual(result.acceptanceReport?.observationId,normalizeEvidence(changedCapture).observationId);
+  }
+}
 
 test('B5a Graph: rebind PASS cannot cover a fresh explicit windowTitle FAIL',async()=>{
   const {result}=await run(observation=>({...observation,windowTitle:'其他窗口'}));
@@ -352,9 +376,118 @@ test('B5a Graph: a single correct R1 snapshot cannot replace the persistence cha
     assert.equal(runtime.executed.length,0);
     assert.equal(canManuallyReviewOutcome({...result,status:'paused'}),false);
     const events=trace.events('b5a-snapshot');
+    const latest=trace.load('b5a-snapshot')!;
+    assertCompletionBinding(result,latest,events);
     assert.ok(events.some(event=>event.node==='verify_task'&&event.state.goalVerification?.ok===false));
     if(process.env.B5A_EVIDENCE_DIR)writeFileSync(join(process.env.B5A_EVIDENCE_DIR,'trace-snapshot.json'),
-      JSON.stringify({result,events,executed:runtime.executed},null,2));
+      JSON.stringify({result,latest,events,executed:runtime.executed},null,2));
+  }finally{
+    trace.close();const target=resolve(dir);
+    if(dirname(target)!==resolve(tmpdir())||!basename(target).startsWith('b5a-graph-'))
+      throw Error('Refusing to remove an unexpected test directory');
+    rmSync(target,{recursive:true,force:true});
+  }
+});
+
+for(const verdict of ['pass','fail','unknown'] as const) test(`B5a P2 final stage capture binding: ${verdict}`,async()=>{
+  class FinalStageModel extends FakeModel {
+    stageCalls=0;
+    callsBeforeDone=-1;
+    override async decide() {
+      const action=await super.decide();
+      if(action.kind==='done')this.callsBeforeDone=this.stageCalls;
+      return action;
+    }
+    async verifyStage() {
+      this.stageCalls++;
+      return {ok:false,confidence:0,evidence:'等待完整任务验收',source:'visual_model' as const};
+    }
+  }
+  const model=new FinalStageModel(actions);
+  const {result,events,runtime}=await run(observation=>{
+    if(verdict==='fail')observation.windowTitle='其他窗口';
+    if(verdict==='unknown')delete observation.windowTitle;
+    return observation;
+  },criteria,frozen(),{model},{taskContract:{target:goal,constraint:'合成任务',stageActionLimit:6,taskActionLimit:6},
+    stage:{id:'p2-final',goal:'保存字段',successCondition:'完整持久值',isFinal:true,
+      startedAtStep:0,actionCount:0,planVersion:1}});
+  assert.equal(result.acceptanceReport?.verdict,verdict);
+  assert.equal(result.status,verdict==='pass'?'done':'waiting_user');
+  assert.equal(result.observation?.capture?.sequence,6);
+  assert.equal(result.observation?.capture?.epoch,'fixture-e');
+  assert.equal(result.observation?.capture?.object,'window:fixture-e:42');
+  assert.equal(result.observation?.windowTitle,verdict==='pass'?'客户资料':verdict==='fail'?'其他窗口':undefined);
+  assert.notEqual(model.callsBeforeDone,-1);
+  assert.equal(model.stageCalls,model.callsBeforeDone,'completion must not call a stage model');
+  assert.equal(runtime.sequence,6,'one independent completion read, no additional input/observation');
+  assert.ok(events.some(event=>event.node===(verdict==='pass'?'stage_completed':'stage_check')&&
+    event.state.observation?.capture?.sequence===6));
+});
+
+test('B5a P2 Manual requires the exact completion observation, including title and capture',async()=>{
+  const {result,events}=await run(observation=>observation);
+  // A reviewable UNKNOWN shell with passed deterministic checks models the
+  // existing manual gate. It does not alter this Graph run's automatic PASS.
+  const reviewable:ComputerState={...result,status:'paused',
+    acceptanceReport:{...result.acceptanceReport!,verdict:'unknown'}};
+  assert.equal(canManuallyReviewOutcome(reviewable),true);
+  const oldObservation=events.filter(event=>event.node==='observe').at(-1)!.state.observation;
+  assert.equal(oldObservation?.capture?.sequence,5);
+  for(const observation of [oldObservation,
+    {...result.observation!,windowTitle:'其他窗口'},
+    {...result.observation!,capture:{...result.observation!.capture!,sequence:5}}]) {
+    const stale={...reviewable,observation};
+    assert.equal(canManuallyReviewOutcome(stale),false);
+    assert.throws(()=>reviewManualOutcome(stale,true,'人工请求核对该捕获'),/不符合/);
+  }
+});
+
+for(const verdict of ['pass','fail','unknown'] as const) test(`B5a P2 resume capture binding: ${verdict}`,async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'b5a-graph-'));
+  const trace=new SqliteTrace(join(dir,'trace.sqlite'));
+  const runtime=new RebindRuntime(observation=>{
+    // Keep the resumed entry observation (seq6) intact; only the independent
+    // completion read (seq7) has new title counterevidence or missing evidence.
+    if(observation.capture!.sequence>=7) {
+      if(verdict==='fail')observation.windowTitle='其他窗口';
+      if(verdict==='unknown')delete observation.windowTitle;
+    }
+    return observation;
+  });
+  let pause=true;
+  const checkpointer=new MemorySaver();
+  const taskId=`b5a-p2-resume-${verdict}`;
+  const config={configurable:{thread_id:taskId},recursionLimit:100};
+  const graph=createAgentLoop({model:new FakeModel(actions.slice(0,4)),runtime,trace,checkpointer,maxSteps:6,
+    pauseRequested:()=>pause&&runtime.executed.length===4});
+  try {
+    const parked=await graph.invoke({...initialState(taskId,goal,undefined,criteria),verificationContract:frozen()},config);
+    assert.equal(parked.status,'paused');
+    assert.equal(parked.observation?.capture?.sequence,5);
+    assert.equal(parked.rebindState?.[0].rebound?.runtimeId,'[7,2]');
+    const decisionsBefore=trace.events(taskId).filter(event=>event.node==='decide').length;
+    pause=false;
+    const result=await graph.invoke(new Command({resume:{}}),config);
+    const latest=trace.load(taskId)!;
+    const events=trace.events(taskId);
+    assertCompletionBinding(result,latest,events);
+    const checkpoint=(await graph.getState(config)).values as ComputerState;
+    assertCompletionBinding(checkpoint,latest,events);
+    assert.equal(result.status,verdict==='pass'?'done':'paused');
+    assert.equal(result.acceptanceReport?.verdict,verdict);
+    assert.equal(result.goalVerification?.ok,verdict==='pass');
+    assert.equal(result.observation?.capture?.sequence,7);
+    assert.equal(result.observation?.windowTitle,verdict==='pass'?'客户资料':verdict==='fail'?'其他窗口':undefined);
+    assert.equal(runtime.sequence,7);
+    assert.equal(runtime.executed.length,4,'resume must not replay input');
+    assert.equal(events.filter(event=>event.node==='decide').length,decisionsBefore,'resume must not request a model');
+    assert.ok(events.some(event=>event.node==='resume_reconcile'&&event.state.observation?.capture?.sequence===7));
+    if(verdict!=='pass')assert.equal(canManuallyReviewOutcome(result),false);
+    if(process.env.B5A_EVIDENCE_DIR) {
+      mkdirSync(process.env.B5A_EVIDENCE_DIR,{recursive:true});
+      writeFileSync(join(process.env.B5A_EVIDENCE_DIR,`trace-resume-${verdict}.json`),
+        JSON.stringify({result,latest,checkpoint,events,executed:runtime.executed},null,2));
+    }
   }finally{
     trace.close();const target=resolve(dir);
     if(dirname(target)!==resolve(tmpdir())||!basename(target).startsWith('b5a-graph-'))

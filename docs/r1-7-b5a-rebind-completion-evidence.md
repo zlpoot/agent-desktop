@@ -2,6 +2,8 @@
 
 日期：2026-10-14（Asia/Shanghai）。Refs #86。
 
+以下首轮记录对应 `ef509ca55ff21611f3d8eb4a7ecb60d716f8fcca`，保留其原始范围、测试与阻塞记录。针对独立审查剩余 P2 的本轮修复和验证见末节；新的精确 HEAD 由 PR #87 与 Issue #86 交付评论记录。
+
 状态：**AWAITING_INDEPENDENT_REVIEW**。Owner 授权独立实现与定向测试；本文不构成独立评审、验收或合并授权。
 
 ## 基线与范围
@@ -153,3 +155,48 @@ NOTRUN：`npm run test:offline`、`npm run test:python`、`npm run test:browser`
 - `.artifacts-red.log`、`red-original.log`、`graph-green.log`、`graph-green-v2.log`、`targeted-final.log`、`synthetic-regression-unsandboxed.log`：红例/开发迭代/环境阻塞记录。
 
 Draft PR 使用 Refs #86；等待 ChatGPT Chat 对精确 HEAD 独立评审，Owner 决定合并。未 merge、关闭 Issue、修改 PR #68、release、部署或启动后续阶段。**A5 safety FAIL、Windows PAUSED、overall INCOMPLETE 保持。**
+
+## P2 复审修复：终态观察、最终状态和验收 ID 一致
+
+依据 [独立审查记录](https://github.com/zlpoot/agent-desktop/pull/87#pullrequestreview-5512348823) 和 [Issue 修复要求](https://github.com/zlpoot/agent-desktop/issues/86#issuecomment-6159511115)，继续原 PR #87、原分支/worktree。远端与本地起点均核对为 `ef509ca55ff21611f3d8eb4a7ecb60d716f8fcca`；该技术审查结论为 REQUEST_CHANGES（GitHub 原生记录为 COMMENT），不能将其改称 APPROVED。
+
+修复前再现：`acceptance_task` 基于 seq6，但最终 Graph 输出和 `trace.load(taskId)` 已回滚到 seq5；在窗口标题负例中，报告使用“其他窗口”，最终状态却保存“客户资料”。它们的 DOM 相同，旧窄指纹也不能区分两次完成事实。新增断言直接读取 SQLite 最新任务行，而不只检查历史事件。
+
+红例命令（生产源码仍为受审 HEAD）：
+
+```powershell
+$env:B5A_EVIDENCE_DIR='.artifacts/b5a/p2-red'
+node --import tsx --test --test-name-pattern='fresh explicit windowTitle FAIL|every remaining frozen condition PASS' tests/rebind-completion-graph.test.ts
+```
+
+exit **1**，2 tests / 0 pass / 2 fail，均在 `Graph result must retain the completion capture and chain` 失败；日志 `p2-red.log` 及 `p2-red/trace-*.json` 同时保存 result、latest、完整 events 与执行动作，可重读原始 seq5/seq6 差异。
+
+本轮最小生产改动仍在 `src/graph/graph.ts`：
+
+- rebind `complete()` 明确返回 `terminalState`（现有 observation、rebindState、acceptanceReport 三个字段），调用节点把它同时写入 Graph update 与 SQLite。没有增加 schema 字段或读取 Trace 来反向覆盖 Graph。
+- verify_task 和 resume_reconcile 的完成结果保存携带这组字段；最终 stage 的提前验收/最终验收采用同一快照，其各个保存出口不再回填旧 state；finish 的已有补验收出口也保留快照。
+- rebind 完成报告使用现有 `normalizeEvidence(terminal).observationId`，与 Hybrid/Manual 口径一致，包含 windowTitle、完整 capture、结构化与 FACET 证据。没有更改风险动作的授权指纹，也未扩展全局时效政策。
+- 完成读失败时保持 UNKNOWN 和无合法终态观察，最终状态也不复用旧观察；完整冻结条件融合、文件优先硬 Gate、专用持久链、Domain/来源/歧义判据和输入/预算边界不变。
+
+原 42 项 Graph 测试强化为比较 `result`、SQLite 最新任务行和最后 `acceptance_task` 的完整 observation/rebindState/report；ID 必须等于当前 observation 的 normalizeEvidence 哈希。另加 7 项回归：
+
+| 路径 | 结果/绑定 |
+| --- | --- |
+| final stage PASS / 最终 title FAIL / title UNKNOWN | done / waiting_user / waiting_user；三个状态均携带终态 seq6、同 epoch/object/title/report ID |
+| resume PASS / 最终 title FAIL / title UNKNOWN | done / paused / paused；Graph、SQLite 最新行和 MemorySaver checkpoint 均绑定 seq7，保持四次已派发输入，不再请求模型 |
+| Manual 的 reviewable UNKNOWN 外壳 | 当前完成捕获准入；旧 seq5、仅改变 title、仅改变 capture 的观察均拒绝；测试外壳不改变实际 Graph 自动 PASS，也不放行缺 rebind 证据 |
+
+最终核心命令：
+
+```powershell
+$env:B5A_EVIDENCE_DIR='.artifacts/b5a/p2-green'
+node --import tsx --test --test-concurrency=1 tests/rebind-completion-graph.test.ts tests/verification-structured-rebind.test.ts tests/structured-acceptance.test.ts tests/verification-file-graph.test.ts tests/readonly-browser-acceptance.test.ts tests/facet-contributor-matrix.test.ts
+```
+
+exit **0**，**96/96 PASS**（Graph 49 项），日志 `p2-core-green.log`。所有旧定向用例仍在此批次，断言其原有 PASS/FAIL/UNKNOWN 和路由，不把环境失败隐藏成成功。
+
+`npm run check`：exit **0**，日志 `p2-check.log`。首轮列出的人工/预算/恢复**同一正向白名单命令**在本轮再次运行：exit **0**，**15/15 PASS**，日志 `p2-regression.log`；仍仅测试新建合成临时数据与 127.0.0.1 假服务，未包含预算 UI 用例。
+
+本轮两次最终成功批次覆盖 **111 个不同用例**；没有重跑完整 CI。NOTRUN：完整 `npm run test:offline`、`npm run test:python`、`npm run test:browser`、大型 CI、预算 UI、真实 APP/Windows/VM/外站/付费模型、B5b、U9/U10/U11。预算 UI 的首轮 Chromium BLOCKED 记录保留，本轮未尝试安装/启动浏览器。
+
+原始证据仍位于忽略目录 `.artifacts/b5a/`：`p2-green/trace-*.json` 含 Graph/SQLite/events，`trace-resume-{pass,fail,unknown}.json` 另含 checkpoint；保留本轮 SHA256 manifest，不提交生成资产。PR #87 保持 Draft/OPEN，Issue #86 OPEN；等待新精确 HEAD 的独立复审，不自动合并/关闭/升级阶段，不触碰 PR #68。**AWAITING_INDEPENDENT_REVIEW；A5 safety FAIL、Windows PAUSED、overall INCOMPLETE 保持。**
