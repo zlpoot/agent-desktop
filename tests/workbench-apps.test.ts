@@ -129,13 +129,17 @@ test('explicit stop is scoped, revision fenced and idempotent; retains saved con
   } finally { await root.dispose(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('ordinary Root wires configured App service and App-only environment without task/model/input', async () => {
+test('ordinary Root admits task environment and read-only Session without launch/model/input', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'workbench-wiring-')), client = new FakeWorkbenchClient(); let models = 0;
   const provider = new WorkbenchApps(config, scope.installationScopeId, client, true);
   const root = await createRootAssembly({ rootDir: dir, workbenchApps: provider, model: { createModel() { models++; throw Error('no-model'); } } });
   try {
     const option = (await root.controller.desktopOptions()).find(item => item.providerId === scope.providerId)!;
-    assert.equal(option.executable, false); await assert.rejects(provider.open(), /no-task-runtime/);
+    assert.equal(option.executable, true); await assert.rejects(provider.open('other'), /environment-unavailable/);
+    const session = await provider.open(scope.environmentId);
+    assert.equal(session.providerId, scope.providerId); assert.equal((await session.status()).state, 'open');
+    assert.equal(client.starts, 0); assert.equal(models, 0);
+    await session.close();
     const target = { providerId: scope.providerId, environmentId: scope.environmentId };
     let view: any = await root.controller.manageApps({ action: 'open', desktopTarget: target });
     assert.equal(view.configuredAppList, true); assert.equal(view.readiness.controlledLaunch, true); assert.equal(client.starts, 0);

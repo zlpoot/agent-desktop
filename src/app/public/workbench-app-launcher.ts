@@ -1,5 +1,5 @@
-// Operator-only App opening on the workbench; uses the existing scoped management port.
-// App choices never become Task/runtime bindings or input permission.
+// Operator App opening and scoped configuration choices; the Task form submits only a Registry ID.
+// Runtime target receipts and input authority are established by the server, never by this selector.
 type WorkbenchAppTarget = import('../../contracts/task-desktop.js').TaskDesktopTarget;
 type WorkbenchRegisteredApp = import('../../contracts/environment-apps.js').EnvironmentAppBinding;
 type WorkbenchLaunchSpec = import('../../contracts/environment-apps.js').AppLaunchSpec;
@@ -140,7 +140,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     }
     document.dispatchEvent(new Event('workbench:app-selection'));
   }
-  async function load() {
+  async function load(previous = '') {
     reset(); if (!scope) { status.textContent = '选择桌面环境后，可选择并打开应用。'; return; }
     const current = version, selected = scope; busy = true; render(); status.textContent = '正在读取本环境的 App 列表…';
     try {
@@ -150,7 +150,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
       status.textContent = !state.readiness.controlledLaunch ? '请到“环境与应用”完成应用启动配置。'
         : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '点击“添加应用”，保存本环境中的应用。';
     } catch (error) { if (current === version) status.textContent = `App 列表不可用：${(error as Error).message}。可刷新重试或到“环境与应用”检查配置。`; }
-    finally { if (current === version) { busy = false; render(); } }
+    finally { if (current === version) { busy = false; render(previous); } }
   }
   async function act(action: WorkbenchAppAction, extra: WorkbenchAppActionFields = {}) {
     if (!state || busy) return;
@@ -287,5 +287,5 @@ window.createWorkbenchAppLauncher = (root, select) => {
     const selected = value ? { providerId: value.providerId, environmentId: value.environmentId } : undefined;
     if (key(selected) === key(scope)) return;
     scope = selected; void load();
-  }, reload() { return load(); } };
+  }, reload() { return load(select.value); } };
 };

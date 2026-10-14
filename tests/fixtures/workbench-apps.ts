@@ -1,10 +1,11 @@
 import type { WorkbenchAppClient, WorkbenchAppConfig } from '../../src/desktop-provider/workbench-apps.js';
 import type { EnvironmentAppBinding, EnvironmentAppScope } from '../../src/contracts/environment-apps.js';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { AppLaunchError } from '../../src/environment-apps/launcher.js';
 export const config: WorkbenchAppConfig = { path: 'C:\\Synthetic\\cloudmusic.exe', sha256: 'a'.repeat(64), version: '3.1.40.205461' };
 export const scope: EnvironmentAppScope = { providerId: 'workbench-apps', environmentId: 'local-workspace:apps', installationScopeId: 'windows:' + 'b'.repeat(64) };
 export class FakeWorkbenchClient implements WorkbenchAppClient {
+  private taskSessions = new Set<string>();
   calls: string[] = []; starts = 0; active = false; changed = false;
   ended = false; unknown = false; activeProfile?: EnvironmentAppBinding;
   conflict = false;
@@ -18,6 +19,16 @@ export class FakeWorkbenchClient implements WorkbenchAppClient {
   identity = { productId: 'win32-binary:' + config.sha256, fingerprint: config.sha256, version: config.version };
   async call<T>(method: string, fields: any = {}): Promise<T> {
     this.calls.push(method);
+    if (method === 'task_session_open') {
+      const sessionId = randomUUID(); this.taskSessions.add(sessionId);
+      return { providerId: scope.providerId, environmentId: scope.environmentId, sessionId,
+        instanceId: 'synthetic-task-worker', inputResourceId: 'synthetic-task-input' } as T;
+    }
+    if (method === 'task_status' || method === 'task_session_close') {
+      if (!this.taskSessions.has(fields.session?.sessionId)) throw Error('workbench-task-stale-session');
+      if (method === 'task_status') return { state: 'open', readiness: {} } as T;
+      this.taskSessions.delete(fields.session.sessionId); return undefined as T;
+    }
     const profile = fields.profile as EnvironmentAppBinding;
     const path = fields.path ?? fields.spec?.executable ?? config.path;
     const fingerprint = path === config.path ? config.sha256 : createHash('sha256').update(path).digest('hex');

@@ -169,7 +169,7 @@ class WorkbenchTasks:
                     type(authority.get('epoch')) is not int or not isinstance(authority.get('grantId'), str) or not authority['grantId']:
                 refused('invalid-authority')
             if method == 'task_activate':
-                if self.grant or authority['epoch'] <= self.epoch or not record.get('target'):
+                if self.grant or authority['epoch'] <= self.epoch or not record.get('target') or record.get('cleaned'):
                     refused('input-busy-or-stale')
                 self.epoch = authority['epoch']; self.grant = authority
                 self.grant_deadline = time.monotonic() + LEASE_SECONDS
@@ -184,6 +184,14 @@ class WorkbenchTasks:
                 self.revoked.set()
             else: refused('control-unavailable')
         return None
+
+    def invalidate_session(self, session):
+        record = self.record(session)
+        if self.grant and self.grant.get('sessionId') == record['session']['sessionId']:
+            self.revoked.set()  # Stop commitment before waiting for a slow native effect.
+        with self.control_lock:
+            if self.grant and self.grant.get('sessionId') == record['session']['sessionId']:
+                self.grant = None; self.grant_deadline = 0
 
     def authorized(self, record, authority=None):
         with self.control_lock:
@@ -305,9 +313,13 @@ class WorkbenchTasks:
         elif kind == 'keypress':
             if not record.get('last_input'): refused('keyboard-target-required')
             tree, row, element = self.locate(record, record['last_input'])
+        try: window = self.window(record)
+        except BaseException:
+            if tree: tree.close()
+            raise
         observation = {**record['target'], 'observationId': uuid.uuid4().hex}
         record['prepared'] = {'tree': tree, 'row': row, 'element': element, 'action': action,
-                              'observation': observation, 'created': time.monotonic(), 'window': self.window(record)}
+                              'observation': observation, 'created': time.monotonic(), 'window': window}
         return {'observation': observation}
 
     def receiver(self, record, row):
@@ -340,6 +352,7 @@ class WorkbenchTasks:
         old = record['receipts'].get(action_id)
         if old:
             if old['digest'] != digest: refused('action-id-conflict')
+            self.reset(record)
             return old['result']
         prepared = record.get('prepared')
         self.authorized(record, fields.get('authority'))
@@ -357,6 +370,7 @@ class WorkbenchTasks:
         def effect():
             with self.control_lock:
                 self.authorized(record, fields.get('authority')); self.target_current(record)
+                if time.monotonic()-prepared['created'] > 2: refused('fresh-observation-required')
                 kind = action['kind']; row, tree = prepared['row'], prepared['tree']
                 if tree:
                     element = prepared['element']; tree.owned(element)
@@ -371,6 +385,7 @@ class WorkbenchTasks:
                     # Resolve the pattern before commitment: unsupported is provably no-effect.
                     pattern = tree.pattern(row['index'], 10002, 'a94cd8b1-0844-4cd6-9d2d-640537ab39e9', False)
                     try:
+                        if tree.integer(pattern, 5): refused('text-target-read-only')
                         self.authorized(record); self.target_current(record); effects[0] = True
                         pattern.call(3, (W.LPCWSTR,), (action['text'],))
                     finally: pattern.close()
@@ -435,6 +450,7 @@ class WorkbenchTasks:
         if method == 'task_session_close':
             self.cleanup(record); record['closed'] = True; return None
         self.target_current(record)
+        if method == 'task_target_status': return {'target': record['target'], 'state': 'bound'}
         if method == 'task_windows':
             window = self.window(record); filters = fields.get('filter', {})
             return [window] if all(window.get({'windowTitle': 'title', 'windowClass': 'windowClass', 'processPath': 'processPath'}.get(key, key)) == value for key, value in filters.items()) else []
@@ -448,6 +464,9 @@ class WorkbenchTasks:
             window = self.window(record)
             names = {'windowHandle': 'handle', 'windowTitle': 'title', 'windowClass': 'windowClass', 'processPath': 'processPath', 'processId': 'processId'}
             if any(key in expected and expected[key] != window[value] for key, value in names.items()): refused('replacement-target-forbidden')
+            if method == 'task_restore' and ('desktopPath' in expected and expected['desktopPath'] != self.worker.context['desktop'] or
+                    expected.get('capture', {}).get('epoch', record['target']['targetId']) != record['target']['targetId']):
+                refused('replacement-observation-forbidden')
             return None
         if method == 'task_observe': return self.observe(record, fields.get('screenCapture', True))
         if method == 'task_prepare': return self.prepare(record, fields['action'])

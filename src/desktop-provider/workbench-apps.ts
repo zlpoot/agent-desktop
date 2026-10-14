@@ -42,6 +42,7 @@ export class WorkbenchApps implements DesktopProvider {
   private closed = false;
   readonly inputControl = new ResourceInputControl();
   private readonly sessions = new Set<WorkbenchTaskSession>();
+  private sessionDrain: Promise<unknown> = Promise.resolve();
   constructor(readonly config: WorkbenchAppConfig | undefined, installationScopeId: string, readonly client: WorkbenchAppClient, available = process.platform === 'win32') {
     this.config = config ? workbenchAppConfig(config) : undefined;
     this.available = available;
@@ -73,6 +74,15 @@ export class WorkbenchApps implements DesktopProvider {
   private readonly available: boolean;
   taskAvailable() { return this.available && !this.closed; }
   ownsSession(value: WorkbenchTaskSession) { return this.sessions.has(value); }
+  closeTaskSession(session: WorkbenchTaskSession): Promise<void> {
+    if (!this.ownsSession(session)) return Promise.reject(Error('workbench-task-session-mismatch'));
+    const operation = this.sessionDrain.then(() => this.client.call<void>('task_session_close', { session: {
+      providerId: session.providerId, environmentId: session.environmentId, sessionId: session.sessionId,
+      instanceId: session.instanceId, inputResourceId: session.inputResourceId,
+    } }));
+    this.sessionDrain = operation.catch(() => {});
+    return operation;
+  }
   hasSessionIdentity(value: DesktopSessionIdentity) {
     return [...this.sessions].some(session => !session.closed && session.providerId === value.providerId && session.environmentId === value.environmentId &&
       session.sessionId === value.sessionId && session.instanceId === value.instanceId && session.inputResourceId === value.inputResourceId);

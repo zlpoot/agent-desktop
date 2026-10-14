@@ -110,6 +110,7 @@ export class TaskAppOnboarding {
     }
     const app: TaskAppInteraction = { taskId, interactionId: randomUUID(), appName: name,
       desktopTarget: state.desktopTarget, state: 'discovering', candidates: [] };
+    const previousInteraction = state.appOnboarding?.interactionId;
     try {
       await this.ports.guard(state); state = this.ports.load(taskId);
       this.eligible(state);
@@ -132,9 +133,10 @@ export class TaskAppOnboarding {
       await this.scan(taskId, app.interactionId);
     } catch (error) {
       const current = this.ports.load(taskId);
-      if (current.appOnboarding?.state !== 'new_task_required' && (!current.appOnboarding || current.appOnboarding.interactionId === app.interactionId) && ['running', 'waiting_user'].includes(current.status)) {
+      if (current.appOnboarding?.state !== 'new_task_required' && (!current.appOnboarding || current.appOnboarding.interactionId === app.interactionId ||
+          current.appOnboarding.interactionId === previousInteraction) && ['running', 'waiting_user'].includes(current.status)) {
         this.write(current, { ...(current.appOnboarding ?? app),
-          state: /binding|scope-changed|new-task-required/.test(String(error)) ? 'new_task_required' : 'unavailable', reason: String(error) });
+          state: /binding|scope-changed|new-task-required|profile-no-longer-current/.test(String(error)) ? 'new_task_required' : 'unavailable', reason: String(error) });
       }
     } finally { this.cancellations.delete(taskId); }
     return false;

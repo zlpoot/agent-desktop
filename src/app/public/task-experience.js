@@ -296,7 +296,8 @@ window.createTaskExperience = function () {
   function save() { try { sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value])))); } catch {} }
   function update() {
     const item = selection.selected();
-    appLauncher.setEnvironment(window.Workbench?.mode === 'live' && selection.listed() ? item : undefined);
+    if (window.Workbench?.mode !== 'live') appLauncher.setEnvironment(undefined);
+    else if (selection.listed()) appLauncher.setEnvironment(item);
     const catalog = item?.scenarios || [];
     const renderKey = JSON.stringify([target.value, catalog]);
     if (renderedDestination !== renderKey) {

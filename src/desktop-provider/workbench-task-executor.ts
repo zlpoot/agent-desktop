@@ -59,8 +59,10 @@ export class WorkbenchTaskSession implements DesktopSession {
   }
   close(): Promise<void> {
     return this.closing ??= (async () => {
-      await this.provider.inputControl.revokeSession(this);
-      await this.provider.client.call('task_session_close', { session: identity(this) });
+      const errors: unknown[] = [];
+      try { await this.provider.inputControl.revokeSession(this); } catch (error) { errors.push(error); }
+      try { await this.provider.closeTaskSession(this); } catch (error) { errors.push(error); }
+      if (errors.length) throw new AggregateError(errors, 'workbench-task-session-cleanup-unconfirmed');
       this.closed = true;
     })();
   }
@@ -122,11 +124,21 @@ export class WorkbenchTaskExecutor implements DesktopTaskExecutor {
             try {
               this.provider.inputControl.renewAuthority(authority);
               void this.provider.client.call('task_heartbeat', { session: identity(session), authority })
-                .catch(error => { claim.heartbeatFailure = error; clearInterval(claim.heartbeat); })
+                .catch(error => {
+                  if (claim.authority === authority && claim.taskId === taskId && !claim.releasing) {
+                    claim.heartbeatFailure = error; clearInterval(claim.heartbeat);
+                  }
+                })
                 .finally(() => { pending = false; });
             } catch (error) { claim.heartbeatFailure = error; clearInterval(claim.heartbeat); pending = false; }
           }, 1000);
           claim.heartbeat.unref();
+        } catch (error) {
+          clearInterval(claim.heartbeat);
+          try { await session.close(); }
+          catch (cleanup) { throw new AggregateError([error, cleanup], 'workbench-task-start-cleanup-unconfirmed'); }
+          claim.authority = undefined; claim.runtime = undefined;
+          throw error;
         } finally { claim.starting = false; }
       },
       finishTask: (taskId: string, status?: string) => {
@@ -190,7 +202,11 @@ export class WorkbenchTaskExecutor implements DesktopTaskExecutor {
         bind: async selector => { if (selector !== target.targetId) throw new Error('workbench-task-target-mismatch'); return target; },
         targetStatus: async binding => {
           if (!sameSession(binding, target) || binding.targetId !== target.targetId) throw new Error('workbench-task-target-mismatch');
-          await call('task_probe');
+          const status = await call<{ target: TargetBinding; state: string }>('task_target_status');
+          if (status?.state !== 'bound' || !status.target || !sameSession(status.target, target) ||
+              (['targetId', 'application', 'applicationVersion', 'targetRole'] as const).some(key => status.target[key] !== target[key])) {
+            throw new Error('workbench-task-target-mismatch');
+          }
           return { binding: target, state: 'bound', capabilities: workbenchTaskCapabilities(), readiness: readiness() };
         },
         requirements: async (_binding, request) => operation(request.action),
@@ -238,7 +254,12 @@ export class WorkbenchTaskExecutor implements DesktopTaskExecutor {
         },
         close: async () => {
           if (closed) return; closed = true; gate.invalidate();
-          await this.provider.client.call('task_reset', { session: identity(session) });
+          if (session.closed) return; // Session cleanup already drained this binding.
+          const errors: unknown[] = [];
+          try { await this.provider.client.call('task_reset', { session: identity(session) }); } catch (error) { errors.push(error); }
+          // If beginTask was never reached, Controller has no claimed input to finish.
+          if (!claim.taskId) try { await session.close(); } catch (error) { errors.push(error); }
+          if (errors.length) throw new AggregateError(errors, 'workbench-task-runtime-cleanup-unconfirmed');
         },
       };
       claim.runtime = runtime;

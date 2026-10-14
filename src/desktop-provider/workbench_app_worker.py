@@ -93,6 +93,8 @@ class OwnedApp:
         self.native = WindowsNativeLauncher(lambda: self.scope)
         self.fence = RegistryFence(registry, scope)
         self.lock = threading.RLock()
+        self.expiry_lock = threading.RLock()
+        self.on_expire = None
         self.desktop = self.job = self.process = self.file = self.context = None
         self.pid = self.hwnd = self.token = self.profile = None
         self.blocked = False
@@ -112,8 +114,17 @@ class OwnedApp:
             finally:
                 self.watch_ready.set()
             while not self.watch_stop.wait(.1):
-                with self.lock:
-                    if self.context and time.monotonic() >= self.deadline:
+                expired = None
+                # A hung UIA call holds lock. Kill only the current owned Job
+                # through a separate handle lock; never wait for UIA to expire it.
+                with self.expiry_lock:
+                    if self.context and self.job and time.monotonic() >= self.deadline:
+                        expired = self.context
+                        if self.on_expire: self.on_expire()
+                        if not self.api.k.TerminateJobObject(self.job, 1): self.blocked = True
+                if expired:
+                    with self.lock:
+                        if self.context is not expired: continue
                         try:
                             self.close(reason='workbench-resource-expired')
                         except Exception:
@@ -297,11 +308,12 @@ class OwnedApp:
         self.reservation_id = reservation_id
         try:
             self.desktop = self.api.desktop(self.name)
-            self.job = self.api.job(self.name + '_job')
-            self.context = {'scope': self.scope, 'sessionId': uuid.uuid4().hex, 'instanceId': uuid.uuid4().hex,
-                            'windowsSessionId': self.api.session(os.getpid()), 'desktop': station + '\\' + self.api.name(self.desktop)}
-            self.deadline = time.monotonic() + 60
-            self.expires_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 60))
+            with self.expiry_lock:
+                self.job = self.api.job(self.name + '_job')
+                self.context = {'scope': self.scope, 'sessionId': uuid.uuid4().hex, 'instanceId': uuid.uuid4().hex,
+                                'windowsSessionId': self.api.session(os.getpid()), 'desktop': station + '\\' + self.api.name(self.desktop)}
+                self.deadline = time.monotonic() + 60
+                self.expires_at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 60))
             return self.context
         except BaseException:
             self.close()
@@ -369,11 +381,11 @@ class OwnedApp:
         checked = self.inspect(profile['launchSpec'])
         if checked['identity'] != profile['identity']:
             raise ValueError('workbench-installation-changed')
-        previous = self.thread_desktop()
+        if self.api.name(self.thread_desktop()).lower() != 'default':
+            raise ValueError('workbench-controller-thread-not-default')
         try:
-            self.api.checked(self.api.u.SetThreadDesktop(self.desktop), 'workbench-query-bind')
-            if self.api.name(self.thread_desktop()) != self.name:
-                raise ValueError('workbench-helper-desktop-unconfirmed')
+            # Enumerate the pinned Desktop handle without rebinding the MTA/UIA
+            # thread. COM may own helper windows and prevent SetThreadDesktop.
             windows = []
             @ENUMPROC
             def collect(hwnd, _):
@@ -416,7 +428,6 @@ class OwnedApp:
                      'executable': profile['launchSpec']['executable'], 'args': [], 'processOwnedByInstallation': True,
                      'windowOwnedByProcess': True, 'sameUser': True, 'permissionsCompatible': True}]
         finally:
-            self.api.checked(self.api.u.SetThreadDesktop(previous), 'workbench-query-restore')
             if self.api.name(self.thread_desktop()).lower() != 'default':
                 self.blocked = True
                 raise ValueError('workbench-default-restore-unconfirmed')
@@ -436,11 +447,12 @@ class OwnedApp:
             active = self.api.job_active(self.job)
             if active: errors.append({'step': 'job-not-empty', 'activeProcesses': active})
         for key in ('process', 'job', 'file'):
-            handle = getattr(self, key)
-            if handle:
-                C.set_last_error(0)
-                if not self.api.k.CloseHandle(handle): failed(key)
-                else: setattr(self, key, None)
+            with self.expiry_lock:
+                handle = getattr(self, key)
+                if handle:
+                    C.set_last_error(0)
+                    if not self.api.k.CloseHandle(handle): failed(key)
+                    else: setattr(self, key, None)
         if self.desktop:
             desktop = self.desktop
             C.set_last_error(0)
@@ -494,6 +506,7 @@ def main():
         try:
             if pipe_closed.is_set(): raise ValueError('workbench-app-cancelled')
             with worker.lock:
+                worker.api.capture_dpi()  # DPI awareness is thread-local, not inherited from init.
                 method, fields = request['method'], request.get('fields', {})
                 if method.startswith('task_'): result = tasks.dispatch(method, fields)
                 elif method == 'inspect': result = worker.inspect(fields['spec'])
@@ -531,6 +544,7 @@ def main():
                     worker = OwnedApp(fields.get('config'), fields['scope'], fields['registry'])
                     from workbench_task_runtime import WorkbenchTasks
                     tasks = WorkbenchTasks(worker)
+                    worker.on_expire = tasks.revoked.set
                     result = {'initialized': True, 'previewDirectory': getattr(worker, 'preview_id', None)}
                 elif worker and method in ('task_activate', 'task_heartbeat', 'task_revoke'):
                     result = tasks.control(method, fields)
@@ -539,8 +553,10 @@ def main():
                         task_pool.submit(task_request, value, False)
                         continue
                 elif worker and method in ('task_session_open', 'task_session_close', 'task_status', 'task_bind',
-                        'task_cleanup', 'task_reset', 'task_windows', 'task_probe', 'task_attach', 'task_restore',
+                        'task_cleanup', 'task_reset', 'task_windows', 'task_probe', 'task_target_status', 'task_attach', 'task_restore',
                         'task_observe', 'task_prepare', 'task_ground', 'task_execute'):
+                    if method in ('task_session_close', 'task_cleanup'):
+                        tasks.invalidate_session(fields.get('session'))
                     if not task_slots.acquire(blocking=False): raise ValueError('workbench-task-queue-limit')
                     task_pool.submit(task_request, value)
                     continue

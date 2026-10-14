@@ -14,12 +14,17 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
   private next = 0;
   private pending = new Map<number, { resolve(value: any): void; reject(error: Error): void }>();
   private failed = false;
+  private initializing?: Promise<void>;
+  private closing?: Promise<void>;
   private previewDirectory?: string;
   constructor(private readonly config: WorkbenchAppConfig | undefined, private readonly scope: EnvironmentAppScope,
     private readonly registry: string, private readonly project: string) {}
   private async initialize() {
     if (this.failed) throw Error('workbench-app-worker-unavailable');
-    if (this.child) return;
+    if (this.closing) throw Error('workbench-app-worker-closing');
+    return this.initializing ??= this.initializeWorker();
+  }
+  private async initializeWorker() {
     const child = this.child = spawn('python', [resolve(this.project, 'src/desktop-provider/workbench_app_worker.py')], {
       windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     const fail = () => { this.failed = true; for (const waiter of this.pending.values()) waiter.reject(Error('workbench-app-worker-disconnected')); this.pending.clear(); };
@@ -33,15 +38,23 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
         : value.error === 'workbench-installation-changed' ? 'stale'
         : value.error === 'workbench-native-operation-failed' ? 'unknown' : 'unavailable', value.error)); else waiter.resolve(value.result);
     });
-    const initialized = await this.send<{ previewDirectory?: string }>('init', { config: this.config, scope: this.scope, registry: this.registry });
-    if (initialized.previewDirectory && /^[a-f0-9]{32}$/.test(initialized.previewDirectory)) this.previewDirectory = initialized.previewDirectory;
+    try {
+      const initialized = await this.send<{ initialized: boolean; previewDirectory: string }>('init', { config: this.config, scope: this.scope, registry: this.registry });
+      if (initialized?.initialized !== true || typeof initialized.previewDirectory !== 'string' || !/^[a-f0-9]{32}$/.test(initialized.previewDirectory)) {
+        throw Error('workbench-app-worker-init-unconfirmed');
+      }
+      this.previewDirectory = initialized.previewDirectory;
+    } catch (error) { child.kill(); fail(); throw error; }
   }
   private send<T>(method: string, fields: object = {}): Promise<T> {
+    if (this.failed || !this.child || this.child.exitCode !== null || this.child.signalCode !== null) return Promise.reject(Error('workbench-app-worker-unavailable'));
     const id = ++this.next;
+    const packet = JSON.stringify({ id, method, fields }) + '\n';
+    if (Buffer.byteLength(packet) > 131072) return Promise.reject(Error('workbench-request-limit'));
     return new Promise((resolveReply, reject) => {
       const timer = setTimeout(() => { this.pending.delete(id); this.failed = true; this.child?.kill(); reject(Error('workbench-app-worker-timeout')); }, 15000);
       this.pending.set(id, { resolve: value => { clearTimeout(timer); resolveReply(value); }, reject: error => { clearTimeout(timer); reject(error); } });
-      this.child!.stdin.write(JSON.stringify({ id, method, fields }) + '\n');
+      this.child!.stdin.write(packet);
     });
   }
   private async readPreview(value: any): Promise<AppWindowPreview> {
@@ -74,6 +87,7 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
   }
   async call<T>(method: string, fields: object = {}): Promise<T> {
     await this.initialize();
+    if (this.closing) throw Error('workbench-app-worker-closing');
     const result = await this.send<T>(method, fields);
     if (method === 'task_observe' && (result as any)?.capture) {
       const value = result as any;
@@ -83,13 +97,19 @@ export class NativeWorkbenchAppClient implements WorkbenchAppClient {
     }
     return method === 'preview' ? await this.readPreview(result) as T : result;
   }
-  async close() {
+  close(): Promise<void> {
+    return this.closing ??= this.closeWorker();
+  }
+  private async closeWorker() {
+    if (this.initializing) await this.initializing.catch(() => {});
     const child = this.child; if (!child) return;
-    if (!this.failed) await this.send('close');
+    let closeFailure: unknown;
+    try { if (!this.failed) await this.send('close'); } catch (error) { closeFailure = error; }
     child.stdin.end();
-    if (child.exitCode === null) await new Promise<void>((done, reject) => {
+    if (child.exitCode === null && child.signalCode === null) await new Promise<void>((done, reject) => {
       const timer = setTimeout(() => { child.kill(); reject(Error('workbench-app-worker-close-unconfirmed')); }, 3000);
       child.once('exit', () => { clearTimeout(timer); done(); });
     });
+    if (closeFailure) throw closeFailure;
   }
 }
