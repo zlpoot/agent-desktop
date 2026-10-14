@@ -35,11 +35,11 @@ test('U9b pause '+row.kind+' checkpoint='+checkpoint,()=>fixture(async(trace,dir
   const model=new FakeModel([action]);
   const consume=()=>meteredModelRequest('deepseek',async()=>({usage:{total_tokens:3}}));
   const originalDecide=model.decide.bind(model);
-  model.decide=async state=>{
+  model.decide=async()=>{
     decisions++;
     if(row.kind==='budget-execute'||row.kind==='budget-decide')await consume();
     if(row.kind==='budget-decide')await consume(); // Real budget refusal, no external model.
-    return originalDecide(state);
+    return originalDecide();
   };
   const graph=createAgentLoop({runtime,trace,
     model:{...model,decide:model.decide,planStage:async()=>{
