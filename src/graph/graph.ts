@@ -398,12 +398,17 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       return {result:{...original,ok:verdict==='pass',message},report};
     }
     if(hasRebindCondition(state.completionCriteria)) {
-      // 可编辑持久字段：终态再取一次只读观察锚定「现在」，把链推进到最新后裁决，避免陈旧重投影放行。
-      let terminal=state.observation;
+      // One completion capture serves every frozen condition. A failed read must
+      // not reuse an earlier R1 PASS. File gates above retain their priority.
+      let terminal:Observation|undefined;
       let terminalChain:RebindStateMap|undefined=state.rebindState;
       try {
         const fresh=await observeWithFacets();
-        if(fresh){
+        const capture=fresh?.capture, previous=state.observation?.capture;
+        if(capture&&previous&&capture.epoch===previous.epoch&&capture.object===previous.object&&
+          Number.isFinite(capture.sequence)&&capture.sequence>previous.sequence&&
+          Number.isFinite(capture.startedAt)&&Number.isFinite(capture.finishedAt)&&
+          capture.finishedAt>=capture.startedAt){
           terminal=fresh;
           const effect=state.lastResult?.effect??(state.lastResult?.ok?'dispatched':'uncertain');
           const chain:RebindStateMap={...(state.rebindState??{})};
@@ -412,17 +417,78 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
               state.completionCriteria!.structuredStates![index],effect==='dispatched');
           terminalChain=chain;
         }
-      } catch { /* 取不到新鲜观察就用已存观察与链，fail-closed 不额外放行。 */ }
-      const source=state.verificationContract?.evidenceSources.structuredStates==='dom'?'dom':'uia';
-      const rb=evaluateRebindTask(state.completionCriteria!,terminalChain,terminal,source);
+      } catch { /* Missing completion capture stays UNKNOWN; never replay input. */ }
+      const criteria=state.completionCriteria!;
+      const contract=state.verificationContract;
+      const checks=deterministicChecks(criteria,terminal,contract,domainEvaluator);
+      const captureFields:Record<string,string>={urlIncludes:'url',pageTextIncludes:'pageText',
+        pageTextIncludesAll:'pageText',pageTextNumberLabels:'pageText',domIncludes:'dom',
+        accessibilityIncludes:'accessibility'};
+      for(const check of checks) {
+        const field=captureFields[check.criterion];
+        if(field&&terminal?.capture?.fields[field]?.complete!==true) {
+          check.verdict='unknown';check.reason='evidence_unavailable';
+          check.message='完成观察中的条件字段采集缺失或不完整，不能作出确定性结论';
+        }
+      }
+      // Validate the ORIGINAL full contract; never freeze a reduced sub-contract.
+      // Legacy rebind tasks without provenance cannot auto-complete. Non-rebind
+      // legacy tasks continue through their existing acceptance path below.
+      const frozenMismatch=!contract||contract.goal.trim()!==state.goal.trim()||
+        JSON.stringify(contract.successConditions)!==JSON.stringify(criteria)||
+        contract.verifierStrategy!=='rules_then_jev'||
+        Object.keys(contract.evidenceSources).some(key=>!(key in criteria));
+      const source=contract?.evidenceSources.structuredStates;
+      const structuredStamp=source==='uia'?terminal?.capture?.fields.dom:terminal?.capture?.fields.structured;
+      const sourceBound=(source==='dom'||source==='uia')&&
+        structuredStamp?.source===source&&structuredStamp.complete;
+      const rb=evaluateRebindTask(criteria,terminalChain,sourceBound?terminal:undefined,
+        source==='dom'?'dom':'uia');
+      for(const index of rebindConditionIndexes(criteria)) {
+        const slot=checks.findIndex(check=>check.criterion===`structuredStates:${index}`);
+        const check=rb.checks.find(check=>check.criterion===`structuredStates:${index}`)!;
+        // Only persistedAfter:rebind placeholders may be replaced. Ordinary
+        // structured checks retain source binding, ambiguity and audit details.
+        checks[slot]={criterion:check.criterion,verdict:check.verdict,
+          message:check.reason?`${check.reason}: ${check.message}`:check.message,
+          ...(check.verdict==='unknown'?{reason:check.reason==='target_ambiguous'
+            ?'target_ambiguous' as const:'evidence_unavailable' as const}:{}),
+          ...(check.evidence?{evidence:check.evidence}:{})};
+      }
+      // Preserve the existing stale-result rule for ordinary save/submit banners.
+      if(/(保存|提交|发布|支付|发送|\bsave\b|\bsubmit\b|\bpublish\b|\bpay\b|\bsend\b)/i.test(state.goal)) {
+        criteria.structuredStates?.forEach((condition,index)=>{
+          if(condition.persistedAfter==='rebind'||condition.field!=='text'||
+            !['text','status','alert'].includes(condition.target.role.toLowerCase()))return;
+          const key=`structuredStates:${index}`, current=checks.find(check=>check.criterion===key);
+          if(current?.verdict==='pass'&&state.baselineChecks?.some(check=>check.criterion===key&&check.verdict==='pass')) {
+            current.verdict='unknown';current.reason='observation_stale';
+            current.message='结果提示在本次任务开始前已存在，不能证明本次保存或提交成功';
+          }
+        });
+      }
+      if(frozenMismatch) {
+        for(const check of checks) {
+          check.verdict='unknown';check.reason='unsupported_condition';
+          check.message='原始 Goal、完整条件或证据来源契约缺失/不一致，禁止使用子合同验收';
+          delete check.evidence;
+        }
+        checks.push({criterion:'frozen_contract',verdict:'unknown',reason:'unsupported_condition',
+          message:'原始 Goal、完整条件或证据来源契约缺失/不一致'});
+      }
+      if(!terminal)checks.push({criterion:'terminal_capture',verdict:'unknown',reason:'evidence_unavailable',
+        message:'未取得同对象、同 epoch 且序号前进的完成观察，禁止复用旧验收'});
+      const verdict=checks.some(check=>check.verdict==='fail')?'fail':
+        checks.length&&checks.every(check=>check.verdict==='pass')?'pass':'unknown';
+      const message=verdict==='pass'?'持久化链与全部冻结完成条件均已通过确定性验收':
+        verdict==='fail'?'完整任务存在可信明确反证':
+          checks.find(check=>check.verdict==='unknown')?.message??'完整任务证据不足';
       const report:import('../verifier/hybrid-verifier.js').AcceptanceReport={mode:'assist',
-        verdict:rb.verdict,observationId:observationSignature(terminal)??'',
-        checks:rb.checks.map(check=>({criterion:check.criterion,verdict:check.verdict,
-          message:check.message,...(check.evidence?{evidence:check.evidence}:{})})),
-        ...(rb.verdict==='unknown'?{reason:'evidence_unavailable' as const}:{}),
-        message:rb.message};
-      trace.save('acceptance_task',{...state,acceptanceReport:report});
-      return {result:{...original,ok:rb.verdict==='pass',message:rb.message},report};
+        verdict,observationId:observationSignature(terminal)??'',checks,
+        ...(verdict==='unknown'?{reason:checks.find(check=>check.verdict==='unknown')?.reason}:{}),message};
+      trace.save('acceptance_task',{...state,observation:terminal,rebindState:terminalChain,acceptanceReport:report});
+      const current=verdict==='pass'?verifyGoal(criteria,terminal,domainEvaluator):undefined;
+      return {result:{...current,ok:verdict==='pass',message},report};
     }
     const report = await acceptance(state, 'task');
     return {result:report ? applyAcceptance(original, report) : original, report};
