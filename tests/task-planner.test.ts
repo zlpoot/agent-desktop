@@ -20,6 +20,21 @@ const window: WindowInfo = { handle: 42, title: "示例应用", windowClass: "Ex
   visible: true, minimized: false, foreground: true,
   rect: { left: 0, top: 0, width: 100, height: 100 } };
 const goal = '测试目标';
+
+test('missing final text cannot execute reasoning content and preserves reported planning usage', async t => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: {
+    content: null, reasoning_content: 'do not execute this' } }],
+    usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 } }));
+  const model = new ChatCompletionsModel({ baseUrl: 'https://synthetic.invalid', model: 'test', apiKey: 'synthetic' });
+  await assert.rejects(() => model.planTask(goal), error => {
+    assert.ok(error instanceof TaskPlanningError);
+    assert.equal(error.message, '模型未返回文本');
+    assert.equal(error.usage?.totalTokens, 8);
+    return true;
+  });
+});
 const contract = (criteria: Record<string, unknown>, target = goal) => ({goal:target,
   successConditions:criteria, evidenceSources:Object.fromEntries(Object.keys(criteria).map(key => [key,
     key === 'accessibilityIncludes' ? 'uia' : key === 'windowTitleIncludes' ? 'window' :
@@ -60,6 +75,16 @@ test('规划契约拒绝目标漂移、遗漏证据来源、未知字段和类�
   assert.throws(() => parseTaskPlan(plan({...contract({pageTextIncludes:'已完成'}),verifierStrategy:'model_only'}), [], goal), /Verifier Strategy/);
   assert.throws(() => parseTaskPlan(JSON.stringify({environment:'browser',plan:['打开页面'],
     completionCriteria:{pageTextIncludes:'旧格式'}}), [], goal), /任务验证契约/);
+});
+
+test('Windows UIA accepts text/value evidence but rejects DOM checked state without relaxing the contract', () => {
+  const plan = (field: string, equals: unknown) => JSON.stringify({ environment: 'windows', windowHandle: 42,
+    plan: ['查看结果'], verificationContract: { ...contract({ structuredStates: [
+      { target: { role: 'Button', name: '目标条目' }, field, equals },
+    ] }), evidenceSources: { structuredStates: 'uia' } } });
+  assert.throws(() => parseTaskPlan(plan('checked', true), [window], goal), /结构化完成条件/);
+  assert.equal(parseTaskPlan(plan('text', '结果已保存'), [window], goal)
+    .completionCriteria.structuredStates?.[0].equals, '结果已保存');
 });
 
 test('规划验证契约在 Graph 与 Trace 中保持原样，不由后续动作改写', async () => {

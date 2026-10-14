@@ -7,6 +7,8 @@
 
 Browser 任务依据页面 runtime 的证据能力规划：最终网址使用 urlIncludes/browser；网页标题指 DOM head 中的 title，使用 domIncludes/dom；正文标记使用 pageTextIncludes/dom。当前 Browser 页面 runtime 不提供原生窗口标题或原生 UIA，不得生成 windowTitleIncludes/window、accessibilityIncludes/uia 或其他 UIA 来源条件。用户若确实要求原生窗口证据，不得用网页标题或正文代替。
 
+结构化条件的来源限制：Browser 的 dom 来源允许 text、value、checked（equals 必须是布尔值）、classToken。Windows 的 uia 来源只允许 text 或 value（equals 必须是非空字符串），禁止 checked、classToken、selected、toggleState 等字段；不能把 DOM 的勾选状态示例套用于 Windows。当前 UIA 不提供可供验收的 TogglePattern 布尔状态，因此收藏、点赞等任务只能依据实际可独立观察的结果文本或值验证；没有可靠结果证据时保持待验证，不能改用歌曲名、窗口打开或搜索完成作为收藏成功的证据。target 只允许 role、name、text，不允许 kind、selector、id 等定位字段；每项只允许 target、field、equals 和可选的 persistedAfter。
+
 通用事实与验收约束：
 事实与要求分开：用户明确要求是约束，观察和 runtimeContext 是事实来源，模型知识、示例和建议不是当前环境事实。不要在执行计划中填入未经确认的示例值供后续照抄。相对时间、当前用户、目标位置等上下文值必须依据带来源的运行上下文或新观察；缺失时规划先获取事实，不猜测。用户未指定的名称、格式等可以作为执行选择，但不要把任意选择增加为用户验收要求。完成条件应覆盖实际结果，不能把打开窗口、点击成功或标题变化等代理信号等同于完整目标。无法用现有条件表达的部分保留为待验证项，不声称已证明。
 

@@ -178,15 +178,34 @@ export class ChatCompletionsModel implements ModelAdapter {
 
   private async request(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
     const invoke = async () => {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { Authorization: `Bearer ${this.options.apiKey}`,
-        ...(init.body ? { "Content-Type": "application/json" } : {}) },
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`模型服务返回 HTTP ${response.status}`);
-    return object(body);
+      // Desktop actions are short, schema-validated decisions within the existing
+      // native lifetime. DeepSeek enables high-effort thinking by default.
+      const desktopDeepSeek = this.options.environment === 'desktop' &&
+        new URL(this.baseUrl).hostname === 'api.deepseek.com' &&
+        ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro'].includes(this.options.model);
+      const requestBody = path === '/chat/completions' && typeof init.body === 'string'
+        ? JSON.stringify({ ...JSON.parse(init.body), stream: false,
+          ...(desktopDeepSeek ? { thinking: { type: 'disabled' } } : {}) }) : init.body;
+      try {
+        const response = await fetch(`${this.baseUrl}${path}`, {
+          ...init, body: requestBody,
+          headers: { Authorization: `Bearer ${this.options.apiKey}`,
+            ...(init.body ? { "Content-Type": "application/json" } : {}) },
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+        if (!response.ok) throw new Error(`模型服务返回 HTTP ${response.status}`);
+        let body: unknown;
+        try { body = await response.json(); }
+        catch (error) {
+          if (error instanceof SyntaxError) throw new Error('模型服务未返回有效 JSON');
+          throw error;
+        }
+        return object(body);
+      } catch (error) {
+        if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
+          throw new Error('模型服务请求或响应读取超时');
+        throw error;
+      }
     };
     return path === '/models' ? invoke() : meteredModelRequest('deepseek', invoke);
   }
@@ -205,7 +224,8 @@ export class ChatCompletionsModel implements ModelAdapter {
 
   private output(body: Record<string, unknown>): string {
     const first = Array.isArray(body.choices) ? body.choices[0] as { message?: { content?: unknown } } : undefined;
-    if (typeof first?.message?.content !== "string") throw new Error("模型未返回文本");
+    if (typeof first?.message?.content !== "string" || !first.message.content.trim())
+      throw new Error("模型未返回文本");
     return first.message.content;
   }
 
@@ -301,8 +321,6 @@ export class ChatCompletionsModel implements ModelAdapter {
           highImpactActionsRequireApproval: true,
         } }) }],
     }) });
-    const first = Array.isArray(body.choices) ? body.choices[0] as { message?: { content?: unknown } } : undefined;
-    if (typeof first?.message?.content !== "string") throw new Error("任务规划器未返回文本");
     const usage = body.usage && typeof body.usage === "object" && !Array.isArray(body.usage)
       ? body.usage as Record<string, unknown> : undefined;
     const tokens = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0
@@ -311,7 +329,7 @@ export class ChatCompletionsModel implements ModelAdapter {
       inputTokens: tokens(usage.prompt_tokens), outputTokens: tokens(usage.completion_tokens),
       totalTokens: tokens(usage.total_tokens),
     } : undefined;
-    try { return { task: parseTaskPlan(first.message.content, visible, goal, apps, criteriaOverride),
+    try { return { task: parseTaskPlan(this.output(body), visible, goal, apps, criteriaOverride),
       usage: recordedUsage }; }
     catch (error) { throw new TaskPlanningError(error instanceof Error ? error.message : "任务规划结果无效",
       recordedUsage); }

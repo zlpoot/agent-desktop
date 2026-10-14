@@ -452,7 +452,8 @@ export class DesktopTaskController implements TaskController {
       const model = modelProvider.createModel(explicit ? {
         environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
         visualMode: explicit.workflow.environment === 'windows',
-      } : route.environment === 'browser' ? { environment: 'browser', visualMode: false } : undefined);
+      } : route.environment === 'browser' ? { environment: 'browser', visualMode: false }
+        : { environment: 'desktop', visualMode: false });
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
       let plan = queued.plan;
