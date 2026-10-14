@@ -62,24 +62,30 @@ export class DesktopControl implements DesktopControlHooks {
     private readonly connectionOptions: ConnectionConfig = connectionDefaults) {
     this.workerReady = !requireReconnect;
     this.db = new DatabaseSync(resolve(rootDir, "desktop-control.sqlite"));
-    this.db.exec(`CREATE TABLE IF NOT EXISTS control_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS control_events (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
-        task_id TEXT, created_at TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL)`);
-    const row = this.db.prepare("SELECT value FROM control_state WHERE id=?").get(sessionId) as { value: string } | undefined;
-    if (row) {
-      const previous = JSON.parse(row.value) as ControlState;
-      const trace = new SqliteTrace(resolve(rootDir, "web-tasks.sqlite"));
-      try {
-        const task = previous.taskId ? trace.load(previous.taskId) : undefined;
-        this.state = { mode: previous.mode === "STOPPED" ? "STOPPED" : "PAUSED",
-          taskId: task && ["paused", "waiting_user", "stopped"].includes(task.status) ? task.taskId : null,
-          humanClient: null };
-        this.stopping = this.state.mode === "STOPPED";
-      } finally { trace.close(); }
+    try {
+      this.db.exec(`CREATE TABLE IF NOT EXISTS control_state (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS control_events (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,
+          task_id TEXT, created_at TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL)`);
+      const row = this.db.prepare("SELECT value FROM control_state WHERE id=?").get(sessionId) as { value: string } | undefined;
+      if (row) {
+        const previous = JSON.parse(row.value) as ControlState;
+        const trace = new SqliteTrace(resolve(rootDir, "web-tasks.sqlite"));
+        try {
+          const task = previous.taskId ? trace.load(previous.taskId) : undefined;
+          this.state = { mode: previous.mode === "STOPPED" ? "STOPPED" : "PAUSED",
+            taskId: task && ["paused", "waiting_user", "stopped"].includes(task.status) ? task.taskId : null,
+            humanClient: null };
+          this.stopping = this.state.mode === "STOPPED";
+        } finally { trace.close(); }
+      }
+      // Restart preserves task identity, never a browser lease or permission to type.
+      if (this.state.mode === "STOPPED") this.markStopped();
+      this.save("host_started");
+    } catch (error) {
+      // A failed constructor never reaches the Session disposer.
+      this.db.close();
+      throw error;
     }
-    // Restart preserves task identity, never a browser lease or permission to type.
-    if (this.state.mode === "STOPPED") this.markStopped();
-    this.save("host_started");
   }
   private save(kind: string, detail: unknown = {}) {
     this.db.prepare("INSERT OR REPLACE INTO control_state VALUES (?, ?)")
