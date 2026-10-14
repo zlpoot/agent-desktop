@@ -14,6 +14,8 @@ export interface PlaywrightRuntimeOptions {
   userDataDir?: string;
   actionTimeoutMs?: number;
   navigationTimeoutMs?: number;
+  /** Trusted frozen single-document task only. No persistent/attached session is allowed. */
+  readonlyBrowserUrl?: string;
 }
 
 export interface DomExtraction { text: string; attributes: Record<string, string> }
@@ -26,6 +28,8 @@ export class PlaywrightRuntime implements RuntimeAdapter {
   private readonly artifactDir: string;
   private readonly actionTimeoutMs: number;
   private readonly navigationTimeoutMs: number;
+  private readonly readonlyBrowserUrl?: string;
+  private readonlyViolation?: string;
 
   private constructor(
     private readonly browser: Browser | undefined,
@@ -37,9 +41,15 @@ export class PlaywrightRuntime implements RuntimeAdapter {
     this.artifactDir = resolve(options.artifactDir ?? ".artifacts");
     this.actionTimeoutMs = options.actionTimeoutMs ?? 5000;
     this.navigationTimeoutMs = options.navigationTimeoutMs ?? 15000;
+    this.readonlyBrowserUrl = options.readonlyBrowserUrl;
   }
 
   static async launch(options: PlaywrightRuntimeOptions = {}): Promise<PlaywrightRuntime> {
+    if (options.readonlyBrowserUrl !== undefined) {
+      const url = new URL(options.readonlyBrowserUrl);
+      if (!['http:', 'https:'].includes(url.protocol) || url.href !== options.readonlyBrowserUrl
+        || url.username || url.password || url.hash || options.userDataDir) throw Error('readonly-browser-runtime-invalid-binding');
+    }
     // 默认使用项目内的浏览器文件，避免依赖用户目录的缓存权限。
     process.env.PLAYWRIGHT_BROWSERS_PATH ??= resolve(".playwright-browsers");
     const { chromium } = await import("playwright");
@@ -53,20 +63,65 @@ export class PlaywrightRuntime implements RuntimeAdapter {
       ? await chromium.launchPersistentContext(resolve(options.userDataDir), {
           ...launchOptions, viewport: { width: 1280, height: 800 },
         })
-      : await browser!.newContext({ viewport: { width: 1280, height: 800 } });
-    const page = context.pages()[0] ?? await context.newPage();
-    return new PlaywrightRuntime(browser, context, page, options);
+      : await browser!.newContext({ viewport: { width: 1280, height: 800 },
+          ...(options.readonlyBrowserUrl !== undefined
+            ? { javaScriptEnabled: false, serviceWorkers: 'block' as const, acceptDownloads: false } : {}) });
+    try {
+      const page = context.pages()[0] ?? await context.newPage();
+      const runtime = new PlaywrightRuntime(browser, context, page, options);
+      if (options.readonlyBrowserUrl !== undefined) await runtime.installReadonlyBoundary();
+      return runtime;
+    } catch (error) { await context.close(); await browser?.close(); throw error; }
   }
 
   /** Attach to a caller-owned, already authenticated page. Never launches a browser.
    * The caller retains native identity, input authority, observation and cleanup gates. */
   static attach(page: Page, options: PlaywrightRuntimeOptions = {}): PlaywrightRuntime {
+    if (options.readonlyBrowserUrl !== undefined) throw Error('readonly-browser-runtime-requires-isolated-context');
     return new PlaywrightRuntime(undefined, page.context(), page, options);
+  }
+
+  /** Route interception alone does not constrain redirects: fetch exactly one response, never continue(). */
+  private async installReadonlyBoundary(): Promise<void> {
+    await this.context.routeWebSocket('**/*', socket => socket.close());
+    await this.context.route('**/*', async route => {
+      const request = route.request();
+      if (request.url() !== this.readonlyBrowserUrl || request.method() !== 'GET'
+        || !request.isNavigationRequest() || request.frame() !== this.page.mainFrame()) {
+        if (request.isNavigationRequest()) this.readonlyViolation = 'readonly-browser-network-navigation-denied';
+        await route.abort('blockedbyclient'); return;
+      }
+      let response;
+      try {
+        response = await route.fetch({ maxRedirects: 0, maxRetries: 0, timeout: this.navigationTimeoutMs });
+        const headers = response.headers();
+        if ((response.status() >= 300 && response.status() < 400) || headers.refresh !== undefined
+          || headers['content-disposition'] !== undefined
+          || !/^(text\/html|application\/xhtml\+xml)(?:;|$)/i.test(headers['content-type'] ?? '')) {
+          this.readonlyViolation = 'readonly-browser-network-response-denied';
+          await route.abort('blockedbyclient'); return;
+        }
+        // Static DOM only: also prevent resource/speculative loads from the accepted document.
+        await route.fulfill({ response, headers: { ...headers,
+          'content-security-policy': [headers['content-security-policy'],
+            "default-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-same-origin"].filter(Boolean).join(', ') } });
+      } catch {
+        this.readonlyViolation = 'readonly-browser-network-fetch-failed';
+        await route.abort('blockedbyclient').catch(() => {});
+      } finally { await response?.dispose(); }
+    });
+  }
+
+  private assertReadonlyUrl(url: string): void {
+    if (this.readonlyBrowserUrl !== undefined && url !== this.readonlyBrowserUrl)
+      throw Error('readonly-browser-runtime-url-denied');
+    if (this.readonlyViolation) throw Error(this.readonlyViolation);
   }
 
   async restore(observation: Observation): Promise<void> {
     if (!observation.url) throw new Error("保存的页面观察缺少网址");
     const url = new URL(observation.url);
+    this.assertReadonlyUrl(url.href);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("只能恢复 HTTP(S) 页面");
     const matchingPage = this.context.pages().find((page) => page.url() === url.href);
     if (matchingPage) { this.page = matchingPage; return; }
@@ -74,6 +129,7 @@ export class PlaywrightRuntime implements RuntimeAdapter {
   }
 
   async observe(): Promise<Observation> {
+    if (this.readonlyViolation) throw Error(this.readonlyViolation);
     const startedAt=Date.now();
     await mkdir(this.artifactDir, { recursive: true });
     const screenshot = resolve(this.artifactDir, `observation-${++this.observationCount}.png`);
@@ -86,6 +142,7 @@ export class PlaywrightRuntime implements RuntimeAdapter {
     // 函数注入 __name helper，浏览器上下文没有该全局，evaluate 会抛 ReferenceError。
     const structured = await this.page.evaluate(DOM_COLLECTOR).catch(() => undefined) as Observation['structured'];
     const pageText = (text??'').slice(0,30000);
+    if (this.readonlyViolation) throw Error(this.readonlyViolation);
     return {
       url: this.page.url(),
       capture:{epoch:this.captureEpoch,sequence:this.observationCount,object:`page:${this.captureEpoch}`,startedAt,
@@ -160,6 +217,11 @@ export class PlaywrightRuntime implements RuntimeAdapter {
 
   async execute(action: ComputerAction): Promise<ActionResult> {
     try {
+      if (this.readonlyBrowserUrl !== undefined) {
+        if (!['navigate', 'wait'].includes(action.kind)) throw Error('readonly-browser-runtime-action-denied');
+        if (action.kind === 'navigate') this.assertReadonlyUrl(action.url);
+        if (this.readonlyViolation) throw Error(this.readonlyViolation);
+      }
       switch (action.kind) {
         case "navigate":
           await this.page.goto(action.url, { waitUntil: "domcontentloaded", timeout: this.navigationTimeoutMs });
@@ -247,6 +309,7 @@ export class PlaywrightRuntime implements RuntimeAdapter {
           throw new Error(`不支持的浏览器动作：${JSON.stringify(unsupported)}`);
         }
       }
+      if (this.readonlyViolation) throw Error(this.readonlyViolation);
       return { ok: true, message: `${action.kind} 已执行`, provider: "browser.playwright.act" };
     } catch (error) {
       return { ok: false, message: String(error) };

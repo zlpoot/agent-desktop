@@ -8,8 +8,8 @@ import type { TraceStore } from "../contracts/stores.js";
 import type { NodeMetric } from "../trace/sqlite-trace.js";
 import type { RuntimeAdapter } from "../runtime/runtime-adapter.js";
 import { applyAcceptance, deterministicChecks, type AcceptanceVerifier } from "../verifier/hybrid-verifier.js";
-import { isReadonlyBrowserContract, readonlyBrowserAcceptance } from '../verifier/readonly-browser-verifier.js';
-import { readonlyBrowserStagePlan } from '../agent/readonly-browser-plan.js';
+import { readonlyBrowserAcceptance } from '../verifier/readonly-browser-verifier.js';
+import { readonlyBrowserStagePlan, isReadonlyBrowserRestricted, assertReadonlyBrowserAction } from '../agent/readonly-browser-plan.js';
 import { verifyAction, verifyGoal } from "../verifier/verifier.js";
 import type { ObservationFacetProvider } from "../contracts/facets.js";
 import type { DomainEvaluator } from "../verification/domain-evaluator.js";
@@ -274,14 +274,15 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
   }
 
   async function acceptance(state: ComputerState, scope: 'task' | 'stage') {
-    const readonlyBrowser = !acceptanceVerifier && scope==='task'
-      && isReadonlyBrowserContract(state.goal,state.verificationContract);
+    const restricted = isReadonlyBrowserRestricted(state.taskContract);
+    if (restricted && scope==='stage') return undefined;
+    const readonlyBrowser = scope==='task' && restricted;
     if (!acceptanceVerifier && !readonlyBrowser) return undefined;
     const startedAt = new Date().toISOString();
     const start = performance.now();
     const goal = scope === 'stage' ? `${state.stage!.goal}\n成功条件：${state.stage!.successCondition}` : state.goal;
     const report = readonlyBrowser
-      ? readonlyBrowserAcceptance(goal,state.completionCriteria,state.observation,state.verificationContract!)
+      ? readonlyBrowserAcceptance(goal,state.completionCriteria,state.observation,state.verificationContract,state.taskContract)
       : await acceptanceVerifier!.evaluate(goal, state.completionCriteria, state.observation,
       scope,scope==='task'?state.verificationContract:undefined,
       scope==='task'?state.baselineChecks:undefined);
@@ -639,6 +640,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       const shadowContract=freezeShadowContract(state);
       shadow({kind:'contract',taskId:state.taskId,step:state.step,contract:shadowContract});
       const action = state.groundedAction ?? state.lastAction!;
+      assertReadonlyBrowserAction(state, action);
       const fingerprint = impactFingerprint(state.lastAction!);
       const updates: Partial<ComputerState> = {
         shadowContract,
@@ -946,8 +948,7 @@ export function createAgentLoop({ shadowSink, shadowVerify, acceptanceVerifier, 
       try {
         // A final done action can use the frozen, source-bound task contract
         // directly. Do not make a decisive deterministic result depend on JEV.
-        const readonlyBrowserFinal = !acceptanceVerifier && state.lastAction?.kind==='done'
-          && isReadonlyBrowserContract(state.goal,state.verificationContract);
+        const readonlyBrowserFinal = state.lastAction?.kind==='done' && isReadonlyBrowserRestricted(state.taskContract);
         const frozenFinal = state.stage.isFinal && !!state.verificationContract
           && (!!acceptanceVerifier || readonlyBrowserFinal);
         const precheckedFinal = frozenFinal || (state.stage.isFinal && state.lastAction?.kind === 'done' &&

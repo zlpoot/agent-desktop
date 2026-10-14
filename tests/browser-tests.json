@@ -10,6 +10,7 @@
   "browser-form-rebind.test.ts",
   "browser-resume.test.ts",
   "browser.test.ts",
+  "readonly-browser-network.test.ts",
   "collector-candidate-budget.test.ts",
   "dashboard.test.ts",
   "desktop-control.test.ts",
