@@ -1,7 +1,7 @@
 """Opt-in CloudMusic adapter over the existing owned-desktop JSON executor.
 
 Construction/discovery reads definitions only. Native resources are created at
-session_open. Explicit profiles expose pinned fill-only or search/read-only workflows.
+session_open. Explicit profiles expose pinned fill, search or playback workflows.
 """
 import copy
 import threading
@@ -25,6 +25,29 @@ SEARCH_WORKFLOW = 'cloudmusic.search'
 READ_RESULTS = 'cloudmusic.readSearchResults'
 SEARCH_CHILDREN = (*CHILDREN, 'cloudmusic.submitSearch', READ_RESULTS)
 SEARCH_SCOPE = 'real-owned-window-search-results'
+PLAY_WORKFLOW = 'cloudmusic.open-and-play'
+PLAY_CHILDREN = (*CHILDREN, 'cloudmusic.submitSearch', 'cloudmusic.openSong', 'cloudmusic.playSong')
+PLAY_SCOPE = 'real-owned-window-playback-state'
+
+
+class PlaybackLibrary(SkillLibrary):
+    """Reuse the original seven JSON children; keep final business acceptance manual."""
+    def __init__(self, root):
+        super().__init__(root / 'recipes/workflows/cloudmusic.playback.json', root / 'learned/capabilities',
+                         validate_recipe, require_local=True)
+
+    def capability(self, capability_id):
+        recipe = super().capability(capability_id)
+        if capability_id == 'cloudmusic.openSong':
+            # Search may report a first match; playback requires a unique match
+            # in the existing declared region before dispatching the double click.
+            steps = recipe['operations'][0]['steps']
+            steps[0]['readyMatch'].pop('selectionPolicy', None)
+            steps[1]['match'].pop('selectionPolicy', None)
+        if capability_id == 'cloudmusic.playSong':
+            recipe['operations'][0]['acceptance'] = 'manual'
+            validate_recipe(recipe, True)
+        return recipe
 
 
 class SearchLibrary(SkillLibrary):
@@ -62,12 +85,16 @@ class SearchLibrary(SkillLibrary):
 class RealBackend:
     mode = 'real'
 
-    def __init__(self, root=None, search=False):
+    def __init__(self, root=None, search=False, playback=False):
+        if search and playback:
+            raise ReplayError('conflicting-real-profiles')
         self.root = Path(root) if root else Path(__file__).resolve().parent
         self.search_enabled = search
-        self.workflow_id, self.children = (SEARCH_WORKFLOW, SEARCH_CHILDREN) if search else (WORKFLOW, CHILDREN)
-        self.scope = SEARCH_SCOPE if search else SCOPE
-        self.library = SearchLibrary(self.root) if search else SkillLibrary(
+        self.playback_enabled = playback
+        self.workflow_id, self.children = ((PLAY_WORKFLOW, PLAY_CHILDREN) if playback else
+                                          (SEARCH_WORKFLOW, SEARCH_CHILDREN) if search else (WORKFLOW, CHILDREN))
+        self.scope = PLAY_SCOPE if playback else SEARCH_SCOPE if search else SCOPE
+        self.library = PlaybackLibrary(self.root) if playback else SearchLibrary(self.root) if search else SkillLibrary(
             self.root / 'recipes/workflows/cloudmusic.fill-search.json',
             self.root / 'learned/capabilities', validate_recipe, require_local=True)
         self.workflow, _parameters, plan = self.library.plan(self._inspection_inputs())
@@ -92,7 +119,7 @@ class RealBackend:
         self.evidence_dir = self.root / 'reports/mcp-real' / uuid.uuid4().hex
 
     def _inspection_inputs(self):
-        return {'song': 'configuration-check', 'artist': 'configuration-check'} if self.search_enabled else {'query': 'configuration-check'}
+        return {'song': 'configuration-check', 'artist': 'configuration-check'} if self.search_enabled or self.playback_enabled else {'query': 'configuration-check'}
 
     def catalog(self):
         parameters = self.workflow['parameters']
@@ -102,6 +129,8 @@ class RealBackend:
                 'type': 'string', 'minLength': 1, 'maxLength': spec['maxLength']} for p, spec in parameters.items()},
                 'required': list(parameters), 'additionalProperties': False}}}
         for key, recipe in self.definitions.items():
+            if self.playback_enabled:
+                continue  # Playback exposes only the complete ordered workflow.
             operation = recipe['operations'][0]
             result[key] = {'id': key, 'kind': 'capability', 'title': operation['title'],
                 'action': 'capability:' + key, 'definitionSha256': digest(recipe),
@@ -112,13 +141,14 @@ class RealBackend:
         for entry in result.values():
             entry.update(mode=self.mode, revision=self.workflow['revision'] if entry['kind'] == 'workflow'
                          else self.definitions[entry['id']]['revision'], automaticRetry=False,
-                acceptance='manual' if entry['id'] in (SEARCH_WORKFLOW, 'cloudmusic.submitSearch', READ_RESULTS) else 'automatic',
+                acceptance='manual' if entry['id'] in (PLAY_WORKFLOW, SEARCH_WORKFLOW, 'cloudmusic.submitSearch', READ_RESULTS) else 'automatic',
                 preconditions=['active connection-owned session', 'matching application fingerprint and learned definitions',
                                'owned hidden-desktop window', 'lease and action budget available'],
-                effects={'desktop': dict(NO_USER_IMPACT), 'business': 'owned-app-search' if self.search_enabled else 'owned-app-search-field-only',
+                effects={'desktop': dict(NO_USER_IMPACT), 'business': 'owned-app-playback' if self.playback_enabled else 'owned-app-search' if self.search_enabled else 'owned-app-search-field-only',
                          'launchesApplication': entry['id'] in (self.workflow_id, CHILDREN[0]),
                          'writesApplicationState': entry['id'] not in (CHILDREN[2], READ_RESULTS),
-                         'submitsSearch': entry['id'] in (SEARCH_WORKFLOW, 'cloudmusic.submitSearch'), 'playsMedia': False,
+                         'submitsSearch': entry['id'] in (PLAY_WORKFLOW, SEARCH_WORKFLOW, 'cloudmusic.submitSearch'),
+                         'playsMedia': self.playback_enabled,
                          'applicationNetworkActivity': 'application-managed-not-isolated'},
                 verificationScope=self.scope, realWorldValidated=False)
         return result
@@ -205,19 +235,40 @@ class RealBackend:
     def _read_results(self, inputs):
         recipe = self.definitions[READ_RESULTS]
         spec = substitute(recipe['operations'][0]['steps'][0]['readyMatch'], inputs)
+        rows = self._read_matching_rows(recipe, spec)
+        return {'rows': rows, 'selection': 'first-visible-match-in-declared-region',
+                'completeResultList': False, 'globalUnique': None}
+
+    def _read_matching_rows(self, recipe, spec, controls=False):
         tree, proof = self.replay._local_query(recipe, spec)
         # Read actual current names, never return the search criteria as evidence.
         rows, live_rows = [], []
         for row in proof['matches'] + proof['relatedMatches']:
             current = copy.deepcopy(row)
             current['name'] = tree._string(tree.elements[row['index']], 23)
+            if controls:
+                current['autoId'] = tree._string(tree.elements[row['index']], 29)
+                current['role'] = tree._integer(tree.elements[row['index']], 21)
             tree.prove_target(current)
             live_rows.append(current)
-            rows.append({'role': current['role'], 'name': current['name']})
+            rows.append({key: current[key] for key in (('role', 'name', 'autoId') if controls else ('role', 'name'))})
         if not matches(live_rows, spec, tree.desktop.api.window_rect(tree.hwnd)):
-            raise ReplayError('search-result-changed')
-        return {'rows': rows, 'selection': 'first-visible-match-in-declared-region',
-                'completeResultList': False, 'globalUnique': None}
+            raise ReplayError('current-observation-changed')
+        return rows
+
+    def _playback_inputs(self):
+        job = self.replay.job
+        if (self.playback_enabled and job and job['status'] == 'done'
+                and job['action'] == 'workflow:' + PLAY_WORKFLOW):
+            return job['inputs']
+        return None
+
+    def _read_playback(self, inputs):
+        recipe = self.definitions['cloudmusic.playSong']
+        spec = substitute(recipe['operations'][0]['steps'][0]['readyMatch'], inputs)
+        rows = self._read_matching_rows(recipe, spec, controls=True)
+        return {'rows': rows, 'state': 'playing', 'stateEvidence': 'current-pause-button',
+                'audioAudibilityVerified': False}
 
     def _observe(self):
         try:
@@ -238,6 +289,9 @@ class RealBackend:
             criteria = self._result_inputs()
             if criteria and 'song' in criteria:
                 result['results'] = self._read_results(criteria)
+            playback = self._playback_inputs()
+            if playback:
+                result['playback'] = self._read_playback(playback)
             if facts.get('ownedAppRunning'):
                 info, image = self.lab.desktop.capture_frame(allow_unrendered=False)
                 if info['hwnd'] != identity['hwnd'] or self.replay._environment(recipe)[2] != identity:
