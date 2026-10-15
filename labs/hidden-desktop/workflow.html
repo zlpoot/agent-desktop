@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网易云 · 打开歌曲并播放</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#203047;font:14px/1.55 system-ui,"Microsoft YaHei",sans-serif}header{padding:18px 24px;border-bottom:1px solid #dce3ed;background:white}h1{font-size:22px;margin:4px 0}a{color:#315ede}p{margin:6px 0}button,input{font:inherit;border:1px solid #cbd5e1;border-radius:7px;padding:8px 10px}button{background:white;color:#23344e;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:#315ede;color:white;border-color:#315ede}.muted{color:#6a7c92;font-size:12px}.tag{display:inline-block;border-radius:4px;padding:2px 6px;background:#edf2ff;color:#3d60a7;font-size:11px}.badge{border-radius:4px;padding:2px 6px;font-size:11px;background:#f1f4f8}.done{color:#16764a;background:#e9f8ef}.failed{color:#b33131;background:#fff0ef}.running{color:#315ede;background:#edf2ff}.layout{height:calc(100dvh - 132px);min-height:400px;display:grid;grid-template-columns:350px minmax(0,1fr);gap:16px;padding:16px}.left{overflow:auto;min-width:0}.panel{background:white;border:1px solid #dce3ed;border-radius:11px;padding:15px;margin-bottom:12px}h2{font-size:16px;margin:0 0 9px}h3{font-size:14px;margin:0 0 5px}.field{display:grid;gap:4px;margin:9px 0}.field input{width:100%;min-width:0}.buttons{display:flex;gap:7px;flex-wrap:wrap}.step{border-left:3px solid #d5ddeb}.step[data-status=running]{border-left-color:#315ede}.step[data-status=done]{border-left-color:#24965e}.step[data-status=failed]{border-left-color:#ce4a4a}.step code{font-size:11px;overflow-wrap:anywhere}details{margin-top:8px}summary{cursor:pointer;color:#4f6482}pre{font:11px/1.5 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;background:#f5f7fa;padding:10px;border-radius:6px}.right{min-width:0;min-height:0;display:flex;flex-direction:column}.preview{min-height:0;flex:1;display:flex;flex-direction:column;margin:0}.preview-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.canvas{position:relative;min-height:0;flex:1;display:flex;align-items:center;justify-content:center;background:#f7f9fc;border:1px dashed #d9e1ec;border-radius:8px;margin:12px 0;overflow:hidden}.canvas img{width:100%;height:100%;object-fit:contain}.canvas p{padding:24px;text-align:center;color:#7c8ba1}.progress{padding:10px 0;min-height:42px}.error{color:#b33131}.wide{width:100%;margin:10px 0 0}.parameter-note{margin-top:8px}#result{white-space:pre-wrap}#environment{min-height:20px}#elapsed{font-variant-numeric:tabular-nums}
+@media(max-width:720px){header{padding:12px}.layout{grid-template-columns:1fr;height:auto;padding:10px}.left{overflow:visible}.preview{height:65dvh;min-height:360px}h1{font-size:18px}}
+</style></head>
+<body>
+<header><a href="/">← 基础能力与学习实验台</a><h1>启动网易云、打开指定歌曲并播放</h1>
+<p class="muted">基础能力 → 可复用的已学子能力 → 整体流程。流程和子能力分别保存为 JSON，由同一个执行器调用。</p></header>
+<main class="layout">
+ <section class="left" aria-label="流程与子能力">
+  <div class="panel"><span class="tag">整体流程 · 可独立回放</span><h2 style="margin-top:8px">歌曲播放流程</h2>
+   <p class="muted" id="verification">读取能力记录…</p>
+   <p class="muted">物理窗口 1600×1000 · 复用已学容器，在容器内按歌名和歌手定位。更换歌曲无需重新学习；容器或版本失效时才提示重新学习。</p>
+   <label class="field">歌曲标题<input id="song" maxlength="140" autocomplete="off"></label>
+   <label class="field">歌手<input id="artist" maxlength="40" autocomplete="off"></label>
+   <p class="muted parameter-note">填写准确歌名和歌手；有多个匹配时，按结果列表显示顺序播放第一个匹配项，并记录候选数。本流程不含收藏。</p>
+   <button class="primary wide" id="run-workflow" disabled>回放完整流程</button>
+   <button class="wide" id="learn-paths" disabled>重新学习定位参数并验证流程</button>
+   <div class="progress" role="status"><strong id="result">待你测试</strong><div class="muted" id="current"></div><div class="muted" id="elapsed"></div></div>
+   <div class="buttons"><button id="reset">清除失败状态</button><button id="export">导出调用记录</button></div>
+   <details><summary>整体流程 JSON</summary><pre id="workflow-json"></pre></details>
+  </div>
+  <div class="panel"><h2>可复用的子能力 <span class="tag" id="count">—</span></h2><p class="muted">以下每项各有独立 JSON，也可按顺序手动执行。整体流程只引用它们，不复制动作脚本。</p></div>
+  <div id="steps"></div>
+  <div class="panel"><details><summary id="trace-title">调用能力、参数与验证结果</summary><pre id="trace">尚未调用</pre></details></div>
+ </section>
+ <aside class="right"><div class="panel preview"><div class="preview-heading"><h2 style="margin:0">实际窗口</h2><label><input type="checkbox" id="live" checked> 实时画面</label><button id="refresh-frame">刷新画面</button></div>
+  <p id="environment" class="muted">读取环境…</p><div class="buttons"><button id="renew" hidden>显式续租 900 秒</button></div>
+  <div class="canvas"><p id="empty-frame">点击“回放完整流程”后，在这里查看隐藏桌面的实际窗口。</p><img id="frame" alt="隐藏桌面的实际窗口" hidden></div>
+  <div id="frame-status" class="muted" role="status">等待窗口就绪</div><div id="frame-meta" class="muted"></div>
+ </div></aside>
+</main>
+<script src="/live-preview.js"></script><script src="/workflow.js"></script>
+</body></html>

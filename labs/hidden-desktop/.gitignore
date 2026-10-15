@@ -1,0 +1,4 @@
+# 真机运行生成的证据，不作为生成资产提交。
+reports/
+__pycache__/
+learned/

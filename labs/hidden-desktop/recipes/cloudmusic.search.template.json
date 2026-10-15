@@ -1,0 +1,324 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudmusic.search",
+  "title": "网易云搜索",
+  "revision": 2,
+  "application": {
+    "executable": "E:\\app\\CloudMusic\\cloudmusic.exe",
+    "arguments": "--force-renderer-accessibility"
+  },
+  "environment": {
+    "kind": "hidden-desktop",
+    "window": {
+      "kind": "className",
+      "value": "OrpheusBrowserHost"
+    },
+    "size": {
+      "width": 1600,
+      "height": 1000
+    }
+  },
+  "parameters": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "default": "甲乙丙丁 李佳薇"
+    }
+  },
+  "targets": {
+    "search": {
+      "selector": {
+        "kind": "role",
+        "role": "Edit",
+        "value": ""
+      },
+      "namePolicy": "dynamic"
+    },
+    "submit": {
+      "selector": {
+        "kind": "role",
+        "role": "Button",
+        "value": "search"
+      },
+      "namePolicy": "exact"
+    }
+  },
+  "operations": [
+    {
+      "id": "cloudmusic.launch",
+      "title": "启动网易云并显示窗口",
+      "description": "按 JSON 中的启动参数创建自有实例、选择窗口并显示画面。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "launch"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "cloudmusic.locateSearch",
+      "title": "绑定已学目标",
+      "description": "同一实例复用绑定；新实例仅在此完整定位一次搜索框和搜索按钮。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "bind"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "cloudmusic.fillSearch",
+      "title": "填写搜索词并核验",
+      "description": "直接检查已绑定搜索框，赋值后独立读取实时值，不扫描全树。",
+      "inputs": [
+        "query"
+      ],
+      "steps": [
+        {
+          "op": "set_value",
+          "target": "search",
+          "parameter": "query"
+        },
+        {
+          "op": "assert_value",
+          "target": "search",
+          "parameter": "query",
+          "remember": "verifiedQuery"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "cloudmusic.submitSearch",
+      "title": "提交搜索并显示结果",
+      "description": "检查已核验输入与已绑定按钮，单击一次并读取画面，不扫描全树；结果待人工核对。",
+      "inputs": [
+        "query"
+      ],
+      "requiresState": {
+        "name": "verifiedQuery",
+        "parameter": "query"
+      },
+      "acceptance": "manual",
+      "completion": "搜索点击已发送；请核对实际结果，未打开或收藏歌曲。",
+      "steps": [
+        {
+          "op": "assert_value",
+          "target": "search",
+          "parameter": "query"
+        },
+        {
+          "op": "click",
+          "target": "submit",
+          "consume": "verifiedQuery"
+        },
+        {
+          "op": "wait",
+          "milliseconds": 400
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "cloudmusic.openSong",
+      "title": "打开李佳薇目标歌曲",
+      "description": "核对原唱条目后双击，核验播放器并暂停，再点击封面进入歌词详情页。通过准确歌名与歌手、歌词标签和收起按钮联合验收；不收藏。",
+      "inputs": [],
+      "learningRequired": true,
+      "steps": [
+        {
+          "op": "observe_page"
+        },
+        {
+          "op": "bind_match",
+          "binding": "transport",
+          "match": {
+            "role": 50011,
+            "autoId": "btn_pc_minibar_play",
+            "region": [
+              0.35,
+              0.88,
+              0.7,
+              1
+            ]
+          }
+        },
+        {
+          "op": "click_match",
+          "match": {
+            "role": 50020,
+            "name": "甲乙丙丁 (你我怎么两清)",
+            "region": [
+              0.2,
+              0.24,
+              0.65,
+              0.86
+            ],
+            "near": {
+              "role": 50020,
+              "name": "李佳薇",
+              "dx": [
+                -20,
+                160
+              ],
+              "dy": [
+                20,
+                80
+              ]
+            }
+          },
+          "double": true
+        },
+        {
+          "op": "wait",
+          "milliseconds": 600
+        },
+        {
+          "op": "ensure_state",
+          "binding": "transport",
+          "desiredName": "play",
+          "actionName": "pause"
+        },
+        {
+          "op": "observe_page"
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50020,
+            "name": "甲乙丙丁 (你我怎么两清)",
+            "region": [
+              0,
+              0.88,
+              0.5,
+              1
+            ]
+          },
+          "min": 1,
+          "max": 2
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50020,
+            "name": "李佳薇",
+            "region": [
+              0,
+              0.88,
+              0.5,
+              1
+            ]
+          }
+        },
+        {
+          "op": "click_match",
+          "match": {
+            "role": 50006,
+            "name": "",
+            "region": [
+              0,
+              0.88,
+              0.1,
+              1
+            ]
+          }
+        },
+        {
+          "op": "wait",
+          "milliseconds": 400
+        },
+        {
+          "op": "observe_page"
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50020,
+            "name": "甲乙丙丁 (你我怎么两清)",
+            "region": [
+              0,
+              0.88,
+              0.5,
+              1
+            ],
+            "near": {
+              "role": 50020,
+              "name": "李佳薇",
+              "dx": [
+                -20,
+                80
+              ],
+              "dy": [
+                20,
+                80
+              ]
+            }
+          }
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50000,
+            "name": "dropdown",
+            "region": [
+              0,
+              0,
+              0.1,
+              0.1
+            ]
+          }
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50020,
+            "name": "歌词",
+            "region": [
+              0.5,
+              0.24,
+              0.7,
+              0.3
+            ]
+          }
+        },
+        {
+          "op": "assert_rows",
+          "match": {
+            "role": 50000,
+            "name": "play",
+            "region": [
+              0.35,
+              0.88,
+              0.7,
+              1
+            ],
+            "autoId": "btn_pc_minibar_play"
+          }
+        },
+        {
+          "op": "capture"
+        }
+      ],
+      "completion": "已打开目标歌曲歌词详情页并暂停；已核验准确歌名、李佳薇及歌词页专属标志，画面供进一步核对。"
+    }
+  ],
+  "replayPolicy": {
+    "binding": "full-query-once-per-instance",
+    "execution": "bound-target-live-checks",
+    "onMissingLearning": "require-learning",
+    "onVersionChange": "require-learning",
+    "onStaleTarget": "stop-and-rebind",
+    "automaticRetry": false
+  }
+}

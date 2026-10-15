@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "id": "synthetic.form",
+  "title": "Synthetic form",
+  "revision": 1,
+  "application": {
+    "executable": "E:\\synthetic\\application.exe",
+    "arguments": ""
+  },
+  "environment": {
+    "kind": "hidden-desktop",
+    "window": {
+      "kind": "className",
+      "value": "SyntheticWindow"
+    },
+    "size": {
+      "width": 1600,
+      "height": 1000
+    }
+  },
+  "parameters": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "default": "Synthetic query"
+    }
+  },
+  "targets": {
+    "search": {
+      "selector": {
+        "kind": "role",
+        "role": "Edit",
+        "value": ""
+      },
+      "namePolicy": "dynamic"
+    },
+    "submit": {
+      "selector": {
+        "kind": "role",
+        "role": "Button",
+        "value": "search"
+      },
+      "namePolicy": "exact"
+    }
+  },
+  "operations": [
+    {
+      "id": "synthetic.launch",
+      "title": "synthetic.launch",
+      "description": "Synthetic operation",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "launch"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "synthetic.locateSearch",
+      "title": "synthetic.locateSearch",
+      "description": "Synthetic operation",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "bind"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "synthetic.fillSearch",
+      "title": "synthetic.fillSearch",
+      "description": "Synthetic operation",
+      "inputs": [
+        "query"
+      ],
+      "steps": [
+        {
+          "op": "set_value",
+          "target": "search",
+          "parameter": "query"
+        },
+        {
+          "op": "assert_value",
+          "target": "search",
+          "parameter": "query",
+          "remember": "verifiedQuery"
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    },
+    {
+      "id": "synthetic.submitSearch",
+      "title": "synthetic.submitSearch",
+      "description": "Synthetic operation",
+      "inputs": [
+        "query"
+      ],
+      "requiresState": {
+        "name": "verifiedQuery",
+        "parameter": "query"
+      },
+      "acceptance": "manual",
+      "completion": "Synthetic action dispatched; manual acceptance remains required.",
+      "steps": [
+        {
+          "op": "assert_value",
+          "target": "search",
+          "parameter": "query"
+        },
+        {
+          "op": "click",
+          "target": "submit",
+          "consume": "verifiedQuery"
+        },
+        {
+          "op": "wait",
+          "milliseconds": 400
+        },
+        {
+          "op": "capture"
+        }
+      ]
+    }
+  ],
+  "replayPolicy": {
+    "binding": "full-query-once-per-instance",
+    "execution": "bound-target-live-checks",
+    "onMissingLearning": "require-learning",
+    "onVersionChange": "require-learning",
+    "onStaleTarget": "stop-and-rebind",
+    "automaticRetry": false
+  }
+}

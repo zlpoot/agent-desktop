@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Hidden Desktop 基础能力测试台</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --border: #e2e5ea; --text: #1f2329; --muted: #6b7280;
+    --accent: #2563eb; --accent-soft: #eff4ff;
+    --ok: #16a34a; --ok-soft: #eefaf1;
+    --warn: #b45309; --warn-soft: #fdf6e7;
+    --err: #dc2626; --err-soft: #fdeeee;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px; height: 100vh; height: 100dvh; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; }
+  .wrap { height: 100%; min-height: 0; display: grid; gap: 10px;
+    grid-template-rows: auto auto auto minmax(0, 1fr); }
+  header h1 { margin: 0 0 4px; font-size: 20px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .panel > h2 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted);
+    letter-spacing: .04em; text-transform: uppercase; }
+  .notice { border: 1px solid #f0d9a8; background: var(--warn-soft); color: #7c4a03;
+    border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+  .cols { min-height: 0; display: grid; grid-template-columns: minmax(340px, 34%) minmax(0, 1fr); gap: 12px; }
+  .catalog-panel { min-height: 0; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  .left-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .left-heading button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  #song-flow, #learned-skills { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  #song-flow[hidden], #catalog[hidden], #learned-skills[hidden] { display: none; }
+  #learned-skills .field { grid-template-columns: 75px minmax(0, 1fr); }
+  #learned-live { position: sticky; top: 0; background: var(--panel); z-index: 1; padding: 5px 0; }
+  .flow-step { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 10px 0; }
+  .flow-step.current { border-color: var(--accent); }
+  .flow-step h3 { margin: 0 0 6px; font-size: 14px; }
+  .flow-step pre { margin-top: 6px; max-height: 220px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .flow-choice { display: grid; gap: 6px; margin: 10px 0; }
+  .flow-choice select { width: 100%; min-width: 0; padding: 6px; font: inherit; }
+  .flow-controls { position: sticky; bottom: 0; padding: 10px 0; background: var(--panel); border-top: 1px solid var(--border); }
+  #catalog { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 6px; }
+  .side { min-height: 0; min-width: 0; display: grid; gap: 12px;
+    grid-template-rows: minmax(0, 1fr) clamp(150px, 24vh, 220px); }
+  .preview-panel { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .preview-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .preview-heading h2 { margin: 0; font-size: 13px; color: var(--muted); }
+  .session-panels { min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .session-panels > .panel { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .session-panels > .log-panel { display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+  .facts-panel { padding-top: 8px; padding-bottom: 8px; }
+  .facts-panel > h2 { margin-bottom: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; background: var(--accent-soft);
+    color: #1e40af; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-family: var(--mono); }
+  .chip.ok { background: var(--ok-soft); color: #15803d; }
+  .chip.warn { background: var(--warn-soft); color: #92400e; }
+  .chip.err { background: var(--err-soft); color: #b91c1c; }
+  .chip.plain { background: #eef0f4; color: var(--muted); }
+
+  details.cap { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; background: #fff; }
+  details.cap[open] { border-color: #c9d4ea; }
+  details.cap > summary { cursor: pointer; padding: 9px 12px; display: flex; align-items: center;
+    gap: 8px; flex-wrap: wrap; list-style: none; }
+  details.cap > summary::-webkit-details-marker { display: none; }
+  details.cap > summary::before { content: "▸"; color: var(--muted); font-size: 11px; }
+  details.cap[open] > summary::before { content: "▾"; }
+  code.id { font-family: var(--mono); font-size: 13px; color: #0f172a; font-weight: 600; }
+  .sum { color: var(--muted); font-size: 12px; flex: 1 1 260px; }
+  .badge { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-family: var(--mono); white-space: nowrap; }
+  .badge.layer { background: #eef2ff; color: #4338ca; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.plain { background: #eef0f4; color: var(--muted); }
+
+  .cap-body { padding: 0 12px 12px; display: grid; gap: 10px; border-top: 1px dashed var(--border); }
+  .cap-body > .row { margin-top: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .effects { display: flex; flex-wrap: wrap; gap: 6px; }
+  .fields { display: grid; gap: 8px; }
+  .field { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px; align-items: center; }
+  .field > label { font-size: 13px; color: var(--muted); }
+  .field input[type=text], .field select { font: inherit; font-size: 13px; padding: 5px 8px;
+    border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); width: 100%; }
+  .field .hint { grid-column: 2; color: var(--muted); font-size: 11px; margin: -4px 0 0; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; padding: 6px 12px;
+    border: 1px solid var(--border); background: #fff; color: var(--text); }
+  button:hover:not(:disabled) { border-color: #c3cbdb; background: #fafbfd; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+  pre { background: #f8f9fb; border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+    overflow: auto; max-height: 300px; font-size: 12px; font-family: var(--mono); margin: 0; }
+  .result { display: grid; gap: 6px; }
+  .result .verdict { font-family: var(--mono); font-size: 12px; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .meta b { color: #374151; font-weight: 600; }
+  #shot-box { border: 1px dashed var(--border); border-radius: 8px; background: #fbfcfe;
+    min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 8px; }
+  #shot { width: 100%; height: 100%; object-fit: contain; display: none; }
+  #shot-hint { color: var(--muted); font-size: 12px; text-align: center; }
+  #log { margin: 0; padding: 0; list-style: none; min-height: 0; overflow: auto;
+    font-family: var(--mono); font-size: 12px; }
+  #log li { padding: 2px 0; border-bottom: 1px dashed #eef0f4; display: flex; gap: 8px; }
+  #log li span.t { color: var(--muted); flex: none; }
+  #log li.error span.m { color: var(--err); }
+  #log li.warn span.m { color: var(--warn); }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.kv th { text-align: left; color: var(--muted); font-weight: 500; width: 108px; padding: 3px 0; }
+  table.kv td { font-family: var(--mono); padding: 3px 0; word-break: break-all; }
+  .empty { color: var(--muted); font-size: 12px; }
+  #toast { position: fixed; right: 20px; bottom: 20px; max-width: 460px; padding: 11px 15px;
+    border-radius: 9px; font-size: 13px; color: #fff; background: #1f2329; opacity: 0;
+    transform: translateY(8px); transition: .2s; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+  #toast.show { opacity: 1; transform: none; }
+  #toast.ok { background: #15803d; } #toast.err { background: #b91c1c; }
+  @media (max-width: 760px) {
+    body { padding: 8px; }
+    header p, .notice { display: none; }
+    .wrap { grid-template-rows: auto auto minmax(0, 1fr); gap: 8px; }
+    .cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+    .side { grid-template-rows: minmax(0, 1fr) 100px; gap: 8px; }
+    .session-panels { gap: 8px; }
+    .panel { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Hidden Desktop 基础能力测试台</h1>
+    <p>每一项都是 <code>capabilities.py</code> 里的一条声明。副作用的四个 badge 是声明的一部分，不是注释 —— 本家族全部能力都不碰用户的鼠标键盘与焦点。</p>
+  </header>
+
+  <div class="notice">
+    所有动作都只在<b>自有隐藏桌面</b>上的<b>自有进程</b>里执行。执行类动作完成后会自动抓一张画面，
+    右侧「隐藏窗口画面」会同步更新 —— 这就是"看得见的效果"。
+  </div>
+
+  <div class="panel facts-panel">
+    <h2>环境事实（由运行时探测，不接受申报）</h2>
+    <div class="chips" id="facts"><span class="chip plain">读取中…</span></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel catalog-panel">
+      <div class="left-heading" role="group" aria-label="测试视图">
+        <button id="show-catalog" type="button" aria-pressed="true">基础能力目录</button>
+        <button id="show-song-flow" type="button" aria-pressed="false">搜索并打开歌曲</button>
+        <button id="show-learned-skills" type="button" aria-pressed="false">网易云已学能力</button>
+        <a href="/workflows/cloudmusic" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;text-decoration:none">歌曲播放完整流程 ↗</a>
+      </div>
+      <div id="catalog"><span class="empty">读取中…</span></div>
+      <section id="learned-skills" hidden aria-label="网易云已学能力">
+        <h2 style="font-size:16px;margin:0">网易云已学能力</h2>
+        <p class="meta">当前机器 · Hidden Desktop · JSON 学习记录 + 共用执行器。每次只执行点击的操作。</p>
+        <p class="meta">先启动应用，再学习并保存 JSON。新实例完整绑定一次；同一实例之后直接检查已绑定目标和实时结果，不再逐动作扫描全树。</p>
+        <div class="row"><button id="learned-learn" type="button">学习／重新学习</button>
+          <button id="learned-json-export" type="button">导出学习 JSON</button></div>
+        <div id="learned-model-status" class="meta"></div>
+        <details><summary>学习后记录的 JSON</summary><pre id="learned-json"></pre></details>
+        <div id="learned-status" class="meta" role="status">尚未调用</div>
+        <div id="learned-live" class="meta" aria-live="polite"></div>
+        <div class="field"><label for="learned-query">搜索词</label>
+          <input id="learned-query" type="text" maxlength="200" value="甲乙丙丁 李佳薇"></div>
+        <div id="learned-cards"></div>
+        <div class="row"><button id="learned-reset" type="button">重新绑定</button>
+          <button id="learned-export" type="button">导出调用记录</button></div>
+        <p class="meta">重新绑定会释放当前目标引用，保留学习 JSON 和调用记录，不关闭应用。上方“学习／重新学习”只读取搜索入口。新操作请先点“学习并验证”：实际执行并核对页面后才保存 JSON；随后可手动回放。打开歌曲可能开始播放；本页不包含收藏步骤。刷新页面前请导出调用记录。</p>
+        <h3 style="font-size:14px">调用记录</h3><div id="learned-records" aria-label="已学能力调用记录"></div>
+      </section>
+      <section id="song-flow" hidden aria-label="搜索并打开歌曲分步流程">
+        <h2 style="font-size:16px;margin:0">搜索并打开歌曲</h2>
+        <p class="meta">李佳薇 · 甲乙丙丁（你我怎么两清）。每次只执行你点击的这一步，不含收藏动作。</p>
+        <p class="meta">先在能力目录启动网易云并选定窗口。搜索入口与歌曲条目从实时 UIA 中选取。
+          若入口仅支持 Enter，会停下提示补齐能力。</p>
+        <div id="flow-status" class="meta" role="status">尚未开始</div>
+        <div id="flow-live" class="meta"></div>
+        <div id="flow-environment" class="meta"></div>
+        <div id="flow-steps"></div>
+        <div class="row flow-controls"><button id="flow-next" class="primary" type="button">执行第 1 步</button>
+          <button id="flow-reset" type="button">新一轮</button>
+          <button id="flow-export" type="button">导出记录</button></div>
+        <p class="meta">失败后停止推进，不自动重放点击。新一轮保留本页中的历史记录；刷新页面会清空流程记录，请先导出。</p>
+      </section>
+    </div>
+
+    <div class="side">
+      <div class="panel preview-panel">
+        <div class="preview-heading"><h2>隐藏窗口画面</h2>
+          <label class="meta"><input id="live-preview-enabled" type="checkbox" checked>实时画面</label>
+          <button id="refresh-shot" type="button" disabled>刷新画面</button></div>
+        <div id="shot-box">
+          <img id="shot" alt="隐藏窗口画面" onerror="shotFailed()">
+          <div id="shot-hint">执行 <code>env.hidden.open</code> → <code>env.app.launch</code> 之后，
+            画面会出现在这里；执行类动作后会自动刷新。</div>
+        </div>
+        <div class="meta" id="shot-meta" style="margin-top:8px">尚未抓取</div>
+        <div class="meta" id="live-preview-status" role="status">等待当前窗口就绪…</div>
+      </div>
+
+      <div class="session-panels">
+      <div class="panel">
+        <h2>本次会话</h2>
+        <table class="kv">
+          <tr><th>租约</th><td id="s-lease">—</td></tr>
+          <tr><th>动作计数</th><td id="s-actions">—</td></tr>
+          <tr><th>桌面对象</th><td id="s-desktop">—</td></tr>
+        </table>
+        <details style="margin-top:8px">
+          <summary class="meta">最后一次调用的返回</summary>
+          <pre id="raw">（尚未执行）</pre>
+        </details>
+      </div>
+
+      <div class="panel log-panel">
+        <h2>执行日志</h2>
+        <ul id="log"><li class="empty">暂无日志</li></ul>
+      </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<div id="toast"></div>
+
+<script id="song-flow-engine">
+// 本实验的手动流程：只组合 labs 能力，不依赖主工程、真实模型或后台自动执行。
+class SongOpenFlow {
+  static title = '甲乙丙丁（你我怎么两清）';
+  static artist = '李佳薇';
+  static query = '甲乙丙丁 李佳薇';
+  static names = ['核对当前窗口归属', '唯一定位搜索框', '填写并核对搜索词',
+    '观察搜索入口', '提交搜索并观察结果', '核对目标版本并打开', '读取详情与画面', '人工确认详情页'];
+  constructor(invoke, changed = () => {}, clock = () => typeof performance === 'object' ? performance.now() : Date.now()) {
+    this.invoke = invoke;
+    this.changed = changed;
+    this.clock = clock;
+    this.history = [];
+    this.reset();
+  }
+  reset() {
+    if (this.running) throw new Error('正在执行，不能新建一轮');
+    if (this.records?.length) this.history.push(this.report());
+    this.step = 0;
+    this.records = [];
+    this.binding = null;
+    this.searchIdentity = null;
+    this.rows = [];
+    this.failed = false;
+    this.stale = false;
+    this.done = false;
+    this.pending = null;
+    this.message = '尚未开始';
+  }
+  report() {
+    return JSON.parse(JSON.stringify({ title: SongOpenFlow.title, artist: SongOpenFlow.artist,
+      step: this.step, done: this.done, message: this.message, binding: this.binding, records: this.records }));
+  }
+  require(condition, reason) { if (!condition) throw new Error(reason); }
+  usable(row) { return row && row.enabled === true && row.offscreen === false; }
+  allowed(row) {
+    return this.usable(row) && typeof row.name === 'string' && row.name.trim()
+      && !/收藏|喜欢|下载|购买|删除|分享|关注|登录|退出|设置|favorite|like|download|delete/i.test(row.name);
+  }
+  searchEntry(row) {
+    return this.allowed(row) && !['Edit', 'Window', 'Pane', 'Document'].includes(row.roleName)
+      && (row.name.includes('搜索') || /\bsearch\b/i.test(row.name)
+        || row.name.includes(SongOpenFlow.query) || row.name.includes(SongOpenFlow.title));
+  }
+  target(row, rows = this.rows) {
+    this.require(this.allowed(row), '目标不可用或不属于本流程允许的操作');
+    this.require(typeof row.roleName === 'string' && row.roleName.length > 0, '控件缺少角色');
+    const matches = rows.filter(r => r.roleName === row.roleName && r.name === row.name);
+    this.require(matches.length === 1, '同名同角色控件不唯一；需要补充定位，不能取第一条');
+    return { kind: 'role', role: row.roleName, value: row.name };
+  }
+  searchTarget() { return { kind: 'role', role: 'Edit', value: '',
+    ...(this.searchIdentity ? { expectedIdentity: this.searchIdentity } : {}) }; }
+  songNameMatches(name) {
+    const normalized = value => String(value).normalize('NFKC').replace(/\s+/gu, '');
+    return typeof name === 'string' && normalized(name) === normalized(SongOpenFlow.title);
+  }
+  tree(result) {
+    this.require(result?.enumerationComplete === true && Array.isArray(result.items), 'UIA 枚举不完整，不能继续选择目标');
+    return result.items;
+  }
+  choice(index) {
+    this.require(Number.isInteger(index) && index >= 0 && index < this.rows.length, '请从当前观察结果选择目标');
+    return this.rows[index];
+  }
+  sameSong(rows) {
+    const visible = rows.filter(r => this.usable(r));
+    this.require(visible.some(r => this.songNameMatches(r.name)), '当前观察未找到准确歌曲名');
+    this.require(visible.some(r => r.name === SongOpenFlow.artist), '当前观察未找到准确歌手名');
+  }
+  plans(selection = {}, step = this.step) {
+    const read = (id, args = {}) => ({ capability: id, arguments: args });
+    const tree = read('observe.uia.tree', { role: '' });
+    const input = this.searchTarget();
+    switch (step) {
+      case 0: return [read('verify.target.identity')];
+      case 1: return [read('locate.structured', input), read('observe.uia.tree', { role: '50004' })];
+      case 2: return [read('act.set_value', { target: input, text: SongOpenFlow.query }),
+        read('verify.structured.equals', { target: input, field: 'value', expected: SongOpenFlow.query })];
+      case 3: return [tree];
+      case 4: {
+        const row = this.choice(selection.entry);
+        this.require(this.searchEntry(row), '请选择实际的搜索入口，输入框本身不能提交搜索');
+        const target = this.target(row);
+        return [read('locate.structured', target), read('act.click', { target, double: false }), tree];
+      }
+      case 5: {
+        const row = this.choice(selection.song);
+        this.require(this.songNameMatches(row.name), '必须选择准确歌曲标题，不能选择其他版本');
+        this.require(this.rows.filter(r => r.roleName === row.roleName && this.songNameMatches(r.name)).length === 1,
+          '同版本歌曲标题不唯一，不能按显示格式取其中一个');
+        this.require(selection.sameRow === true, '请先在画面中核对该歌曲行的歌手是李佳薇');
+        const target = this.target(row);
+        return [tree, read('locate.structured', target), read('act.click', { target, double: false }), tree];
+      }
+      case 6: return [tree, read('observe.capture', { allowUnrendered: false })];
+      case 7: return [{ capability: '人工核对（无工具调用）', arguments: {
+        condition: '画面已经进入歌曲详情页，准确歌名与歌手对应；搜索结果列表不算完成' } }];
+      default: return [];
+    }
+  }
+  async call(record, id, args, purpose = '执行') {
+    const started = this.clock();
+    const entry = { capability: id, arguments: JSON.parse(JSON.stringify(args)), purpose,
+      status: '执行中', startedAt: new Date().toISOString() };
+    record.calls.push(entry);
+    this.pending = { entry, started };
+    this.message = `${record.title} → ${id}（${purpose}）`;
+    this.changed();
+    try {
+      const data = await this.invoke(id, args);
+      entry.response = { ok: data?.ok, result: data?.result, error: data?.error,
+        elapsedMs: data?.elapsedMs, budget: data?.budget };
+      this.require(data?.ok === true, data?.error?.code || data?.message || '能力调用失败');
+      entry.status = '调用成功';
+      return data;
+    } catch (error) {
+      entry.status = '失败／效果须核对';
+      entry.error = String(error.message || error);
+      throw error;
+    } finally {
+      entry.elapsedMs = Math.max(0, this.clock() - started);
+      entry.finishedAt = new Date().toISOString();
+      this.pending = null;
+      this.changed();
+    }
+  }
+  progress() {
+    if (!this.pending) return null;
+    return { capability: this.pending.entry.capability, purpose: this.pending.entry.purpose,
+      elapsedMs: Math.max(0, this.clock() - this.pending.started) };
+  }
+  async identity(record, first) {
+    const data = await this.call(record, 'verify.target.identity', {}, '独立核对原窗口归属');
+    const proof = data.result;
+    this.require(proof?.ok === true && proof.inJob === true && proof.sameUser === true
+      && proof.sameSession === true && proof.alive === true, '窗口归属未通过核对');
+    this.require(typeof proof.desktopName === 'string' && Number.isInteger(proof.pid)
+      && Number.isInteger(data.state?.facts?.targetWindow), '缺少会话或目标窗口标识');
+    this.require(Number.isInteger(proof.session) && typeof proof.instanceId === 'string'
+      && proof.instanceId.length > 0, '缺少原环境 Session / Instance 身份');
+    const binding = { desktop: proof.desktopName, pid: proof.pid, hwnd: data.state.facts.targetWindow,
+      session: proof.session, instanceId: proof.instanceId };
+    if (first) this.binding = binding;
+    else this.require(JSON.stringify(binding) === JSON.stringify(this.binding), '桌面、进程或目标窗口已变化，请新建一轮');
+  }
+  async execute(selection = {}) {
+    this.require(!this.running && !this.failed && !this.stale && !this.done, '当前流程不能继续；请核对现场后新建一轮');
+    // 校验选择在任何副作用之前完成。没有自动重试、回放、收藏或全流程按钮。
+    const plan = this.plans(selection);
+    if (this.step === 7) this.require(selection.detailConfirmed === true, '请先确认画面是正确的歌曲详情页');
+    const record = { step: this.step + 1, title: SongOpenFlow.names[this.step],
+      startedAt: new Date().toISOString(), plan, calls: [], verification: { status: '执行中' } };
+    this.records.push(record);
+    this.running = true;
+    this.message = '执行中：' + record.title;
+    this.changed();
+    try {
+      await this.identity(record, this.step === 0);
+      if (this.step === 0) {
+        record.verification = { status: '自动通过', evidence: '本次 Job、同用户、同会话、同一目标窗口' };
+      } else if (this.step === 7) {
+        record.verification = { status: '人工确认', automaticAcceptance: false,
+          evidence: '用户确认详情页中的歌曲与歌手对应；基于第 7 步画面和结构化记录',
+          confirmedAt: new Date().toISOString() };
+        this.done = true;
+      } else {
+        for (let n = 0; n < plan.length; n++) {
+          const item = plan[n];
+          // locate 返回的是数据身份证据；后续调用仍重新全局查询，不复用 COM 或旧索引。
+          const data = await this.call(record, item.capability, item.arguments,
+            item.capability.startsWith('verify.') ? '独立核验' : '执行／观察');
+          if (item.capability === 'locate.structured') {
+            const identity = data.result?.identity;
+            this.require(identity?.globalUnique === true && identity.identityRebound === true,
+              '缺少全局唯一及独立目标身份证据');
+            if (this.step === 1) this.searchIdentity = identity;
+            for (const next of plan.slice(n + 1)) {
+              if (next.arguments.target) next.arguments.target.expectedIdentity = identity;
+            }
+          }
+          if (item.capability === 'observe.uia.tree') {
+            const rows = this.tree(data.result);
+            if (this.step === 1) {
+              this.require(rows.length === 1 && rows[0].roleName === 'Edit' && this.usable(rows[0]), '搜索框不是唯一可用的 Edit');
+              this.require(JSON.stringify(rows[0].runtimeId) === JSON.stringify(this.searchIdentity.runtimeId),
+                '独立观察的搜索框已被替换；请重新发现');
+            }
+            if (this.step === 5 && n === 0) {
+              this.sameSong(rows);
+              const selected = this.choice(selection.song);
+              this.require(rows.filter(r => r.roleName === selected.roleName && this.songNameMatches(r.name)).length === 1,
+                '新观察中的同版本歌曲不唯一，不能继续打开');
+              this.target(selected, rows); // 点击前重新枚举，禁止依赖旧索引或坐标。
+            }
+            if (this.step === 6) this.sameSong(rows);
+            if (this.step === 3 || this.step === 4) this.rows = rows;
+          }
+          if (item.capability === 'verify.structured.equals') {
+            this.require(data.result?.ok === true && data.result.actual === SongOpenFlow.query, '输入值核验未通过');
+          }
+          if (item.capability === 'act.click') this.require(data.result?.dispatched === true, '未取得点击发送回执');
+          if (item.capability === 'observe.capture') {
+            this.require(data.result?.unrendered === false && typeof data.result.token === 'string', '没有有效的已渲染画面');
+          }
+        }
+        const messages = { 1: '独立观察确认唯一可用的搜索框', 2: '独立回读搜索框，值严格相等',
+          3: '完整 UIA 观察已取得；请从真实控件选择搜索入口',
+          4: '点击已发送，完整结果观察已取得；尚未判定目标歌曲已打开',
+          5: '点击前核对准确歌名与歌手存在、目标唯一；已发送打开动作，详情页待核验',
+          6: '准确歌名、歌手及已渲染截图已取得；仍需人工确认详情页，不能仅凭同屏文字自动验收' };
+        record.verification = { status: [4, 5, 6].includes(this.step) ? '待后续核验' : '自动通过', evidence: messages[this.step] };
+      }
+      this.step++;
+      this.message = this.done ? '已人工确认搜索并打开歌曲；未执行收藏。' : record.verification.evidence;
+    } catch (error) {
+      this.failed = true;
+      record.verification = { status: '失败／未完成', evidence: String(error.message || error) };
+      this.message = '已停止：' + record.verification.evidence + '。请核对现场；不自动重放动作。';
+    } finally {
+      record.finishedAt = new Date().toISOString();
+      this.running = false;
+      this.changed();
+    }
+  }
+  async reobserve() {
+    this.require([4, 5].includes(this.step) && !this.running && !this.failed && !this.stale, '当前不能补充观察');
+    const record = { title: '补充观察当前页面', startedAt: new Date().toISOString(), calls: [], verification: { status: '执行中' } };
+    this.records.push(record);
+    this.running = true;
+    this.changed();
+    try {
+      await this.identity(record, false);
+      const data = await this.call(record, 'observe.uia.tree', { role: '' }, '只读补充观察');
+      this.rows = this.tree(data.result);
+      record.verification = { status: '自动通过', evidence: '已重新完整观察；原选择已清除，请重新选择' };
+      this.message = record.verification.evidence;
+    } catch (error) {
+      this.failed = true;
+      record.verification = { status: '失败／未完成', evidence: String(error.message || error) };
+      this.message = '已停止：' + record.verification.evidence;
+    } finally {
+      record.finishedAt = new Date().toISOString();
+      this.running = false;
+      this.changed();
+    }
+  }
+}
+</script>
+<script src="/learned-skills.js"></script>
+<script src="/live-preview.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let busy = false;
+let capturing = false;
+let captureReady = false;
+let attemptedPreviewTarget = null;
+let leaseBase = null;
+let lastTree = [];      // 最近一次 observe.uia.tree 的结果，用于表单快速填入
+const RUNS = {};        // 每条能力的完成次数：跨重绘保持，供外部判断"这一轮确实跑完了"
+let deadShot = '';      // 已确认失效的 token：不再重试，否则每次刷新都会再撞一次 404
+let flowSelection = {};
+let flowPlanReason = '';
+let latestLabState = null;
+let catalogPending = null;
+let refreshing = false;
+let shotBlobUrl = null;
+let shownFrameNs = 0;
+window.__runs = RUNS;
+
+// 表单预填：只属于页面展示，不进声明。
+const APP_LAUNCH_PRESETS = {
+  cloudmusic: { label: '网易云音乐', app: 'custom',
+    path: 'E:\\app\\CloudMusic\\cloudmusic.exe', args: '--force-renderer-accessibility' },
+};
+const PRESETS = {
+  'act.click': { target: { kind: 'autoId', value: '1002' } },
+  'act.type': { target: { kind: 'autoId', value: '1001' }, text: 'hello 世界' },
+  'act.set_value': { target: { kind: 'autoId', value: '1001' }, text: '语义赋值' },
+  'act.invoke': { target: { kind: 'autoId', value: '1002' } },
+  'observe.state.read': { target: { kind: 'autoId', value: '1005' }, field: 'name' },
+  'locate.structured': { kind: 'autoId', value: '1002' },
+  'verify.structured.equals': { target: { kind: 'autoId', value: '1005' }, field: 'name', expected: '' },
+  'env.app.launch': { app: 'cloudmusic', path: APP_LAUNCH_PRESETS.cloudmusic.path,
+    args: APP_LAUNCH_PRESETS.cloudmusic.args },
+};
+
+function toast(message, kind) {
+  const node = $('toast');
+  node.textContent = message;
+  node.className = 'show ' + (kind || '');
+  clearTimeout(node._timer);
+  node._timer = setTimeout(() => { node.className = ''; }, 4200);
+}
+
+async function call(route, payload) {
+  const response = await fetch(route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Lab': '1' },
+    body: JSON.stringify(payload || {}),
+  });
+  return response.json();
+}
+
+const escapeHtml = (text) => String(text).replace(/[<>&"]/g,
+  (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]);
+
+function effectChips(effects) {
+  const spec = [
+    ['touchesUserDesktop', '不动用户桌面', '碰用户桌面'],
+    ['sendsSystemInput', '不用系统输入', '用了系统输入'],
+    ['changesForeground', '不抢前台', '会抢前台'],
+    ['touchesClipboard', '不碰剪贴板', '会碰剪贴板'],
+  ];
+  return spec.map(([key, good, bad]) =>
+    `<span class="chip ${effects[key] ? 'err' : 'ok'}">${effects[key] ? bad : good}</span>`).join('');
+}
+
+function badge(text, cls) { return `<span class="badge ${cls}">${escapeHtml(text)}</span>`; }
+
+function statusBadge(status) {
+  return badge(status, status === 'verified' ? 'ok' : status === 'partial' ? 'warn' : 'plain');
+}
+
+function availabilityBadge(entry) {
+  const map = { ready: ['ok', '可执行'], pending: ['warn', '等待检查'], unavailable: ['plain', '不可用'] };
+  const [cls, text] = map[entry.availability] || ['plain', entry.availability];
+  const reason = entry.reasons && entry.reasons.length ? '：' + entry.reasons.join('、') : '';
+  return `<span class="badge ${cls}" title="${escapeHtml(reason)}">${text}</span>`;
+}
+
+function targetField(name, spec, preset) {
+  const value = (preset && preset[name]) || {};
+  const kinds = ['autoId', 'role', 'label', 'text', 'className'];
+  const options = kinds.map((k) =>
+    `<option value="${k}"${(value.kind || 'autoId') === k ? ' selected' : ''}>${k}</option>`).join('');
+  return `<div class="field" data-name="${name}" data-type="target">
+      <label>${escapeHtml(spec.label || name)}</label>
+      <div style="display:flex;gap:6px">
+        <select class="t-kind" style="width:130px">${options}</select>
+        <input type="text" class="t-value" list="control-ids" placeholder="目标值，如 1002"
+               value="${escapeHtml(value.value || '')}">
+        <input type="text" class="t-role" placeholder="role（选 role 时）"
+               value="${escapeHtml(value.role || '')}" style="width:120px">
+      </div>
+      <p class="hint">${escapeHtml(spec.help || '')}</p>
+    </div>`;
+}
+
+function fieldMarkup(name, spec, preset) {
+  if (spec.type === 'target') return targetField(name, spec, preset);
+  const value = preset && name in preset ? preset[name] : (spec.default ?? '');
+  if (spec.type === 'boolean') {
+    return `<div class="field" data-name="${name}" data-type="boolean">
+      <label>${escapeHtml(spec.label || name)}</label>
+      <div><label style="color:var(--text)"><input type="checkbox" class="f-bool"
+        ${value ? 'checked' : ''}> ${escapeHtml(spec.help || '')}</label></div></div>`;
+  }
+  if (spec.type === 'choice') {
+    const options = (spec.choices || []).map((c) =>
+      `<option value="${escapeHtml(c.value)}"${String(c.value) === String(value) ? ' selected' : ''}>${escapeHtml(c.label)}</option>`).join('');
+    return `<div class="field" data-name="${name}" data-type="choice">
+      <label>${escapeHtml(spec.label || name)}</label><select class="f-value">${options}</select></div>`;
+  }
+  if (spec.type === 'integer') {
+    return `<div class="field" data-name="${name}" data-type="integer">
+      <label>${escapeHtml(spec.label || name)}</label><input type="text" class="f-value"
+      placeholder="整数${spec.required ? '（必填）' : ''}" value="${escapeHtml(value)}"></div>`;
+  }
+  return `<div class="field" data-name="${name}" data-type="string">
+    <label>${escapeHtml(spec.label || name)}</label><input type="text" class="f-value"
+    placeholder="${spec.required ? '必填' : '可选'}" value="${escapeHtml(value)}"></div>`;
+}
+
+function metaMarkup(entry) {
+  const env = (entry.environments || []).map((e) =>
+    `${e.kind}=${e.status}${e.limitation ? '（' + escapeHtml(e.limitation) + '）' : ''}`).join(' · ');
+  const list = (items, render) => (items && items.length)
+    ? '<ul style="margin:2px 0 6px 18px;padding:0">' + items.map(render).join('') + '</ul>'
+    : '<div class="empty">（无）</div>';
+  return `<details class="meta"><summary>声明明细（前置 / 承诺 / 拒绝 / 错误 / 上限）</summary>
+    <div style="margin-top:8px;display:grid;gap:8px">
+      <div><b>环境矩阵</b><div class="meta">${escapeHtml(env)}</div></div>
+      <div><b>前置事实</b>${list(entry.requires, (f) => `<li><code>${escapeHtml(f)}</code></li>`)}</div>
+      <div><b>承诺（可被独立复核）</b>${list(entry.guarantees, (g) =>
+        `<li>${escapeHtml(g.statement)} <span class="meta">← ${escapeHtml(g.check)}</span></li>`)}</div>
+      <div><b>拒绝条件</b>${list(entry.refuses, (r) =>
+        `<li>${escapeHtml(r.condition)} → <code>${escapeHtml(r.code)}</code></li>`)}</div>
+      <div><b>错误分类</b>${list(entry.errors, (e) =>
+        `<li><code>${escapeHtml(e.code)}</code> · ${e.kind}${e.retryable ? ' · 可重试' : ''}</li>`)}</div>
+      <div><b>上限</b><div class="meta">${escapeHtml(JSON.stringify(entry.budget))}</div></div>
+      <div><b>验收</b><div class="meta">${escapeHtml(entry.conformance.suite || '—')} ·
+        ${entry.conformance.cases} 用例</div></div>
+      <div><b>已知不支持</b>${list(entry.knownUnsupported, (k) => `<li>${escapeHtml(k)}</li>`)}</div>
+    </div></details>`;
+}
+
+function capabilityCard(entry) {
+  const preset = PRESETS[entry.id] || {};
+  const fields = Object.entries(entry.input.properties || {})
+    .map(([name, spec]) => {
+      if (entry.id === 'env.app.launch' && name === 'app') spec = { ...spec,
+        choices: [...Object.entries(APP_LAUNCH_PRESETS).map(([value, item]) => ({ value, label: item.label })), ...spec.choices] };
+      return fieldMarkup(name, spec, preset);
+    }).join('');
+  const disabled = entry.availability !== 'ready';
+  return `<details class="cap" data-id="${escapeHtml(entry.id)}">
+    <summary>
+      ${badge(entry.layer, 'layer')}<code class="id">${escapeHtml(entry.id)}</code>
+      ${statusBadge(entry.status)}${availabilityBadge(entry)}
+      <span class="sum">${escapeHtml(entry.summary)}</span>
+    </summary>
+    <div class="cap-body">
+      <div class="row effects">${effectChips(entry.effects)}
+        ${entry.idempotent ? '<span class="chip plain">幂等</span>' : '<span class="chip plain">非幂等</span>'}</div>
+      ${fields ? `<div class="fields">${fields}</div>` : '<div class="empty">无参数</div>'}
+      <div class="row"><button class="primary run" ${disabled ? 'disabled' : ''}>执行</button>
+        <span class="meta">${entry.reasons && entry.reasons.length ? escapeHtml(entry.reasons.join('、')) : ''}</span></div>
+      <div class="result" hidden><div class="verdict"></div><pre></pre></div>
+      ${metaMarkup(entry)}
+    </div></details>`;
+}
+
+function collectArguments(card) {
+  const args = {};
+  card.querySelectorAll('.field').forEach((field) => {
+    const name = field.dataset.name;
+    const type = field.dataset.type;
+    if (type === 'target') {
+      args[name] = { kind: field.querySelector('.t-kind').value,
+                     value: field.querySelector('.t-value').value.trim(),
+                     role: field.querySelector('.t-role').value.trim() };
+    } else if (type === 'boolean') {
+      args[name] = field.querySelector('.f-bool').checked;
+    } else if (type === 'choice') {
+      args[name] = field.querySelector('.f-value').value;
+    } else if (type === 'integer') {
+      const raw = field.querySelector('.f-value').value.trim();
+      if (raw !== '') args[name] = Number(raw);
+    } else {
+      const raw = field.querySelector('.f-value').value;
+      if (raw !== '') args[name] = raw;
+    }
+  });
+  if (card.dataset.id === 'env.app.launch' && APP_LAUNCH_PRESETS[args.app]) {
+    const preset = APP_LAUNCH_PRESETS[args.app];
+    // 预设仅是页面快捷选择；向能力层仍提交原来的 custom/path/args 契约。
+    args.app = preset.app; args.path = preset.path; args.args = preset.args;
+  }
+  return args;
+}
+
+function syncLaunchPreset(card, fill = false) {
+  const choice = card.querySelector('[data-name="app"] .f-value').value;
+  const preset = APP_LAUNCH_PRESETS[choice];
+  for (const name of ['path', 'args']) {
+    const input = card.querySelector(`[data-name="${name}"] .f-value`);
+    if (preset && fill) input.value = preset[name];
+    input.readOnly = !!preset || choice === 'builtin';
+    input.title = preset ? '由所选应用预设填写；选择“自定义 .exe 路径”可修改' : '';
+  }
+}
+
+function renderFacts(state) {
+  const facts = state.facts || {};
+  const lease = state.lease || {};
+  const labels = {
+    hiddenDesktopOpen: '隐藏桌面已打开', ownedAppRunning: '自有进程在跑',
+    uniqueOwnedWindow: '唯一自有窗口', leaseActive: '租约有效', budgetAvailable: '预算可用',
+  };
+  $('facts').innerHTML = Object.entries(labels).map(([key, label]) =>
+    `<span class="chip ${facts[key] ? 'ok' : 'plain'}">${label}</span>`).join('')
+    + `<span class="chip plain">动作 ${state.actions.used}/${state.actions.max}</span>`;
+  leaseBase = (lease.remaining === null || lease.remaining === undefined)
+    ? null : { remaining: lease.remaining, at: performance.now() };
+  tickLease(lease.expired);
+  $('s-actions').textContent = `${state.actions.used} / ${state.actions.max}`;
+  const opened = state.capabilities.find((c) => c.id === 'env.hidden.open');
+  $('s-desktop').textContent = facts.hiddenDesktopOpen ? '已创建（见日志与画面）' : '—';
+}
+
+function tickLease(expired) {
+  const cell = $('s-lease');
+  if (!leaseBase) { cell.innerHTML = '<span class="empty">—</span>'; return; }
+  const left = Math.max(0, leaseBase.remaining - (performance.now() - leaseBase.at) / 1000);
+  if (left <= 0 || expired) {
+    cell.innerHTML = '<span class="badge err">已到期</span>';
+  } else {
+    cell.innerHTML = Math.ceil(left) + ' 秒' + (left <= 30 ? ' <span class="badge warn">即将到期</span>' : '');
+  }
+}
+
+let lastSignature = null;
+
+/** 保存展开状态、表单内容与结果，避免自动刷新把用户正在操作的东西冲掉。 */
+function snapshotPanel() {
+  const saved = {};
+  document.querySelectorAll('details.cap').forEach((card) => {
+    const values = {};
+    card.querySelectorAll('.field').forEach((field) => {
+      const name = field.dataset.name, type = field.dataset.type;
+      if (type === 'target') {
+        values[name] = { kind: field.querySelector('.t-kind').value,
+                         value: field.querySelector('.t-value').value,
+                         role: field.querySelector('.t-role').value };
+      } else if (type === 'boolean') {
+        values[name] = field.querySelector('.f-bool').checked;
+      } else {
+        values[name] = field.querySelector('.f-value').value;
+      }
+    });
+    const block = card.querySelector('.result');
+    saved[card.dataset.id] = {
+      open: card.open,
+      result: block.hidden ? null : block.innerHTML,
+      values,
+    };
+  });
+  return saved;
+}
+
+function restorePanel(saved) {
+  document.querySelectorAll('details.cap').forEach((card) => {
+    const entry = saved[card.dataset.id];
+    if (!entry) return;
+    card.open = entry.open;
+    card.querySelectorAll('.field').forEach((field) => {
+      const name = field.dataset.name, type = field.dataset.type;
+      if (!(name in entry.values)) return;
+      const value = entry.values[name];
+      if (type === 'target') {
+        field.querySelector('.t-kind').value = value.kind;
+        field.querySelector('.t-value').value = value.value;
+        field.querySelector('.t-role').value = value.role;
+      } else if (type === 'boolean') {
+        field.querySelector('.f-bool').checked = value;
+      } else {
+        field.querySelector('.f-value').value = value;
+      }
+    });
+    if (entry.result) {
+      const block = card.querySelector('.result');
+      block.hidden = false;
+      block.innerHTML = entry.result;
+    }
+  });
+}
+
+function renderCatalog(state) {
+  const order = ['environment', 'observe', 'ground', 'execute', 'verify', 'control'];
+  const groups = {};
+  state.capabilities.forEach((entry) => { (groups[entry.layer] = groups[entry.layer] || []).push(entry); });
+  // 可用性没变就完全不重绘：保住展开状态、表单与结果。
+  const signature = state.capabilities.map((c) =>
+    `${c.id}:${c.availability}:${(c.reasons || []).join('|')}`).join(';');
+  if (signature === lastSignature) { updateDatalist(); return; }
+  const saved = lastSignature === null ? null : snapshotPanel();
+  lastSignature = signature;
+
+  $('catalog').innerHTML = order.filter((layer) => groups[layer]).map((layer) => {
+    const items = groups[layer];
+    const ready = items.filter((i) => i.availability === 'ready').length;
+    return `<div style="margin:10px 0 6px" class="meta"><b>${layer}</b> ·
+      ${items.length} 条，其中 ${ready} 条可执行</div>`
+      + items.map(capabilityCard).join('');
+  }).join('');
+  if (saved) restorePanel(saved);
+  const launchCard = document.querySelector('details.cap[data-id="env.app.launch"]');
+  if (launchCard) syncLaunchPreset(launchCard);
+  updateDatalist();
+}
+
+function updateDatalist() {
+  const datalist = lastTree.map((row) =>
+    `<option value="${escapeHtml(row.autoId)}">${escapeHtml(row.roleName)} ${escapeHtml(row.name).slice(0, 30)}</option>`).join('');
+  let list = $('control-ids');
+  if (!list) { list = document.createElement('datalist'); list.id = 'control-ids'; document.body.appendChild(list); }
+  list.innerHTML = datalist;
+}
+
+function showShot(info, blobUrl = null) {
+  if (!info || !info.token || info.token === deadShot) return;
+  if (info.instanceId && info.instanceId !== latestLabState?.previewSession) return;
+  if (info.capturedAtNs && info.capturedAtNs < shownFrameNs) return;
+  shownFrameNs = info.capturedAtNs || shownFrameNs;
+  const image = $('shot');
+  if (image.dataset.token !== info.token) {
+    image.dataset.token = info.token;
+    image.src = blobUrl || '/api/preview.png?token=' + info.token;
+    if (shotBlobUrl) URL.revokeObjectURL(shotBlobUrl);
+    shotBlobUrl = blobUrl;
+  } else if (blobUrl) {
+    URL.revokeObjectURL(blobUrl);
+  }
+  image.style.display = 'block';       // 必须显式 block：CSS 里是 display:none
+  $('shot-hint').style.display = 'none';
+  $('shot-meta').innerHTML = `${info.width}×${info.height} · ${info.bytes} 字节 · ${info.capturedAt}`
+    + ` · sha256 ${String(info.sha256).slice(0, 10)}…`
+    + (info.unrendered ? ' <span class="badge warn">未渲染</span>' : '');
+}
+
+function clearShot() {
+  shownFrameNs = 0;
+  livePreview.invalidate();
+  if (shotBlobUrl) URL.revokeObjectURL(shotBlobUrl);
+  shotBlobUrl = null;
+  const image = $('shot');
+  image.style.display = 'none'; image.removeAttribute('src'); image.dataset.token = '';
+  $('shot-hint').style.display = '';
+  $('shot-hint').textContent = '执行 env.hidden.open → env.app.launch 之后，画面会出现在这里；'
+    + '实时画面就绪后会持续刷新。';
+  $('shot-meta').textContent = '尚未抓取';
+}
+
+/** 画面 token 失效（桌面已清理或超出保留上限）：优雅降级，不留破图。 */
+function shotFailed() {
+  const image = $('shot');
+  deadShot = image.dataset.token || '';      // 记住这个坏 token，避免每轮刷新重试
+  image.style.display = 'none'; image.removeAttribute('src'); image.dataset.token = '';
+  $('shot-hint').style.display = '';
+  $('shot-hint').textContent = '这张画面已失效（桌面已清理，或超出保留上限）。点 observe.capture 重新抓一张。';
+  $('shot-meta').textContent = '画面已失效';
+}
+
+function render(state) {
+  const previous = latestLabState;
+  latestLabState = state;
+  const targetChanged = previous?.previewSession !== state.previewSession || previous?.facts.targetWindow !== state.facts.targetWindow;
+  if (targetChanged) clearShot();
+  if (targetChanged || (!previous?.facts.leaseActive && state.facts.leaseActive)) livePreview.resume();
+  learnedSkills.sync(state.learned);
+  lastTree = (state.last && state.last.id === 'observe.uia.tree' && state.last.ok)
+    ? (state.last.result.items || []) : lastTree;
+  renderFacts(state);
+  renderCatalog(state);
+  const log = state.log || [];
+  $('log').innerHTML = log.length
+    ? log.slice().reverse().map((e) => `<li class="${e.level}"><span class="t">${e.at}</span>`
+        + `<span class="m">${escapeHtml(e.message)}</span></li>`).join('')
+    : '<li class="empty">暂无日志</li>';
+  if (state.last) $('raw').textContent = JSON.stringify(state.last, null, 2);
+  if (state.lastPreview && state.lastPreview.token) showShot(state.lastPreview);
+  else if (!state.facts.hiddenDesktopOpen) clearShot();
+  captureReady = state.capabilities.some((c) => c.id === 'observe.capture' && c.availability === 'ready');
+  $('refresh-shot').disabled = busy || capturing || !captureReady;
+  if (!state.lastPreview) {
+    $('shot-hint').textContent = !state.facts.hiddenDesktopOpen ? '先创建隐藏桌面，再启动应用。'
+      : !state.facts.ownedAppRunning ? '隐藏桌面已创建，等待启动应用。'
+      : !state.facts.targetWindowResolved ? '应用已启动，等待窗口就绪；多个候选窗口时请用 locate.window 选定。'
+      : !state.facts.leaseActive ? '租约已过期，请显式续租后刷新画面。'
+      : '窗口已就绪，正在准备画面；也可点击“刷新画面”。';
+  }
+  if (!state.facts.hiddenDesktopOpen) attemptedPreviewTarget = null;
+  updateFlowControls();
+  renderLearnedSkills();
+}
+
+async function refreshShot(manual = false) {
+  if (!captureReady || livePreview.pending) return;
+  $('refresh-shot').disabled = true;
+  try {
+    await livePreview.capture(manual);
+  } finally {
+    $('refresh-shot').disabled = !captureReady;
+  }
+}
+
+async function refresh() {
+  if (refreshing || busy || capturing) return;
+  refreshing = true;
+  try {
+    const data = await fetch('/api/state').then((r) => r.json());
+    if (data.state) {
+      render(data.state);
+      // 启动返回时窗口可能还不存在。就绪后补一次只读抓图，不循环消耗画面文件预算。
+      const target = data.state.facts.targetWindow;
+      if (livePreview.enabled && (!data.state.lastPreview || data.state.lastPreview.unrendered) && captureReady && !busy && !capturing
+          && target && attemptedPreviewTarget !== target) {
+        attemptedPreviewTarget = target;
+        await refreshShot();
+      }
+    }
+  } catch (error) {
+    $('facts').innerHTML = '<span class="chip err">连接服务失败</span>';
+    latestLabState = null;
+    updateFlowControls();
+  } finally {
+    refreshing = false;
+  }
+}
+
+async function run(card) {
+  if (busy || capturing) return;
+  const id = card.dataset.id;
+  const args = collectArguments(card);          // 取值必须在任何 await 之前
+  if (id.startsWith('act.') || ['env.hidden.open', 'env.app.launch', 'env.app.close', 'locate.window'].includes(id)) {
+    learnedSkills.invalidate('基础能力目录改变了现场，请重新绑定并获取搜索框。');
+  }
+  if (songFlow.step > 0 && (id.startsWith('act.') || ['env.hidden.open', 'env.app.launch', 'env.app.close', 'locate.window'].includes(id))) {
+    songFlow.stale = true;
+    songFlow.message = '能力目录执行了界面或窗口变更，请核对现场后新建一轮流程。';
+    renderSongFlow();
+  }
+  const button = card.querySelector('button.run');
+  busy = true;
+  $('refresh-shot').disabled = true;
+  updateFlowControls();
+  button.disabled = true;
+  catalogPending = { id, started: performance.now() };
+  const pendingBlock = card.querySelector('.result');
+  pendingBlock.hidden = false;
+  pendingBlock.querySelector('pre').textContent = JSON.stringify({ capability: id, arguments: args }, null, 2);
+  updateFlowProgress();
+  const paint = (block, data) => {
+    block.hidden = false;
+    // 递增序号：让外部（以及测试）能判断"这次结果确实刷新了"，而不是读到上一轮。
+    block.dataset.run = String((Number(block.dataset.run) || 0) + 1);
+    const verdict = block.querySelector('.verdict');
+    const pre = block.querySelector('pre');
+    RUNS[id] = (RUNS[id] || 0) + 1;
+    if (data.ok) {
+      verdict.innerHTML = `<span class="chip ok">成功</span> <span class="meta">`
+        + `${data.elapsedMs} ms · 动作 ${data.budget.actionsUsed}/${data.budget.actionsMax}</span>`;
+      pre.textContent = JSON.stringify(data.result, null, 2);
+    } else {
+      const error = data.error || {};
+      verdict.innerHTML = `<span class="chip err">被拒 / 失败</span> <span class="meta">`
+        + `${escapeHtml(error.code)} · kind=${escapeHtml(error.kind)}</span>`;
+      pre.textContent = JSON.stringify(error, null, 2);
+    }
+  };
+  try {
+    const data = await call('/api/invoke', { id, arguments: args });
+    // 等待期间自动刷新可能重绘目录，旧节点会 detach —— 必须按 id 重新解析。
+    const fresh = document.querySelector(`details.cap[data-id="${id}"]`);
+    if (fresh) paint(fresh.querySelector('.result'), data);
+    toast(data.ok ? `${id} 成功` : `${id} → ${(data.error || {}).code}`, data.ok ? 'ok' : 'err');
+    if (data.state) render(data.state);
+    if (fresh && !data.state) {
+      const again = document.querySelector(`details.cap[data-id="${id}"] .result`);
+      if (again && again.hidden) paint(again, data);
+    }
+  } catch (error) {
+    toast('请求失败：' + error, 'err');
+  } finally {
+    catalogPending = null;
+    busy = false;
+    $('refresh-shot').disabled = capturing || !captureReady;
+    updateFlowControls();
+    const again = document.querySelector(`details.cap[data-id="${id}"] button.run`);
+    if (again) again.disabled = false;
+  }
+}
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('button.run');
+  if (button) { run(button.closest('details.cap')); }
+});
+document.addEventListener('change', event => {
+  const card = event.target.closest('details.cap[data-id="env.app.launch"]');
+  if (card && event.target.matches('[data-name="app"] .f-value')) syncLaunchPreset(card, true);
+});
+$('refresh-shot').addEventListener('click', () => refreshShot(true));
+
+const songFlow = new SongOpenFlow(async (id, args) => {
+  const data = await call('/api/invoke', { id, arguments: args });
+  if (data.state) render(data.state);
+  return data;
+}, () => renderSongFlow());
+
+function renderSongFlow() {
+  const flow = songFlow;
+  const escape = escapeHtml;
+  const stringify = value => escape(JSON.stringify(value, null, 2));
+  const statuses = { '自动通过': 'ok', '人工确认': 'ok', '失败／未完成': 'err' };
+  const labels = [
+    'verify.target.identity', 'locate.structured → observe.uia.tree',
+    'act.set_value → verify.structured.equals', 'observe.uia.tree',
+    'locate.structured → act.click → observe.uia.tree',
+    'observe.uia.tree → locate.structured → act.click → observe.uia.tree',
+    'observe.uia.tree → observe.capture', '人工核对详情页（单独记录）',
+  ];
+  const choose = (name, label, filter) => {
+    const options = flow.rows.map((row, index) => ({ row, index })).filter(({row}) => filter(row));
+    return `<label class="flow-choice">${label}<select data-flow-choice="${name}"><option value="">请选择实际观察到的控件</option>`
+      + options.map(({row, index}) => `<option value="${index}" ${flowSelection[name] === index ? 'selected' : ''}>`
+        + `${escape(row.roleName)} · ${escape(row.name.slice(0, 160))}</option>`).join('') + '</select></label>'
+      + (!options.length ? '<p class="meta">没有匹配控件，可补充观察。如果搜索只能用 Enter，需要先补齐 act.keypress；流程不会绕过。</p>' : '');
+  };
+  let choice = '';
+  if (flow.step === 4) choice = choose('entry', '选择搜索按钮或目标搜索建议', row => flow.searchEntry(row));
+  if (flow.step === 5) choice = choose('song', '选择准确歌曲标题', row => flow.allowed(row) && flow.songNameMatches(row.name))
+    + `<label><input type="checkbox" data-flow-check="sameRow" ${flowSelection.sameRow ? 'checked' : ''}>`
+    + ' 我已在画面中确认：所选歌曲行的歌手是李佳薇，版本准确。</label>';
+  if (flow.step === 7) choice = `<label><input type="checkbox" data-flow-check="detailConfirmed" ${flowSelection.detailConfirmed ? 'checked' : ''}>`
+    + ' 我确认画面已进入目标歌曲详情页，歌名与李佳薇对应；不是停在搜索列表。</label>';
+  let plan = [], reason = '';
+  try { plan = flow.plans(flowSelection); } catch (error) { reason = error.message; }
+  if (flow.step > 0 && plan.length) plan = [{ capability: 'verify.target.identity', arguments: {} }, ...plan];
+  flowPlanReason = reason;
+  $('flow-status').textContent = flow.message;
+  $('flow-steps').innerHTML = SongOpenFlow.names.map((name, index) => {
+    const records = flow.records.filter(record => record.step === index + 1);
+    const current = flow.step === index && !flow.done;
+    const record = records[records.length - 1];
+    return `<article class="flow-step ${current ? 'current' : ''}"><h3>${index + 1}. ${escape(name)}</h3>`
+      + `<div class="meta">${index ? '每步先调用 verify.target.identity，核对原会话。' : ''}${escape(labels[index])}</div>`
+      + (record ? `<span class="badge ${statuses[record.verification.status] || 'warn'}">${escape(record.verification.status)}</span>`
+        + `<div class="meta">${escape(record.verification.evidence || '')}</div>`
+        + (record.calls.some(call => call.status === '执行中') ? '<div class="meta" data-flow-current></div>' : '')
+        + `<details ${record.calls.some(call => call.status === '执行中') ? 'open' : ''}><summary>调用能力、参数与返回（${record.calls.length} 次）</summary>`
+        + record.calls.map(call => `<div class="meta">${escape(call.purpose)} · ${escape(call.capability)} · ${escape(call.status)}</div>`
+          + (call.elapsedMs !== undefined ? `<div class="meta">本次调用耗时 ${(call.elapsedMs / 1000).toFixed(1)} 秒</div>` : '')
+          + `<pre>${stringify(call)}</pre>`).join('') + '</details>' : '<span class="badge plain">未执行</span>')
+      + (current ? choice + `<details open><summary>本步参数预览</summary><pre>${stringify(plan)}</pre></details>`
+        + (reason ? `<p class="meta">${escape(reason)}</p>` : '') : !record ? (() => {
+          try { return `<details><summary>参数预览</summary><pre>${stringify(flow.plans({}, index))}</pre></details>`; }
+          catch { return '<div class="meta">参数待前序观察完成、手动选择目标后生成。</div>'; }
+        })() : '')
+      + '</article>';
+  }).join('') + flow.records.filter(record => !record.step).map(record =>
+    `<details class="flow-step"><summary>${escape(record.title)} · ${escape(record.verification.status)}</summary><pre>${stringify(record)}</pre></details>`).join('');
+  $('flow-next').textContent = flow.done ? '已人工确认完成' : flow.step === 7 ? '确认打开结果' : `执行第 ${flow.step + 1} 步`;
+  updateFlowControls();
+  updateFlowProgress();
+  $('flow-export').disabled = flow.running;
+  const prior = $('flow-reobserve');
+  if (prior) prior.remove();
+  if ([4, 5].includes(flow.step) && !flow.failed && !flow.stale) {
+    const button = document.createElement('button');
+    button.id = 'flow-reobserve'; button.type = 'button'; button.textContent = '重新观察当前页';
+    button.disabled = busy || capturing || flow.running;
+    button.addEventListener('click', () => executeSongStep(true));
+    $('flow-next').parentElement.appendChild(button);
+  }
+}
+
+function updateFlowProgress() {
+  const progress = songFlow.progress();
+  const label = progress ? `执行中 · 当前子调用：${progress.capability} · ${progress.purpose} · 已等待 ${(progress.elapsedMs / 1000).toFixed(1)} 秒` : '';
+  $('flow-live').textContent = label;
+  document.querySelectorAll('[data-flow-current]').forEach(element => { element.textContent = label; });
+  if (catalogPending) {
+    const verdict = document.querySelector(`details.cap[data-id="${catalogPending.id}"] .verdict`);
+    if (verdict) verdict.textContent = `执行中 · ${catalogPending.id} · 已等待 ${((performance.now() - catalogPending.started) / 1000).toFixed(1)} 秒`;
+  }
+}
+
+function updateFlowControls() {
+  const facts = latestLabState?.facts || {};
+  const environmentReady = facts.hiddenDesktopOpen && facts.ownedAppRunning && facts.targetWindowResolved && facts.leaseActive;
+  $('flow-environment').textContent = !facts.hiddenDesktopOpen ? '请先在能力目录创建隐藏桌面并启动网易云。'
+    : !facts.leaseActive ? '租约已过期；请在能力目录执行 control.lease.renew（建议 seconds=900），然后返回本流程。'
+    : !facts.ownedAppRunning ? '请先在能力目录启动网易云。'
+    : !facts.targetWindowResolved ? '请等待应用窗口就绪，或使用 locate.window 选定窗口。'
+    : '当前环境可执行。每一步都会重新核对原窗口归属。';
+  $('flow-next').disabled = !environmentReady || busy || capturing || songFlow.running || songFlow.failed
+    || songFlow.stale || songFlow.done || !!flowPlanReason || (songFlow.step === 7 && !flowSelection.detailConfirmed);
+  $('flow-reset').disabled = busy || capturing || songFlow.running;
+  updateLearnedControls();
+}
+
+async function executeSongStep(observeOnly = false) {
+  if (busy || capturing || songFlow.running) return;
+  learnedSkills.invalidate('分步流程已执行，请重新绑定并获取搜索框。');
+  busy = true;
+  $('refresh-shot').disabled = true;
+  try {
+    if (observeOnly) await songFlow.reobserve();
+    else await songFlow.execute({ ...flowSelection });
+    flowSelection = {};
+  } catch (error) { toast(String(error.message || error), 'err'); }
+  finally {
+    busy = false;
+    $('refresh-shot').disabled = !captureReady;
+    renderSongFlow();
+  }
+}
+
+for (const [id, section] of [['show-catalog', 'catalog'], ['show-song-flow', 'song-flow'], ['show-learned-skills', 'learned-skills']]) {
+  $(id).addEventListener('click', () => {
+    for (const [button, view] of [['show-catalog', 'catalog'], ['show-song-flow', 'song-flow'], ['show-learned-skills', 'learned-skills']]) {
+      $(view).hidden = view !== section;
+      $(button).setAttribute('aria-pressed', String(button === id));
+    }
+    renderSongFlow();
+  });
+}
+$('song-flow').addEventListener('change', event => {
+  if (event.target.dataset.flowChoice) flowSelection[event.target.dataset.flowChoice] = event.target.value === '' ? undefined : Number(event.target.value);
+  if (event.target.dataset.flowCheck) flowSelection[event.target.dataset.flowCheck] = event.target.checked;
+  renderSongFlow();
+});
+$('flow-next').addEventListener('click', () => executeSongStep());
+$('flow-reset').addEventListener('click', () => {
+  if (busy || capturing || songFlow.running) return;
+  songFlow.reset(); flowSelection = {}; renderSongFlow();
+});
+$('flow-export').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ history: songFlow.history, current: songFlow.report() }, null, 2)], { type: 'application/json' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'song-open-flow.json';
+  anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+const learnedSkills = new LearnedSkillClient(async (path, payload) => {
+  const data = payload === undefined ? await fetch(path).then(response => response.json()) : await call(path, payload);
+  if (data.state) render(data.state);
+  return data;
+}, () => renderLearnedSkills());
+
+function renderLearnedSkills() {
+  const stringify = value => escapeHtml(JSON.stringify(value, null, 2));
+  $('learned-status').textContent = learnedSkills.message;
+  const summary = learnedSkills.summary;
+  $('learned-model-status').textContent = !summary ? '读取中…' : summary.learningRequired
+    ? `需要学习：${summary.reason}。` : `学习 JSON 已保存 · 当前实例${summary.bound ? '已绑定' : '尚未绑定'}。`;
+  $('learned-json').textContent = summary?.recipe ? JSON.stringify(summary.recipe, null, 2) : '尚未生成。启动应用后可学习；不会为技能生成专用脚本。';
+  // 卡片不在计时/返回时重建，保留用户展开的参数与输入焦点。
+  if (!$('learned-cards').children.length && learnedSkills.definition) {
+    $('learned-cards').innerHTML = learnedSkills.definition.operations.map((skill, index) =>
+      `<article class="flow-step"><h3>${index + 1}. ${escapeHtml(skill.title)}</h3>`
+      + `<code>${escapeHtml(skill.id)}</code><span class="badge plain">JSON 定义</span>`
+      + `<p class="meta">${escapeHtml(skill.description)}</p>`
+      + `<details><summary>JSON 步骤与调用参数</summary><pre>${stringify(skill)}</pre></details>`
+      + `<button class="primary" type="button" data-learned-skill="${skill.id}">调用${escapeHtml(skill.title)}</button>`
+      + (skill.learningRequired ? `<button type="button" data-learn-operation="${skill.id}">学习并验证${escapeHtml(skill.title)}</button>` : '')
+      + '<div class="meta" data-learned-reason></div><div class="meta" data-learned-outcome></div></article>').join('');
+  }
+  document.querySelectorAll('[data-learned-skill]').forEach(button => {
+    const records = learnedSkills.records.filter(record => record.skill === button.dataset.learnedSkill);
+    const last = records[records.length - 1];
+    button.parentElement.querySelector('[data-learned-outcome]').textContent = last
+      ? `本轮：${last.verification.status} · ${last.verification.evidence || '请查看当前子调用及调用记录。'}` : '本轮尚未调用';
+  });
+  $('learned-records').innerHTML = [...learnedSkills.history.flatMap(r => r.records), ...learnedSkills.records].map(record =>
+    `<details class="flow-step" ${record.verification.status === '执行中' ? 'open' : ''}>`
+    + `<summary>${escapeHtml(record.title)} · ${escapeHtml(record.verification.status)}</summary>`
+    + `<p class="meta">${escapeHtml(record.verification.evidence || '')}</p>`
+    + (record.previewError ? `<p class="meta">画面未取得：${escapeHtml(record.previewError)}</p>` : '')
+    + `<pre>${stringify(record)}</pre></details>`).reverse().join('');
+  updateLearnedControls();
+  updateLearnedProgress();
+}
+function updateLearnedProgress() {
+  const progress = learnedSkills.progress();
+  $('learned-live').textContent = progress
+    ? `执行中 · 当前子调用：${progress.capability} · ${progress.purpose} · 已等待 ${(progress.elapsedMs / 1000).toFixed(1)} 秒`
+    : learnedSkills.running ? '共用执行器正在准备／等待子调用…' : '';
+}
+function updateLearnedControls() {
+  const facts = latestLabState?.facts || {};
+  const locked = busy || capturing || learnedSkills.running;
+  const blocked = learnedSkills.failed || learnedSkills.stale;
+  const environment = facts.hiddenDesktopOpen && facts.ownedAppRunning && facts.leaseActive && facts.budgetAvailable;
+  document.querySelectorAll('[data-learned-skill]').forEach(button => {
+    const id = button.dataset.learnedSkill;
+    let reason = !latestLabState ? '等待服务连接。' : blocked ? '请核对现场后点击重新绑定。' : '';
+    if (!reason && id === 'cloudmusic.launch' && facts.ownedAppRunning) reason = '已有实验实例；可从获取搜索框开始，或在目录中清理后启动。';
+    if (!reason && id !== 'cloudmusic.launch' && !environment) reason = '请先启动自有网易云实例，并确认租约和预算有效。';
+    if (!reason && id !== 'cloudmusic.launch' && learnedSkills.summary?.learningRequired) reason = '没有有效学习 JSON，请点击学习／重新学习。';
+    if (!reason && ['cloudmusic.fillSearch', 'cloudmusic.submitSearch'].includes(id) && !learnedSkills.bound) reason = '先绑定已学目标。';
+    if (!reason && id === 'cloudmusic.submitSearch' && learnedSkills.verifiedQuery === null) reason = '先填写并通过搜索词核验。';
+    if (!reason && id === 'cloudmusic.submitSearch' && $('learned-query').value.trim() !== learnedSkills.verifiedQuery) reason = '搜索词已改变，请重新填写并核验后提交。';
+    const operation = learnedSkills.definition?.operations.find(o => o.id === id);
+    if (!reason && operation?.learningRequired && (!learnedSkills.summary?.recipe?.learning?.verifiedOperations?.[id]
+      || learnedSkills.summary?.unlearnedOperations?.includes(id))) reason = '先学习并验证此操作，成功后才可回放。';
+    button.disabled = locked || !!reason;
+    button.parentElement.querySelector('[data-learned-reason]').textContent = reason;
+  });
+  document.querySelectorAll('[data-learn-operation]').forEach(button => { button.disabled = locked || !environment || blocked || learnedSkills.summary?.learningRequired; });
+  $('learned-query').disabled = locked;
+  $('learned-reset').disabled = locked;
+  $('learned-export').disabled = locked;
+  $('learned-learn').disabled = locked || !environment;
+  $('learned-json-export').disabled = locked || !learnedSkills.summary?.recipe;
+}
+$('learned-cards').addEventListener('click', async event => {
+  const button = event.target.closest('[data-learned-skill], [data-learn-operation]');
+  if (!button || busy || capturing || learnedSkills.running) return;
+  const operationId = button.dataset.learnOperation || button.dataset.learnedSkill;
+  const id = button.dataset.learnOperation ? 'learn:' + operationId : operationId;
+  const operation = learnedSkills.definition.operations.find(item => item.id === operationId);
+  const inputs = operation.inputs.includes('query') ? { query: $('learned-query').value } : {};
+  busy = true;
+  $('refresh-shot').disabled = true;
+  if (songFlow.records.length) {
+    songFlow.stale = true;
+    songFlow.message = '已学能力操作了现场，请核对后新建一轮分步流程。';
+  }
+  updateFlowControls();
+  try { await learnedSkills.runSkill(id, inputs); }
+  catch (error) { toast(String(error.message || error), 'err'); }
+  finally {
+    busy = false;
+    $('refresh-shot').disabled = !captureReady;
+    renderSongFlow();
+    renderLearnedSkills();
+  }
+});
+$('learned-reset').addEventListener('click', async () => {
+  if (busy || capturing || learnedSkills.running) return;
+  busy = true;
+  updateFlowControls();
+  try { await learnedSkills.reset(); }
+  finally { busy = false; renderLearnedSkills(); updateFlowControls(); }
+});
+$('learned-learn').addEventListener('click', async () => {
+  if (busy || capturing || learnedSkills.running) return;
+  busy = true;
+  $('refresh-shot').disabled = true;
+  songFlow.stale = true;
+  updateFlowControls();
+  try { await learnedSkills.runSkill('learn'); }
+  finally { busy = false; $('refresh-shot').disabled = !captureReady; renderLearnedSkills(); updateFlowControls(); }
+});
+$('learned-json-export').addEventListener('click', () => {
+  if (!learnedSkills.summary?.recipe) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(learnedSkills.summary.recipe, null, 2)], { type: 'application/json' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = learnedSkills.summary.recipe.id + '.json';
+  anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+$('learned-query').addEventListener('input', updateLearnedControls);
+$('learned-export').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ history: learnedSkills.history, current: learnedSkills.report() }, null, 2)], { type: 'application/json' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'cloudmusic-learned-skills.json';
+  anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+renderLearnedSkills();
+renderSongFlow();
+
+const livePreview = new LivePreviewClient((url, options) => fetch(url, options),
+  (info, blob) => {
+    const url = URL.createObjectURL(blob);
+    if (info.capturedAtNs < shownFrameNs) { URL.revokeObjectURL(url); return; }
+    showShot(info, url);
+  }, text => { $('live-preview-status').textContent = text; },
+  () => latestLabState?.previewSession);
+$('live-preview-enabled').addEventListener('change', event => {
+  livePreview.setEnabled(event.target.checked);
+  $('live-preview-status').textContent = event.target.checked ? '等待下一帧…' : '实时画面已暂停，可单独刷新。';
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') livePreview.invalidate();
+});
+async function tickLivePreview() {
+  try {
+    if (document.visibilityState === 'visible' && livePreview.enabled && captureReady) await livePreview.capture();
+    else if (document.visibilityState === 'visible' && livePreview.enabled) {
+      $('live-preview-status').textContent = latestLabState?.facts.hiddenDesktopOpen && !latestLabState?.facts.leaseActive
+        ? '实时画面已暂停：租约到期，请显式续租。' : '等待当前窗口就绪…';
+    }
+  } finally { setTimeout(tickLivePreview, 1000); }
+}
+setTimeout(tickLivePreview, 1000);
+
+setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 4000);
+setInterval(() => { if (leaseBase) tickLease(false); updateFlowProgress(); updateLearnedProgress(); }, 1000);
+refresh();
+</script>
+</body>
+</html>

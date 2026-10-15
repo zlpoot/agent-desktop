@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "template": "recipes/cloudmusic.search.template.json",
+  "learned": "learned/cloudmusic.search.json",
+  "workflow": "recipes/workflows/cloudmusic.open-and-play.json",
+  "capabilities": "learned/capabilities",
+  "paths": "learned/cloudmusic.local-paths.json",
+  "record": "reports/latest-replay.json",
+  "page": {
+    "route": "/workflows/cloudmusic",
+    "file": "workflow.html"
+  }
+}

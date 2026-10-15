@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "kind": "workflow",
+  "id": "cloudmusic.open-and-play",
+  "revision": 7,
+  "title": "启动网易云、打开指定歌曲并播放",
+  "description": "整体流程引用可独立调用的已学子能力 JSON，由共用执行器按顺序回放。",
+  "parameters": {
+    "song": {
+      "type": "string",
+      "maxLength": 140,
+      "label": "歌曲标题",
+      "default": "甲乙丙丁 (你我怎么两清)"
+    },
+    "artist": {
+      "type": "string",
+      "maxLength": 40,
+      "label": "歌手",
+      "default": "李佳薇"
+    }
+  },
+  "automaticRetry": false,
+  "onFailure": "stop",
+  "verification": {
+    "status": "verified-current-input",
+    "revision": 7,
+    "report": "reports/ui/name-alias-verification.json"
+  },
+  "steps": [
+    {
+      "id": "step-1",
+      "capability": "cloudmusic.launch",
+      "revision": 6,
+      "definitionSha256": "cb630d6fa5df3b6e4838c32f97ee155e3da59db80888063e91050abbba4a04bd",
+      "inputs": {}
+    },
+    {
+      "id": "step-2",
+      "capability": "cloudmusic.prepareSearch",
+      "revision": 6,
+      "definitionSha256": "e6c58318e43de7ef924bc7a941a384b6989bba744c509ef388d8e7956e6e5df8",
+      "inputs": {}
+    },
+    {
+      "id": "step-3",
+      "capability": "cloudmusic.locateSearch",
+      "revision": 6,
+      "definitionSha256": "740ee357ec5d1e9cae1de4f0a9b1d325efe76c9a1dc3dc4674e7dc2d83a81050",
+      "inputs": {}
+    },
+    {
+      "id": "step-4",
+      "capability": "cloudmusic.fillSearch",
+      "revision": 6,
+      "definitionSha256": "733a0828bffd67d91c50920c77326e1445526e13b27057c11c5a1472ca8705cd",
+      "inputs": {
+        "query": {
+          "join": [
+            {
+              "input": "song"
+            },
+            {
+              "input": "artist"
+            }
+          ],
+          "separator": " "
+        }
+      }
+    },
+    {
+      "id": "step-5",
+      "capability": "cloudmusic.submitSearch",
+      "revision": 6,
+      "definitionSha256": "9eb0db71c79c1f754779e869bb8e75a373253968aa9ae66c87d6bedb3b5e52a3",
+      "inputs": {
+        "query": {
+          "join": [
+            {
+              "input": "song"
+            },
+            {
+              "input": "artist"
+            }
+          ],
+          "separator": " "
+        }
+      }
+    },
+    {
+      "id": "step-6",
+      "capability": "cloudmusic.openSong",
+      "revision": 7,
+      "definitionSha256": "ad940cc4e53a0d2cd3d859bf9754fa41e385f2432e8c17718ba940da3719617a",
+      "inputs": {
+        "song": {
+          "input": "song"
+        },
+        "artist": {
+          "input": "artist"
+        }
+      }
+    },
+    {
+      "id": "step-7",
+      "capability": "cloudmusic.playSong",
+      "revision": 7,
+      "definitionSha256": "c1e08de7fbff17b4ef9b9a41e293ca6765144099fa28e5827d1e0338651fe856",
+      "inputs": {
+        "song": {
+          "input": "song"
+        },
+        "artist": {
+          "input": "artist"
+        }
+      }
+    }
+  ],
+  "completion": "整体流程完成：已打开指定歌曲，并独立核验正在播放状态。"
+}
