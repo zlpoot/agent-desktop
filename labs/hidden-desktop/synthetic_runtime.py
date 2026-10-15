@@ -64,7 +64,7 @@ class FakeTree:
 
 class FakeDesktop:
     def __init__(self, clock, lease):
-        self.clock, self.deadline = clock, clock() + lease
+        self.clock, self.deadline = clock, None
         self.instance = uuid.uuid4().hex
         self.context = {'instanceId': self.instance}
         self.api = self
@@ -76,6 +76,8 @@ class FakeDesktop:
     def guard(self):
         if self.context is None:
             raise ReplayError('hidden-desktop-not-open')
+        if self.deadline is None:
+            raise ReplayError('session-not-open')
         if self.clock() >= self.deadline:
             raise ReplayError('lease-expired')
 
@@ -217,6 +219,12 @@ class SyntheticBackend:
                          verificationScope='synthetic-bound-target-live-checks', realWorldValidated=False)
         return result
 
+    def open(self):
+        # Opening a connection or inspecting the catalog does not start a lease.
+        if self.closed or self.lab.desktop.deadline is not None:
+            raise ReplayError('session-already-used')
+        self.lab.desktop.deadline = self.lab.clock() + self.lab.lease
+
     def observation(self):
         self.lab.desktop.guard()
         desktop = self.lab.desktop
@@ -228,6 +236,8 @@ class SyntheticBackend:
     def availability(self, capability_id):
         if self.closed or self.lab.desktop.context is None:
             return 'unavailable', 'session-closed'
+        if self.lab.desktop.deadline is None:
+            return 'unavailable', 'session-not-open'
         if self.lab.desktop.clock() >= self.lab.desktop.deadline:
             return 'unavailable', 'lease-expired'
         if self.replay.requires_reset:

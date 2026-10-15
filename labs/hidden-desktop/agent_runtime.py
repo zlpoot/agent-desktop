@@ -51,15 +51,16 @@ def validate_arguments(value, schema):
 class TaskRuntime:
     MAX_TASKS = 32  # No eviction: request IDs remain reserved for this connection.
 
-    def __init__(self, backend):
-        self.backend = backend
-        self.catalog = backend.catalog()
-        self.session_id = uuid.uuid4().hex
+    def __init__(self, backend_factory):
+        self.backend_factory = backend_factory
+        self.backend = backend_factory()
+        self.catalog = self.backend.catalog()
+        self.session_id = None
         self.lock = threading.RLock()
         self.jobs = {}
         self.requests = {}
         self.active = None
-        self.closed = False
+        self.closed = True
         self.cleanup = None
 
     def metadata(self):
@@ -71,10 +72,25 @@ class TaskRuntime:
         if self.closed:
             raise TaskError('session-closed')
 
+    def open(self):
+        with self.lock:
+            if not self.closed:
+                return {**self.metadata(), 'opened': False}  # Never silently renew.
+            if self.cleanup is not None and not self.cleanup['closed']:
+                raise TaskError('cleanup-unconfirmed')
+            if self.backend.closed:
+                self.backend = self.backend_factory()
+                self.catalog = self.backend.catalog()
+            self.backend.open()
+            self.session_id = uuid.uuid4().hex
+            self.closed, self.cleanup = False, None
+            return {**self.metadata(), 'opened': True}
+
     def _refresh(self):
         if self.active is not None:
             raw = self.backend.replay.status(self.active)
             self.jobs[self.active]['raw'] = raw
+            self.jobs[self.active]['requiresRecovery'] = self.backend.replay.requires_reset
             if raw['status'] != 'running' and not self.backend.replay.busy():
                 self.active = None
 
@@ -132,6 +148,7 @@ class TaskRuntime:
                 raise TaskError('definition-preflight-failed') from None
             job_id = self.backend.replay.start(descriptor['action'], normalized)
             self.jobs[job_id] = {'capabilityId': capability_id, 'requestId': request_id,
+                                 'sessionId': self.session_id, 'requiresRecovery': False,
                                  'raw': self.backend.replay.status(job_id)}
             self.requests[request_id] = (copy.deepcopy(fingerprint), job_id)
             self.active = job_id
@@ -154,7 +171,7 @@ class TaskRuntime:
             error = raw.get('error')
             if error and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,160}', error):
                 error = 'execution-failed'
-            result = {'jobId': job_id, 'capabilityId': record['capabilityId'],
+            result = {'jobId': job_id, 'sessionId': record['sessionId'], 'capabilityId': record['capabilityId'],
                 'requestId': record['requestId'], 'executionStatus': raw['status'],
                 'effectStatus': 'unknown' if unknown else 'observed' if mutations else 'none',
                 'verification': {'status': verification,
@@ -163,7 +180,7 @@ class TaskRuntime:
                 'calls': [{key: call[key] for key in ('capability', 'status', 'elapsedMs') if key in call}
                           for call in calls], 'error': error,
                 'previewWarning': bool(raw.get('previewError')),
-                'requiresRecovery': bool(self.backend.replay.requires_reset)}
+                'requiresRecovery': bool(record['requiresRecovery'])}
             if 'verifiedValue' in raw.get('output', {}):
                 result['verifiedValue'] = raw['output']['verifiedValue']
             if 'workflow' in raw:
@@ -182,7 +199,7 @@ class TaskRuntime:
 
     def close(self, wait=False):
         with self.lock:
-            if self.closed:
+            if self.closed and self.cleanup is not None:
                 return {**self.metadata(), 'cleanup': copy.deepcopy(self.cleanup)}
             self._refresh()
             if self.active is not None and not wait:

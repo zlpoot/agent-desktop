@@ -26,8 +26,9 @@ class RuntimeTests(unittest.TestCase):
             guard = patch(target, side_effect=AssertionError('real boundary reached'))
             guard.start()
             self.addCleanup(guard.stop)
-        self.backend = SyntheticBackend(clock=lambda: self.now[0])
-        self.runtime = TaskRuntime(self.backend)
+        self.runtime = TaskRuntime(lambda: SyntheticBackend(clock=lambda: self.now[0]))
+        self.backend = self.runtime.backend
+        self.runtime.open()
         self.addCleanup(lambda: self.runtime.close(wait=True))
 
     def run_task(self, capability='synthetic.form.submit', inputs=None, request='one'):
@@ -197,7 +198,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(self.runtime.start('synthetic.bind', {}, 'one')['jobId'], first['jobId'])
 
     def test_sessions_do_not_share_jobs_state_or_request_keys(self):
-        other = TaskRuntime(SyntheticBackend())
+        other = TaskRuntime(SyntheticBackend)
+        other.open()
         self.addCleanup(lambda: other.close(wait=True))
         receipt, _job = self.run_task()
         with self.assertRaisesRegex(TaskError, 'job-not-found'):
@@ -213,11 +215,49 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(TaskError, 'session-closed'):
             self.runtime.start('synthetic.bind', {}, 'one')
         self.assertEqual(self.runtime.close(), result)
+        with self.assertRaisesRegex(TaskError, 'cleanup-unconfirmed'):
+            self.runtime.open()
+
+    def test_connection_idle_does_not_consume_lease_and_open_never_renews(self):
+        runtime = TaskRuntime(lambda: SyntheticBackend(clock=lambda: self.now[0]))
+        self.addCleanup(lambda: runtime.close(wait=True))
+        self.assertIsNone(runtime.session_id)
+        self.assertIsNone(runtime.backend.lab.desktop.deadline)
+        self.now[0] += 1000
+        self.assertEqual(runtime.describe('synthetic.bind')['capability']['reason'], 'session-not-open')
+        with self.assertRaisesRegex(TaskError, 'session-closed'):
+            runtime.start('synthetic.bind', {}, 'before-open')
+        opened = runtime.open()
+        deadline = runtime.backend.lab.desktop.deadline
+        self.assertEqual(deadline, self.now[0] + 300)
+        self.now[0] += 100
+        self.assertEqual(runtime.open()['sessionId'], opened['sessionId'])
+        self.assertFalse(runtime.open()['opened'])
+        self.assertEqual(runtime.backend.lab.desktop.deadline, deadline)
+
+    def test_two_explicit_sessions_keep_old_jobs_and_deduplication(self):
+        first, first_job = self.run_task(inputs={'query': 'first task'})
+        old_backend = self.backend
+        self.assertTrue(self.runtime.close()['cleanup']['closed'])
+        opened = self.runtime.open()
+        self.assertNotEqual(opened['sessionId'], first['sessionId'])
+        self.assertTrue(all(tree.closed for tree in old_backend.lab.desktop.trees))
+        self.assertEqual(self.runtime.status(first['jobId'])['job'], first_job)
+        duplicate = self.runtime.start('synthetic.form.submit', {'query': 'first task'}, 'one')
+        self.assertEqual(duplicate['jobId'], first['jobId'])
+        self.assertEqual(self.runtime.backend.lab.desktop.clicks, 0)
+        self.backend = self.runtime.backend
+        second, second_job = self.run_task(inputs={'query': 'second task'}, request='two')
+        self.assertNotEqual(first['jobId'], second['jobId'])
+        self.assertEqual(second_job['verification']['status'], 'manual-required')
+        self.assertEqual(self.runtime.observation()['observation']['submitted'], 'second task')
+        self.assertEqual(self.backend.lab.desktop.clicks, 1)
 
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        self.runtime = TaskRuntime(SyntheticBackend())
+        self.runtime = TaskRuntime(SyntheticBackend)
+        self.runtime.open()
         self.addCleanup(lambda: self.runtime.close(wait=True))
         self.server = McpServer(self.runtime)
 
@@ -235,7 +275,7 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(self.initialize('2025-06-18')['result']['protocolVersion'], '2025-06-18')
         self.assertEqual(self.rpc('ping')['result'], {})
         tools = self.rpc('tools/list')['result']['tools']
-        self.assertEqual(len(tools), 6)
+        self.assertEqual(len(tools), 7)
         self.assertTrue(all(t['inputSchema']['additionalProperties'] is False for t in tools))
         result = self.rpc('tools/call', {'name': 'capabilities_list'})['result']
         self.assertEqual(json.loads(result['content'][0]['text']), result['structuredContent'])
@@ -304,8 +344,9 @@ sys.path.insert(0, sys.argv[1])
 from agent_runtime import TaskRuntime
 from synthetic_runtime import SyntheticBackend
 from mcp_stdio import McpServer, serve
-backend = SyntheticBackend()
-runtime = TaskRuntime(backend)
+runtime = TaskRuntime(SyntheticBackend)
+runtime.open()
+backend = runtime.backend
 runtime.start('synthetic.form.submit', {'query': 'eof example'}, 'eof')
 assert serve(McpServer(runtime), io.BytesIO(), io.BytesIO()) == 0
 closed = runtime.close(wait=True)
@@ -360,9 +401,10 @@ assert not Path(backend.temp.name).exists()
                            'clientInfo': {'name': 'independent-stdio-client', 'version': '1'}})
         process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
         process.stdin.flush()
-        self.assertEqual(len(rpc('tools/list')['tools']), 6)
+        self.assertEqual(len(rpc('tools/list')['tools']), 7)
         self.assertEqual(call('capabilities_list')['mode'], 'synthetic')
         self.assertEqual(call('capability_describe', {'capabilityId': 'synthetic.form.submit'})['capability']['acceptance'], 'manual')
+        first_session = call('session_open')['sessionId']
         arguments = {'capabilityId': 'synthetic.form.submit', 'inputs': {'query': '合成 example'}, 'requestId': 'stdio-one'}
         receipt = call('task_start', arguments)
         self.assertEqual(call('task_start', arguments)['jobId'], receipt['jobId'])
@@ -376,6 +418,20 @@ assert not Path(backend.temp.name).exists()
         observation = call('observation_get')['observation']
         self.assertEqual(observation['submitted'], '合成 example')
         self.assertEqual((observation['writes'], observation['clicks']), (1, 1))
+        self.assertTrue(call('session_close')['cleanup']['closed'])
+        second_session = call('session_open')['sessionId']
+        self.assertNotEqual(second_session, first_session)
+        arguments.update(inputs={'query': 'second synthetic task'}, requestId='stdio-two')
+        second = call('task_start', arguments)
+        for _ in range(100):
+            second_job = call('task_status', {'jobId': second['jobId']})['job']
+            if second_job['executionStatus'] != 'running':
+                break
+            threading.Event().wait(.01)
+        self.assertEqual(second_job['executionStatus'], 'done')
+        self.assertEqual(second_job['verification']['status'], 'manual-required')
+        self.assertEqual(call('observation_get')['observation']['submitted'], 'second synthetic task')
+        self.assertEqual(call('task_status', {'jobId': receipt['jobId']})['job']['sessionId'], first_session)
         self.assertTrue(call('session_close')['cleanup']['closed'])
         process.stdin.close()
         self.assertEqual(process.wait(timeout=5), 0)

@@ -30,6 +30,7 @@ def output_schema(name):
         'capabilities_list': {'capabilities': {'type': 'array', 'maxItems': 4, 'items': {'type': 'object'}}},
         'capability_describe': {'capability': {'type': 'object', 'required': ['id', 'inputSchema', 'effects', 'verificationScope']}},
         'task_start': {'jobId': JOB_ID, 'deduplicated': {'type': 'boolean'}},
+        'session_open': {'opened': {'type': 'boolean'}},
         'task_status': {'job': {'type': 'object', 'required': ['jobId', 'executionStatus', 'effectStatus', 'verification'],
             'properties': {'jobId': JOB_ID, 'executionStatus': {'enum': ['running', 'done', 'failed']},
                 'effectStatus': {'enum': ['none', 'observed', 'unknown']},
@@ -40,7 +41,7 @@ def output_schema(name):
                                           'properties': {'scope': {'const': 'synthetic-state'}, 'pixels': {'const': False}}}},
         'session_close': {'cleanup': {'type': 'object', 'required': ['closed'], 'properties': {'closed': {'type': 'boolean'}}}}
     }[name]
-    properties = {'ok': {'type': 'boolean'}, 'sessionId': JOB_ID, 'mode': {'const': 'synthetic'},
+    properties = {'ok': {'type': 'boolean'}, 'sessionId': {'anyOf': [JOB_ID, {'type': 'null'}]}, 'mode': {'const': 'synthetic'},
                   'closed': {'type': 'boolean'}, 'maxTasks': {'type': 'integer', 'minimum': 1},
                   'realWorldValidated': {'const': False},
                   'error': {'type': 'object', 'required': ['code', 'retryAutomatically'],
@@ -56,13 +57,14 @@ def tool(name, description, properties=None, read_only=False, required=None):
             'inputSchema': object_schema(properties, required),
             'outputSchema': output_schema(name),
             'annotations': {'readOnlyHint': read_only, 'destructiveHint': not read_only,
-                            'idempotentHint': read_only or name == 'session_close', 'openWorldHint': False}}
+                            'idempotentHint': read_only or name in ('session_open', 'session_close'), 'openWorldHint': False}}
 
 
 TOOLS = [
     tool('capabilities_list', 'List configured synthetic tasks. No real desktop or model access.', read_only=True),
     tool('capability_describe', 'Inspect task inputs, preconditions, effects and verification scope.',
          {'capabilityId': IDENTIFIER}, read_only=True),
+    tool('session_open', 'Explicitly open a synthetic session and start its 300-second lease. An already open session is returned without renewal.'),
     tool('task_start', 'Start one registered synthetic JSON task. Keep requestId for deduplication; receipt is not completion.',
          {'capabilityId': IDENTIFIER,
           'inputs': {'type': 'object', 'maxProperties': 8,
@@ -104,6 +106,8 @@ class McpServer:
             payload = self.runtime.start(arguments['capabilityId'], arguments['inputs'], arguments['requestId'])
         elif name == 'task_status':
             payload = self.runtime.status(arguments['jobId'])
+        elif name == 'session_open':
+            payload = self.runtime.open()
         elif name == 'observation_get':
             payload = self.runtime.observation()
         else:
@@ -146,7 +150,8 @@ class McpServer:
                 payload = {'protocolVersion': requested if requested in VERSIONS else VERSIONS[0],
                            'capabilities': {'tools': {'listChanged': False}},
                            'serverInfo': {'name': 'agent-desktop-labs', 'version': '0.1.0'},
-                           'instructions': 'Synthetic only. Inspect tasks, retain requestId/jobId, query completion, '
+                           'instructions': 'Synthetic only. Inspect tasks, explicitly session_open before task_start, '
+                                           'retain requestId/jobId, query completion, '
                                            'preserve manual acceptance and unknown effects, then close the session.'}
             elif method == 'ping':
                 payload = {}
@@ -211,7 +216,7 @@ def main():
     parser = argparse.ArgumentParser(description='Labs MCP STDIO, synthetic only; no live backend.')
     parser.add_argument('--fake', action='store_true', help='Explicit synthetic mode (also the default).')
     parser.parse_args()
-    runtime = TaskRuntime(SyntheticBackend())
+    runtime = TaskRuntime(SyntheticBackend)
     try:
         exit_code = serve(McpServer(runtime), sys.stdin.buffer, sys.stdout.buffer)
     finally:
