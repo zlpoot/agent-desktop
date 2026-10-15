@@ -233,6 +233,9 @@ class SyntheticBackend:
                 'actionsUsed': self.lab.actions, 'actionsMax': self.lab.max_actions,
                 'leaseRemainingSeconds': max(0, desktop.deadline - desktop.clock())}
 
+    def guard(self):
+        self.lab.desktop.guard()
+
     def availability(self, capability_id):
         if self.closed or self.lab.desktop.context is None:
             return 'unavailable', 'session-closed'

@@ -1,4 +1,4 @@
-"""Small tools-only MCP STDIO adapter. Synthetic backend only, standard library.
+"""Small tools-only MCP STDIO adapter. Synthetic by default, opt-in real profile.
 
 Implements the 2025-06-18 / 2025-11-25 initialize, ping, tools/list and
 tools/call subset. Does not advertise MCP tasks, cancellation, HTTP or sampling.
@@ -78,6 +78,30 @@ TOOLS = [
 TOOL_INDEX = {entry['name']: entry for entry in TOOLS}
 
 
+def tools_for_mode(mode):
+    entries = copy.deepcopy(TOOLS)
+    if mode == 'synthetic':
+        return entries
+    descriptions = {
+        'capabilities_list': 'List the configured CloudMusic fill/readback workflow and its four children. Real owned-desktop access; no model calls.',
+        'session_open': 'Create an owned hidden-desktop session and start its 300-second lease. An active session is returned without renewal.',
+        'task_start': 'Start one pinned CloudMusic JSON task. Launch/fill/readback only; no search submission or playback. Retain requestId and jobId.',
+        'observation_get': 'Independently read the current owned search field and capture evidence while idle. Does not prove search or playback results.',
+        'session_close': 'Release UIA on its owning thread and close owned application processes and hidden desktop. Refuses while busy.'}
+    for entry in entries:
+        schema = entry['outputSchema']
+        schema['properties']['mode'] = {'const': 'real'}
+        entry['description'] = descriptions.get(entry['name'], entry['description'])
+        entry['annotations']['openWorldHint'] = True
+        if entry['name'] == 'capabilities_list':
+            schema['properties']['capabilities']['maxItems'] = 5
+        if entry['name'] == 'observation_get':
+            schema['properties']['observation'] = {'type': 'object', 'required': ['scope', 'pixels', 'value'],
+                'properties': {'scope': {'const': 'real-owned-window-input-readback'},
+                               'pixels': {'const': False}, 'value': {'type': ['string', 'null']}}}
+    return entries
+
+
 class RpcError(Exception):
     def __init__(self, code, message):
         self.code, self.message = code, message
@@ -92,12 +116,14 @@ def result(payload, error=False):
 class McpServer:
     def __init__(self, runtime):
         self.runtime = runtime
+        self.tools = tools_for_mode(runtime.backend.mode)
+        self.tool_index = {entry['name']: entry for entry in self.tools}
         self.initialized = self.ready = False
 
     def call_tool(self, name, arguments):
-        if not isinstance(name, str) or name not in TOOL_INDEX:
+        if not isinstance(name, str) or name not in self.tool_index:
             raise RpcError(-32602, 'Unknown tool')
-        validate_arguments(arguments, TOOL_INDEX[name]['inputSchema'])
+        validate_arguments(arguments, self.tool_index[name]['inputSchema'])
         if name == 'capabilities_list':
             payload = self.runtime.list_capabilities()
         elif name == 'capability_describe':
@@ -150,7 +176,9 @@ class McpServer:
                 payload = {'protocolVersion': requested if requested in VERSIONS else VERSIONS[0],
                            'capabilities': {'tools': {'listChanged': False}},
                            'serverInfo': {'name': 'agent-desktop-labs', 'version': '0.1.0'},
-                           'instructions': 'Synthetic only. Inspect tasks, explicitly session_open before task_start, '
+                           'instructions': ('Synthetic only. ' if self.runtime.backend.mode == 'synthetic' else
+                                           'Real owned-desktop CloudMusic fill/readback only; no search submission or playback. ')
+                                           + 'Inspect tasks, explicitly session_open before task_start, '
                                            'retain requestId/jobId, query completion, '
                                            'preserve manual acceptance and unknown effects, then close the session.'}
             elif method == 'ping':
@@ -159,7 +187,7 @@ class McpServer:
                 raise RpcError(-32000, 'Initialize the connection first')
             elif method == 'tools/list':
                 validate_arguments(params, object_schema())
-                payload = {'tools': copy.deepcopy(TOOLS)}
+                payload = {'tools': copy.deepcopy(self.tools)}
             elif method == 'tools/call':
                 if set(params) - {'name', 'arguments', '_meta'}:
                     raise RpcError(-32602, 'Invalid tool call params')
@@ -213,16 +241,30 @@ def serve(server, source, destination):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Labs MCP STDIO, synthetic only; no live backend.')
-    parser.add_argument('--fake', action='store_true', help='Explicit synthetic mode (also the default).')
-    parser.parse_args()
-    runtime = TaskRuntime(SyntheticBackend)
+    parser = argparse.ArgumentParser(description='Labs MCP STDIO. Synthetic unless an explicit real profile is selected.')
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument('--fake', action='store_true', help='Explicit synthetic mode (also the default).')
+    modes.add_argument('--real', action='store_true', help='Authorize native owned-desktop execution for this process.')
+    parser.add_argument('--profile', choices=['cloudmusic-fill-search'])
+    args = parser.parse_args()
+    if args.real != bool(args.profile):
+        parser.error('--real and --profile cloudmusic-fill-search must be specified together')
+    if args.real:
+        from real_backend import RealBackend
+        factory = RealBackend
+    else:
+        factory = SyntheticBackend
+    try:
+        runtime = TaskRuntime(factory)
+    except (ValueError, RuntimeError, OSError):
+        print('Backend definitions unavailable or invalid; inspect configured local learning before opening a session.', file=sys.stderr)
+        return 1
     try:
         exit_code = serve(McpServer(runtime), sys.stdin.buffer, sys.stdout.buffer)
     finally:
         cleanup = runtime.close(wait=True)
     if not cleanup['cleanup']['closed']:
-        print('Synthetic cleanup unconfirmed.', file=sys.stderr)
+        print('Session cleanup unconfirmed.', file=sys.stderr)
         return 1
     return exit_code
 

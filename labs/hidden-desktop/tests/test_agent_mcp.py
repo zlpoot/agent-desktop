@@ -439,11 +439,14 @@ assert not Path(backend.temp.name).exists()
         self.assertEqual(process.stderr.read(), b'')
         self.assertTrue(responses.empty())
 
-    def test_live_mode_is_rejected_before_backend_initialization(self):
-        process = subprocess.run([sys.executable, str(LAB / 'mcp_stdio.py'), '--real'],
-                                 capture_output=True, timeout=5)
-        self.assertNotEqual(process.returncode, 0)
-        self.assertEqual(process.stdout, b'')
+    def test_real_mode_requires_explicit_matching_profile_before_backend_initialization(self):
+        for arguments in (['--real'], ['--profile', 'cloudmusic-fill-search'],
+                          ['--fake', '--real', '--profile', 'cloudmusic-fill-search']):
+            with self.subTest(arguments=arguments):
+                process = subprocess.run([sys.executable, str(LAB / 'mcp_stdio.py'), *arguments],
+                                         capture_output=True, timeout=5)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertEqual(process.stdout, b'')
 
 
 if __name__ == '__main__':
