@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "synthetic.form",
+  "revision": 1,
+  "title": "Synthetic form",
+  "application": {"executable": "E:\\synthetic\\application.exe", "arguments": ""},
+  "environment": {
+    "kind": "hidden-desktop",
+    "window": {"kind": "className", "value": "SyntheticWindow"},
+    "size": {"width": 1600, "height": 1000}
+  },
+  "parameters": {"query": {"type": "string", "minLength": 1, "maxLength": 200}},
+  "targets": {
+    "search": {"selector": {"kind": "role", "role": "Edit", "value": ""}, "namePolicy": "dynamic"},
+    "submit": {"selector": {"kind": "role", "role": "Button", "value": "search"}, "namePolicy": "exact"}
+  },
+  "operations": [
+    {"id": "synthetic.bind", "title": "Bind synthetic form", "description": "Bind synthetic targets",
+     "inputs": [], "steps": [{"op": "bind"}, {"op": "capture"}]},
+    {"id": "synthetic.fill", "title": "Fill and verify synthetic form", "description": "Write and independently read the current value",
+     "inputs": ["query"], "steps": [
+       {"op": "set_value", "target": "search", "parameter": "query"},
+       {"op": "assert_value", "target": "search", "parameter": "query", "remember": "verifiedQuery"},
+       {"op": "capture"}]},
+    {"id": "synthetic.submit", "title": "Submit synthetic form", "description": "Verify input before dispatch; preserve manual acceptance",
+     "inputs": ["query"], "requiresState": {"name": "verifiedQuery", "parameter": "query"},
+     "acceptance": "manual", "completion": "Synthetic dispatch completed; manual acceptance remains required.",
+     "steps": [
+       {"op": "assert_value", "target": "search", "parameter": "query"},
+       {"op": "click", "target": "submit", "consume": "verifiedQuery"},
+       {"op": "capture"}]}
+  ],
+  "replayPolicy": {
+    "binding": "full-query-once-per-instance", "execution": "bound-target-live-checks",
+    "onMissingLearning": "require-learning", "onVersionChange": "require-learning",
+    "onStaleTarget": "stop-and-rebind", "automaticRetry": false
+  }
+}
