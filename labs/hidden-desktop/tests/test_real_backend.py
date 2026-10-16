@@ -14,7 +14,8 @@ from agent_runtime import TaskRuntime, TaskError
 from hidden_desktop import png_rgb
 from learned_replay import LearnedReplay
 from mcp_stdio import McpServer
-from real_backend import RealBackend, SearchLibrary, CHILDREN, WORKFLOW, SCOPE, READ_RESULTS, SEARCH_WORKFLOW, SEARCH_CHILDREN
+from real_backend import (RealBackend, SearchLibrary, PlaybackLibrary, CHILDREN, WORKFLOW, SCOPE,
+                          READ_RESULTS, SEARCH_WORKFLOW, SEARCH_CHILDREN, PLAY_WORKFLOW, PLAY_CHILDREN, PLAY_SCOPE)
 from replay_contract import ReplayError, fingerprint
 from skill_composition import digest
 from test_local_replay import PROFILE
@@ -26,6 +27,7 @@ class FakeNativeLab:
         self.value, self.expired, self.fail_cleanup, self.stale = '', False, False, False
         self.submitted, self.clicks, self.no_results = None, 0, False
         self.result_song, self.result_artist = 'Synthetic Song', 'Synthetic Artist'
+        self.playing, self.duplicate_result, self.prevent_play = False, False, False
         self.executable = executable
         self.desktop = SimpleNamespace(api=SimpleNamespace(
             window_class=lambda h: 'SyntheticWindow', capture_dpi=lambda: None, screen_to_client=lambda h,x,y:(x,y),
@@ -38,6 +40,8 @@ class FakeNativeLab:
     def click(self, *args, **kwargs):
         self.clicks += 1
         self.submitted = self.value
+        if kwargs.get('double') and not self.prevent_play:
+            self.playing = True
         return {'dispatched': True}
 
     def guard(self):
@@ -74,7 +78,7 @@ class FakeTree:
     def __init__(self, desktop, hwnd, lab):
         self.desktop, self.hwnd, self.lab = desktop, hwnd, lab
         self.owner = threading.get_ident()
-        self.elements = [0, 1, 2, 3]
+        self.elements = list(range(8))
         self.closed = False
 
     def guard(self):
@@ -94,13 +98,27 @@ class FakeTree:
                          'enabled': True, 'offscreen': False, 'native': 0, 'runtimeId': [i],
                          'rect': [400, 300+(i-2)*35, 550, 325+(i-2)*35]}
                         for i,name in ((2,self.lab.result_song),(3,self.lab.result_artist)))
+            if self.lab.duplicate_result:
+                rows.append({**rows[2], 'index': 7, 'runtimeId': [7]})
+        if self.lab.playing:
+            for i,name,role,auto_id,rect in (
+                    (4,self.lab.result_artist,50020,'',[100,940,240,960]),
+                    (5,self.lab.result_song,50020,'',[100,910,240,930]),
+                    (6,'pause',50000,'btn_pc_minibar_play',[800,925,840,965])):
+                rows.append({'index':i,'role':role,'name':name,'autoId':auto_id,'className':'',
+                             'enabled':True,'offscreen':False,'native':0,'runtimeId':[i],'rect':rect})
         return rows
 
     def prove_target(self, row): self.guard(); return {'identityRebound': True}
     def _string(self, element, slot):
         self.guard()
-        return [self.lab.value, 'search', self.lab.result_song, self.lab.result_artist][element]
-    def _integer(self, element, slot): self.guard(); return 0
+        if slot == 29:
+            return 'btn_pc_minibar_play' if element == 6 else ''
+        return [self.lab.value, 'search', self.lab.result_song, self.lab.result_artist,
+                self.lab.result_artist,self.lab.result_song,'pause' if self.lab.playing else 'play',self.lab.result_song][element]
+    def _integer(self, element, slot):
+        self.guard()
+        return (50004 if element == 0 else 50000 if element in (1,6) else 50020) if slot == 21 else 0
     def value(self, index): self.guard(); return self.lab.value
     def set_value(self, index, value): self.guard(); self.lab.value = value
     def close(self): assert self.owner == threading.get_ident(); self.closed = True
@@ -156,9 +174,9 @@ class RealAdapterTests(unittest.TestCase):
             runner = LearnedReplay(*args, **kwargs)
             runner._prepare_local_window = lambda *args, **kwargs: None  # Startup wait is tested in the existing executor suite.
             return runner
-        def construct(search=False):
+        def construct(search=False, playback=False):
             with patch('real_backend.CapabilityRuntime', return_value=self.lab), patch('real_backend.LearnedReplay', side_effect=replay):
-                return RealBackend(self.root, search=search)
+                return RealBackend(self.root, search=search, playback=playback)
         self.make_backend = construct
         self.backend = construct()
         self.runtime = TaskRuntime(lambda: self.backend)
@@ -333,6 +351,113 @@ class RealAdapterTests(unittest.TestCase):
             self.runtime.start(READ_RESULTS, {'song':'Another Song','artist':'Synthetic Artist'}, 'wrong-criteria')
         self.assertEqual(self.lab.clicks, 1)
         self.assertEqual(len(self.runtime.jobs), 1)
+
+    def use_playback_profile(self):
+        self.use_search_profile()
+        self.runtime.close(wait=True)
+        source = json.loads((self.root/'learned/capabilities/cloudmusic.openSong.json').read_text(encoding='utf-8'))
+        ready = source['operations'][0]['steps'][0]
+        source['operations'][0]['steps'] = [ready, {'op':'click_match','match':copy.deepcopy(ready['readyMatch']), 'double':True}]
+        self.write('learned/capabilities/cloudmusic.openSong.json',source)
+        player = copy.deepcopy(source)
+        player['id'] = 'cloudmusic.playSong'
+        spec = {'role':50020,'name':'${artist}','region':[0,.88,.5,1],'queryRegion':[0,.88,.7,1],
+                'nearAll':[{'role':50020,'name':'${song}','region':[0,.88,.5,1],'dx':[-800,800],'dy':[-80,-20]},
+                           {'role':50000,'name':'pause','autoId':'btn_pc_minibar_play','region':[.35,.88,.7,1],
+                            'dx':[300,1024],'dy':[-50,80]}]}
+        player['operations'] = [{'id':player['id'],'title':'Read playback','description':'Synthetic player state',
+                                 'inputs':['song','artist'],'steps':[{'op':'observe_local','readyMatch':spec,'timeoutMs':20},
+                                  {'op':'assert_rows','match':copy.deepcopy(spec)},{'op':'capture'}]}]
+        self.write('learned/capabilities/cloudmusic.playSong.json',player)
+        workflow = json.loads((self.root/'recipes/workflows/cloudmusic.search.json').read_text(encoding='utf-8'))
+        workflow.update(id=PLAY_WORKFLOW)
+        workflow['steps'] = workflow['steps'][:5]
+        library = PlaybackLibrary(self.root)
+        for capability in PLAY_CHILDREN[5:]:
+            recipe = library.capability(capability)
+            workflow['steps'].append({'id':capability,'capability':capability,'revision':recipe['revision'],
+                'definitionSha256':digest(recipe),'inputs':{'song':{'input':'song'},'artist':{'input':'artist'}}})
+        self.write('recipes/workflows/cloudmusic.playback.json',workflow)
+        self.backend = self.make_backend(playback=True)
+        self.backend.replay.publish_preview = lambda info:None
+        self.backend.replay._capture = lambda:{'synthetic':True}
+        self.runtime = TaskRuntime(lambda:self.backend)
+
+    def run_playback(self):
+        self.runtime.open()
+        receipt = self.runtime.start(PLAY_WORKFLOW,{'song':'Synthetic Song','artist':'Synthetic Artist'},'play-once')
+        self.backend.replay.executor.submit(lambda:None).result(timeout=5)
+        return self.runtime.status(receipt['jobId'])['job']
+
+    def test_playback_full_chain_reads_actual_controls_and_closes_without_toggle(self):
+        self.use_playback_profile()
+        self.assertEqual(set(self.runtime.catalog),{PLAY_WORKFLOW})
+        self.assertTrue(self.runtime.describe(PLAY_WORKFLOW)['capability']['effects']['playsMedia'])
+        job = self.run_playback()
+        self.assertEqual(job['executionStatus'],'done',job)
+        self.assertEqual(job['verification'],{'status':'manual-required','scope':PLAY_SCOPE,'realWorldValidated':False})
+        self.assertEqual([s['status'] for s in job['steps']],['done']*7)
+        observed = self.runtime.observation()['observation']['playback']
+        self.assertEqual(observed['state'],'playing')
+        self.assertEqual([r['name'] for r in observed['rows']],['Synthetic Artist','Synthetic Song','pause'])
+        self.assertFalse(observed['audioAudibilityVerified'])
+        server = McpServer(self.runtime)
+        advertised = {tool['name']:tool for tool in server.tools}
+        self.assertEqual(advertised['capabilities_list']['outputSchema']['properties']['capabilities']['maxItems'],1)
+        observation_schema = advertised['observation_get']['outputSchema']['properties']['observation']
+        self.assertEqual(observation_schema['properties']['scope'],{'const':PLAY_SCOPE})
+        self.assertIn('playback',observation_schema['properties'])
+        self.assertEqual(self.lab.clicks,2)  # Search submit and one double-click, no play toggle.
+        duplicate = self.runtime.start(PLAY_WORKFLOW,{'song':'Synthetic Song','artist':'Synthetic Artist'},'play-once')
+        self.assertEqual(duplicate['jobId'],job['jobId'])
+        self.assertEqual(self.lab.clicks,2)
+        with self.assertRaisesRegex(TaskError,'unknown-capability'):
+            self.runtime.start('cloudmusic.openSong',{'song':'Synthetic Song','artist':'Synthetic Artist'},'bypass')
+        self.assertTrue(self.runtime.close()['cleanup']['closed'])
+        self.assertFalse(self.lab.running)
+
+    def test_ambiguous_playback_result_stops_before_double_click(self):
+        self.use_playback_profile(); self.lab.duplicate_result = True
+        job = self.run_playback()
+        self.assertEqual(job['executionStatus'],'failed')
+        self.assertEqual(job['effectStatus'],'unknown')
+        self.assertTrue(job['requiresRecovery'])
+        self.assertEqual(self.lab.clicks,1)
+        self.assertFalse(self.lab.playing)
+
+    def test_missing_playback_state_fails_without_retrying_play(self):
+        self.use_playback_profile(); self.lab.prevent_play = True
+        job = self.run_playback()
+        self.assertEqual(job['executionStatus'],'failed')
+        self.assertEqual(job['effectStatus'],'unknown')
+        self.assertTrue(job['requiresRecovery'])
+        self.assertEqual(self.lab.clicks,2)
+
+    def test_changed_playback_state_after_completion_is_not_reported_as_playing(self):
+        self.use_playback_profile()
+        self.assertEqual(self.run_playback()['executionStatus'],'done')
+        self.lab.playing = False
+        with self.assertRaisesRegex(ReplayError,'real-observation-failed'):
+            self.runtime.observation()
+        self.assertTrue(self.backend.replay.requires_reset)
+        self.assertEqual(self.lab.clicks,2)
+
+    def test_changed_playback_definition_is_refused_before_open(self):
+        self.use_playback_profile()
+        recipe = json.loads((self.root/'learned/capabilities/cloudmusic.playSong.json').read_text(encoding='utf-8'))
+        recipe['operations'][0]['steps'][0]['readyMatch']['name'] = 'Changed'
+        self.write('learned/capabilities/cloudmusic.playSong.json',recipe)
+        with self.assertRaises(ValueError):
+            self.runtime.open()
+        self.assertFalse(self.lab.opened)
+
+    def test_changed_song_after_playback_completion_fails_current_readback(self):
+        self.use_playback_profile()
+        self.assertEqual(self.run_playback()['executionStatus'],'done')
+        self.lab.result_song = 'Another Song'
+        with self.assertRaisesRegex(ReplayError,'real-observation-failed'):
+            self.runtime.observation()
+        self.assertEqual(self.lab.clicks,2)
 
 
 if __name__ == '__main__':

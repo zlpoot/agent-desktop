@@ -441,6 +441,7 @@ assert not Path(backend.temp.name).exists()
 
     def test_real_mode_requires_explicit_matching_profile_before_backend_initialization(self):
         for arguments in (['--real'], ['--profile', 'cloudmusic-fill-search'],
+                          ['--profile', 'cloudmusic-playback'], ['--fake','--profile','cloudmusic-playback'],
                           ['--fake', '--real', '--profile', 'cloudmusic-fill-search']):
             with self.subTest(arguments=arguments):
                 process = subprocess.run([sys.executable, str(LAB / 'mcp_stdio.py'), *arguments],

@@ -156,6 +156,70 @@ reader 显式换页时释放输入绑定，因此最终 `value` 可以为 null�
 其余租约、预算、同实例归属、未知效果停止及清理检查与填写入口相同。
 原生验证必须在 MCP Restart 后直接调用此服务器的工具；独立 STDIO 脚本不替代原生验证。
 
+## 独立播放 profile 与豆包配置
+
+```powershell
+python labs/hidden-desktop/install_codex.py --real --playback
+# Codex 中 Restart MCP 后才会原生加载 agent_desktop_lab_playback。
+# 以下为独立 STDIO 协议验证，会真实播放一次，核对后关闭：
+python labs/hidden-desktop/verify_cloudmusic_playback.py --real --song "甲乙丙丁 (你我怎么两清)" --artist "李佳薇"
+```
+
+入口固定为 `mcp_stdio.py --real --profile cloudmusic-playback`，与填写、搜索入口独立，
+不修改它们的权限。目录只暴露完整任务 `cloudmusic.open-and-play`，必填参数为 `song`
+与 `artist`；七项子能力仅在流程内部执行，不允许绕过顺序单独打开或播放。
+
+`recipes/workflows/cloudmusic.playback.json` 复用原 `cloudmusic.open-and-play.json` 的七项
+JSON 能力及输入连接规则。仅在内存派生两项变化：打开歌曲前取消原来的 first-visible-match
+策略，要求原声明区域内曲名与歌手的匹配唯一；最终 `playSong` 的 acceptance 设置为 manual。
+新流程固定引用派生定义的 revision/哈希；不覆盖学习文件、不改原执行器或原有流程。
+缺失、重复候选、身份/定义变化与超时均失败停止；不自动重学或重发搜索/播放。
+
+原 `openSong` 会双击已核对的歌曲以开始播放，再点击已核验封面进入歌词详情。
+原 `playSong` 不点击播放切换按钮，只联合读取当前歌名、歌手与 `name=pause`、
+`autoId=btn_pc_minibar_play` 按钮。`observation_get` 在同一 UIA 线程独立重读这些目标，
+返回实际 `playback.rows`、`playback.state=playing`、截图路径，scope 为
+`real-owned-window-playback-state`。这是应用界面播放状态证据，未采样音频、未确认实际
+声音，故 `audioAudibilityVerified=false`。`manual-required` 与 `realWorldValidated=false`
+保留；不改变 Windows 实验暂停、A5 safety FAIL 或整体未完成的结论。
+
+会话沿用 300 秒租约、256 动作预算、连接内 requestId 去重、归属/指纹检查及清理规则。
+不收藏、不下载，不接管用户已有实例，不接主工程；应用自身网络与设置不构成隔离。
+验证完成后 `session_close` 会释放 UIA 并关闭自建进程与隐藏桌面，因此停止本次播放。
+验证脚本保存 `.artifacts/lab-tasks-playback/*.json`，截图仍在忽略提交的
+`reports/mcp-real/`。这是注册 STDIO MCP 的 backend 验证，不替代 Codex/豆包原生加载验证。
+
+豆包使用已验证的本机 STDIO 自定义连接器方式，新增连接器：
+
+| 字段 | 值 |
+| --- | --- |
+| 服务器名称 | `agent_desktop_lab_playback` |
+| 传输类型 | STDIO |
+| 命令 | `E:\ProgramData\anaconda3\python.exe` |
+| 工作目录（如有） | `E:\projects\agent-desktop` |
+| 环境变量 | 无需添加 |
+
+参数逐项填写：
+
+```text
+E:\projects\agent-desktop\labs\hidden-desktop\mcp_stdio.py
+--real
+--profile
+cloudmusic-playback
+```
+
+上传更新后的 `skills/lab-tasks/SKILL.md` 技能包；在本地任务中启用播放连接器及 skill。
+只上传说明不等于部署运行时，本机代码与学习记录仍需存在。无需填写 HTTP URL；
+本服务没有 HTTP 传输入口。先确认工具列表包含七项 MCP 工具，且能力目录只有完整播放任务。
+
+豆包测试指令：
+
+> 使用 lab-tasks 和 agent_desktop_lab_playback，运行 cloudmusic.open-and-play，
+> song 为“甲乙丙丁 (你我怎么两清)”，artist 为“李佳薇”。允许这次真实播放验证。
+> 打开会话，只启动一次任务，保留 requestId/jobId，轮询同一 job。
+> 完成后用 observation_get 核对当前曲名、歌手及播放状态，再关闭会话并确认 cleanup.closed=true。
+> 保留 manual-required；不收藏、不下载、不重试，不把 UI 状态当作已确认实际声音。
+
 ## 合成验证
 
 ```powershell
