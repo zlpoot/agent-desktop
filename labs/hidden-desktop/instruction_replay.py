@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 from capabilities import CapabilityError
-from replay_contract import ReplayError
+from replay_contract import ReplayError, valid_window_size
 from skill_composition import SkillLibrary, digest, identifier, read_json, substitute
 from app_startup import select_started_window
 
@@ -19,8 +19,8 @@ from app_startup import select_started_window
 FIELDS = {'roleName', 'name', 'autoId', 'className', 'namePrefix', 'nameSuffix', 'classes'}
 SHAPES = {
     'ensure_app': set(),
-    'open_entry': {'selector', 'match'},
-    'verify_page': {'markers', 'container'},
+    'open_entry': {'selector', 'match', 'readyTimeoutMs'},
+    'verify_page': {'markers', 'container', 'readyTimeoutMs'},
     'verify_container': {'container', 'ancestryStrategy'},
     'capture': set(),
     'fill_container': {'container', 'emptyText', 'text', 'ancestryStrategy', 'receipt'},
@@ -104,6 +104,8 @@ def validate_instruction_recipe(data, _learned=False):
             for marker in step['markers']: selector(marker)
         if 'ancestryStrategy' in step:
             require(step['ancestryStrategy'] in ('full-tree', 'owned-native-anchor'), 'invalid-ancestry-strategy')
+        if 'readyTimeoutMs' in step:
+            require(type(step['readyTimeoutMs']) is int and 1 <= step['readyTimeoutMs'] <= 15000, 'invalid-ready-timeout')
         for key in ('receipt', 'requires'):
             if key in step: require(identifier(step[key]), 'invalid-instruction-receipt')
         for key in ('text', 'emptyText', 'verification'):
@@ -122,7 +124,8 @@ def validate_instruction_recipe(data, _learned=False):
     verified = conditions['verifiedInput']
     require(verified is None or isinstance(verified, dict) and set(verified) == {'state', 'parameter'}
             and identifier(verified['state']) and verified['parameter'] in data['parameters'], 'invalid-instruction-receipt-precondition')
-    require(isinstance(data['verification'], dict) and data['verification'].get('status') == 'packaged-pending-replay', 'invalid-verification-provenance')
+    require(isinstance(data['verification'], dict) and data['verification'].get('status') in
+            ('packaged-pending-replay', 'recorded'), 'invalid-verification-provenance')
     return data
 
 
@@ -146,6 +149,7 @@ class InstructionLibrary(SkillLibrary):
                 and set(profile['mainWindow']) == {'title', 'className'}
                 and all(isinstance(v, str) and 1 <= len(v) <= 256 for v in profile['mainWindow'].values())
                 and profile['mainWindow']['className'] == env['window']['value']
+                and valid_window_size(env.get('size'))
                 and fp['path'] == app['executable'] and type(fp['size']) is int and fp['size'] > 0
                 and re.fullmatch('[0-9a-f]{64}', fp['sha256']), 'invalid-application-profile')
         return {**recipe, 'application': app, 'environment': env, 'mainWindow': profile['mainWindow'],
@@ -250,6 +254,17 @@ def run_instructions(replay, recipe, inputs):
                 and texts[0].get('offscreen') is False, 'input-text-mismatch-do-not-overwrite')
         return row
 
+    def ready(specs, timeout_ms):
+        deadline = time.monotonic() + timeout_ms / 1000
+        while True:
+            rows = observe()
+            found = [[r for r in rows if matches(r, spec)] for spec in specs]
+            require(all(len(items) <= 1 for items in found), 'ready-target-not-unique')
+            if all(items and items[0].get('enabled') is True and items[0].get('offscreen') is False for items in found):
+                return rows
+            require(time.monotonic() < deadline, 'page-not-ready-timeout')
+            time.sleep(min(.2, max(0, deadline-time.monotonic())))  # 只重读，不重放点击或启动。
+
     def bind(row, strategy):
         identity()
         require(bool(row.get('className')), 'missing-target-class')
@@ -276,13 +291,42 @@ def run_instructions(replay, recipe, inputs):
             # 版本不匹配在启动之前拒绝；不会把新版本自动标记为学会。
             require(replay.fingerprint(runtime['application']['executable']) == runtime['learning']['applicationFingerprint'], 'application-version-changed-learning-required')
             probe = replay.invoke('env.identity.probe')
-            if not probe['hiddenDesktopOpen']: replay.invoke('env.hidden.open')
+            if not probe['hiddenDesktopOpen']:
+                # 运行线程必须从 Default 控制桌面出发。工具沙箱等其他桌面
+                # 不能当作枚举后的恢复点；在启动应用之前明确拒绝这种配置。
+                api = replay.lab._fresh().api
+                def anchor_default():
+                    original = api.thread_desktop()
+                    name = api.thread_desktop_name()
+                    require(name.lower() == 'default', 'worker-not-on-default-desktop')
+                    require(api.set_thread_desktop(original), 'worker-default-bind-failed')
+                    require(api.thread_desktop_name().lower() == 'default', 'worker-default-bind-unconfirmed')
+                    return {'threadDesktop': name, 'explicitlyBound': True}
+                replay.trace('replay.thread.anchor', {}, anchor_default)
+                replay.invoke('env.hidden.open')
+                require(api.thread_desktop_name().lower() == 'default', 'worker-desktop-changed-after-open')
             app = runtime['application']
             args = {'app': 'custom', 'path': app['executable'], 'args': app['arguments']}
-            if not replay.lab.facts().get('ownedAppRunning'): result['launch'] = replay.invoke('env.app.launch', args)
-            preset = {**args, 'mainWindow': runtime['mainWindow']}
-            result['startup'] = replay.trace('replay.select-main-window', {'selector': runtime['mainWindow']},
+            reused = replay.lab.facts().get('ownedAppRunning')
+            rule = copy.deepcopy(runtime['mainWindow'])
+            current_hwnd = None
+            if not reused:
+                result['launch'] = replay.invoke('env.app.launch', args)
+            else:
+                # 任务标题属于动态内容。先独立核验已选定/自动唯一的自有主窗，
+                # 再按其现场标题进行完整候选集唯一核验；绝不转选别的窗口。
+                current_hwnd = identity()['hwnd']
+                desktop = replay.lab.desktop
+                fresh = desktop.describe_window(current_hwnd)
+                require(desktop.api.is_root_window(current_hwnd) and fresh['visible'] and bool(fresh['title']), 'reused-main-window-not-available')
+                rule['title'] = fresh['title']
+            preset = {**args, 'mainWindow': rule}
+            result['startup'] = replay.trace('replay.select-main-window', {'selector': rule, 'reusedOwnedWindow': bool(reused)},
                 lambda: select_started_window(TracedStartup(replay), args, {'profile': preset}))
+            if current_hwnd is not None:
+                require(result['startup']['window']['hwnd'] == current_hwnd, 'reused-main-window-changed')
+            identity()
+            result['layout'] = replay.invoke('act.window.fit', runtime['environment']['size'])
             identity()
         else:
             identity()
@@ -290,7 +334,7 @@ def run_instructions(replay, recipe, inputs):
             if verified:
                 require(replay.values.get(verified['state']) == params[verified['parameter']], 'current-round-receipt-required')
             if op == 'open_entry':
-                rows = observe()
+                rows = ready([step['match']], step['readyTimeoutMs'])
                 row = unique(rows, step['match'])
                 bound = replay.invoke('locate.structured', step['selector'])
                 require(bound.get('identity', {}).get('globalUnique') is True and bound['identity'].get('identityRebound') is True
@@ -299,7 +343,7 @@ def run_instructions(replay, recipe, inputs):
                 replay.values.clear()
                 click({**step['selector'], 'expectedIdentity': bound['identity']})
             elif op == 'verify_page':
-                rows = observe()
+                rows = ready([*step['markers'], step['container']], step['readyTimeoutMs'])
                 markers = [unique(rows, spec) for spec in step['markers']]
                 container = unique(rows, step['container'])
                 require(inside(container['rect'], markers[-1]['rect']), 'placeholder-outside-container')

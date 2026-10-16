@@ -3,10 +3,10 @@
   "kind": "learned-capability",
   "executionModel": "capability-steps",
   "id": "doubao.openNewWorkTask",
-  "revision": 1,
+  "revision": 5,
   "title": "打开新工作任务",
   "profile": "doubao.work",
-  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
   "parameters": {},
   "operations": [
     {
@@ -25,7 +25,8 @@
           "match": {
             "roleName": "Button",
             "name": "新工作任务 Ctrl N"
-          }
+          },
+          "readyTimeoutMs": 15000
         }
       ],
       "completion": "已派发一次入口点击，工作页仍需独立核验。",
@@ -39,8 +40,10 @@
     "absentStates": []
   },
   "verification": {
-    "status": "packaged-pending-replay",
-    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
-    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "1304d17a5ec4e4a16c56e2c588222b8b89967bd55055f5e2b72a49abe38ee035",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
   }
 }

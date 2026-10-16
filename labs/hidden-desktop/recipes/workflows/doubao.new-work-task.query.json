@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "workflow",
   "id": "doubao.new-work-task.query",
-  "revision": 1,
+  "revision": 5,
   "title": "豆包：新工作任务并读取结果",
   "description": "由八个独立 JSON 子能力组合；完整流程会填写并提交一次任务。回答未完成时仅手动刷新读取能力。",
   "parameters": {
@@ -17,51 +17,52 @@
   "onFailure": "stop",
   "completion": "本轮任务已提交一次，并已关联核验完成回答；正文事实待人工核对。",
   "verification": {
-    "status": "packaged-pending-replay",
-    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
-    "scope": "原有逐步执行记录已验证；JSON 拆分后本轮仅验证基础启动，尚未实际回放。"
+    "status": "verified-current-input",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "scope": "Real replay completed via explicit read refresh; all eight independent capabilities exercised. Current executable/layout only; response facts not independently checked.",
+    "testedRevision": 4
   },
   "steps": [
     {
       "id": "step-1",
       "capability": "doubao.launch",
-      "revision": 1,
-      "definitionSha256": "167b219bc33894e08fcd9a055ef75b62deddab7342c144df843b760970ad02a3",
+      "revision": 5,
+      "definitionSha256": "01f5ee324caf39ab1594c1618f4875a1d09764a0ea20418587e33db378c0a8f9",
       "inputs": {}
     },
     {
       "id": "step-2",
       "capability": "doubao.openNewWorkTask",
-      "revision": 1,
-      "definitionSha256": "2d57b606efed5ada7d1e5f4e047b74267de6fa3347cede479d1c0ff509db61b0",
+      "revision": 5,
+      "definitionSha256": "169e8200e267ea2b6475f1b1ea01f65da37871da3f990cd9914ee9a4f9a19102",
       "inputs": {}
     },
     {
       "id": "step-3",
       "capability": "doubao.verifyWorkPage",
-      "revision": 1,
-      "definitionSha256": "2798f3ffbe132e4a5098abca08c858547ec709d533bc8eea91e5b9ef3df06271",
+      "revision": 5,
+      "definitionSha256": "bd4d76d9e8295c86d6e7c082b6e19b7ce36603770339840efd75bade1d62a284",
       "inputs": {}
     },
     {
       "id": "step-4",
       "capability": "doubao.locateTaskInput",
-      "revision": 1,
-      "definitionSha256": "1a925439d818468ed90eb9c6ac0942663d37d2f6ac0e94af3614a1b124e16118",
+      "revision": 5,
+      "definitionSha256": "58da8ffaff6e3aebd7420da5d45470e14778a6b492d117865a089fc51d143555",
       "inputs": {}
     },
     {
       "id": "step-5",
       "capability": "doubao.captureWorkPage",
-      "revision": 1,
-      "definitionSha256": "99853b3a45c598faa8c3f424d918f4d9fb8dd520e632b497fa7d0bc6ac4c698c",
+      "revision": 5,
+      "definitionSha256": "3b526a7a13196cd9789bf37743561b8f52727f877eef98af4947bed9d862351b",
       "inputs": {}
     },
     {
       "id": "step-6",
       "capability": "doubao.fillTask",
-      "revision": 1,
-      "definitionSha256": "3b992248926e10ac4922c21f9f3361859a1cf9663080874f2b731edcda260184",
+      "revision": 5,
+      "definitionSha256": "891978f5d668149e6bf401dfc1e27d9cd3df4b907411391e03e30c4477ed92ff",
       "inputs": {
         "content": {
           "input": "content"
@@ -71,8 +72,8 @@
     {
       "id": "step-7",
       "capability": "doubao.submitTask",
-      "revision": 1,
-      "definitionSha256": "43a7c8b47f0137286f7edc2eb86406142a0980fef22ab7311897754da69624e1",
+      "revision": 5,
+      "definitionSha256": "4015c13ec6c6186058c7f80e6721ba9315b23b1c4a00044518a5ac408ba84714",
       "inputs": {
         "content": {
           "input": "content"
@@ -82,8 +83,8 @@
     {
       "id": "step-8",
       "capability": "doubao.readTaskResult",
-      "revision": 1,
-      "definitionSha256": "48a31835b640aa77ba8b2af3333a1a0ddcece12e93f8c5eac0df02cbcf016eb6",
+      "revision": 5,
+      "definitionSha256": "4746254713785d65214db5a63ca795f28f83141e529f15d94ed01fabde654f03",
       "inputs": {
         "content": {
           "input": "content"

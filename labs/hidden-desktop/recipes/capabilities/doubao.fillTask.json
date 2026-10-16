@@ -3,10 +3,10 @@
   "kind": "learned-capability",
   "executionModel": "capability-steps",
   "id": "doubao.fillTask",
-  "revision": 1,
+  "revision": 5,
   "title": "填写任务内容并独立回读",
   "profile": "doubao.work",
-  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
   "parameters": {
     "content": {
       "type": "string",
@@ -52,8 +52,10 @@
     ]
   },
   "verification": {
-    "status": "packaged-pending-replay",
-    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
-    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "3437a9f913b94dfd6e79deb218f813cf2300e12448f91180317433673a078896",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
   }
 }

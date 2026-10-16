@@ -9,6 +9,10 @@
     "window": {
       "kind": "className",
       "value": "Chrome_WidgetWin_1"
+    },
+    "size": {
+      "width": 1600,
+      "height": 1400
     }
   },
   "mainWindow": {
@@ -18,6 +22,11 @@
   "applicationFingerprint": {
     "path": "E:\\app\\Doubao\\app\\Doubao.exe",
     "size": 5412240,
-    "sha256": "08ac1bdb674861d7201f1d2703c21d7d7267e788b8c5b37120e18199c9d4d65b"
+    "sha256": "631294408411be4b6d19311d811c86c6ea870efc75d423e89bbb880adb38412d"
+  },
+  "relearning": {
+    "reason": "executable fingerprint changed; rebind and verify current application selectors before acceptance",
+    "evidence": "reports/ui/doubao-json-real-validation.json",
+    "status": "recorded-current-version"
   }
 }

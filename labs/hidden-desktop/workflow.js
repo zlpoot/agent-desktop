@@ -5,6 +5,7 @@ const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;'
 let registry = null, state = null, running = false, job = null, objectUrl = null, frameSession = null;
 let profile = 'default';
 const records = [];
+let roundStart = 0;
 const explainError = error => /learning-required|invalid-learning-json|capability-definition-changed/.test(error.message)
   ? '需要重新学习：已学参数缺失、目标失效或能力定义已变化。'+error.message : error.message;
 async function request(path, body) {
@@ -53,21 +54,22 @@ function renderJob() {
     $('verification').textContent='当前输入的定位参数已学习并验证，已保存为 JSON，可手动回放。';
   else if(job.status==='done' && job.action.startsWith('workflow:'))
     $('verification').textContent=job.verification.evidence;
-  const steps = job.workflow?.steps || [];
   for (const step of registry.workflow.steps) {
-    const row=steps.find(s=>s.id===step.id);
-    const own=job.action==='capability:'+step.capability;
-    const status=row?.status || (own ? job.status==='running'?'running':job.status==='done'?'done':job.status==='waiting'?'waiting':'failed' : 'pending');
+    const previous=[...records.slice(roundStart),job].findLast(record=>record.action==='capability:'+step.capability
+      || record.workflow?.steps.some(item=>item.id===step.id && item.status!=='pending'));
+    const row=previous?.workflow?.steps.find(s=>s.id===step.id);
+    const own=previous?.action==='capability:'+step.capability;
+    const status=row?.status || (own ? previous.status==='running'?'running':previous.status==='done'?'done':previous.status==='waiting'?'waiting':'failed' : 'pending');
     const card=document.querySelector(`[data-step="${step.id}"]`);
     card.dataset.status=status;
     card.querySelector('[data-verdict]').textContent=({pending:'未执行',running:'执行中',done:'调用完成',waiting:'等待结果／可只读刷新',failed:'失败／已停止'})[status] || status;
     card.querySelector('[data-verdict]').className='badge '+status;
     const duration=card.querySelector('[data-duration]');
-    const timed=row?.startedAt ? row : own ? job : null;
+    const timed=row?.startedAt ? row : own ? previous : null;
     if(duration)duration.textContent=timed ? `本步 ${Math.max(0,(timed.finishedAt || Date.now()/1000)-timed.startedAt).toFixed(2)} 秒` : '';
-    const output=row?.output || (own?job.output:null);
+    const output=row?.output || (own?previous.output:null);
     card.querySelector('[data-output]').textContent=output ? JSON.stringify(output,null,2) : row?.error || '';
-    const choice=job.calls.find(call=>call.result?.selectionPolicy==='first-visible-match'
+    const choice=previous?.calls.find(call=>call.result?.selectionPolicy==='first-visible-match'
       && (call.workflowStep===step.id || own));
     card.querySelector('[data-selection]').textContent=choice
       ? `找到 ${choice.result.candidateCountAtBinding ?? choice.result.candidateCount} 个匹配项；按显示顺序选择首个匹配项。` : '';
@@ -96,6 +98,7 @@ function progress() {
 }
 async function run(action, params) {
   if (running) return;
+  if(action==='reset' || action.startsWith('workflow:') || action.startsWith('learn-workflow:'))roundStart=records.length;
   running=true;job=null;controls();$('result').className='';$('result').textContent='执行中…';
   try {
     const start=await request('/api/learned/start',{action,inputs:params});

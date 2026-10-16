@@ -3,10 +3,10 @@
   "kind": "learned-capability",
   "executionModel": "capability-steps",
   "id": "doubao.verifyWorkPage",
-  "revision": 1,
+  "revision": 5,
   "title": "核验新工作页面",
   "profile": "doubao.work",
-  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
   "parameters": {},
   "operations": [
     {
@@ -33,7 +33,8 @@
               "tiptap ProseMirror",
               "tiptap ProseMirror ProseMirror-focused"
             ]
-          }
+          },
+          "readyTimeoutMs": 15000
         }
       ],
       "completion": "页面标志、唯一输入容器和占位提示关系已核验。",
@@ -47,8 +48,10 @@
     "absentStates": []
   },
   "verification": {
-    "status": "packaged-pending-replay",
-    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
-    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "9e62370e33c58fb44b79f23274558c500b0046c7c87303d950fc451f03e9f820",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
   }
 }
