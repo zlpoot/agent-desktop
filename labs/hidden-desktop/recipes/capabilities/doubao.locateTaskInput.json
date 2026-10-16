@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.locateTaskInput",
+  "revision": 5,
+  "title": "定位并核验任务输入容器",
+  "profile": "doubao.work",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.locateTaskInput",
+      "title": "定位并核验任务输入容器",
+      "description": "重新定位唯一输入容器，保留 owned-native-anchor 策略并只读核验 enabled/offscreen。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "verify_container",
+          "container": {
+            "roleName": "Group",
+            "classes": [
+              "tiptap ProseMirror",
+              "tiptap ProseMirror ProseMirror-focused"
+            ]
+          },
+          "ancestryStrategy": "owned-native-anchor"
+        }
+      ],
+      "completion": "输入容器全局唯一性、独立身份和只读状态已核验。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "0ab0c6d0a448b742dfc64c7d2504c61735c20aa41eaa428dde12eebbe8685e3b",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "presets": {
+    "cloudmusic": {
+      "label": "网易云音乐",
+      "app": "custom",
+      "path": "E:\\app\\CloudMusic\\cloudmusic.exe",
+      "args": "--force-renderer-accessibility"
+    },
+    "doubao": {
+      "label": "豆包",
+      "app": "custom",
+      "path": "E:\\app\\Doubao\\app\\Doubao.exe",
+      "args": "",
+      "mainWindow": {
+        "className": "Chrome_WidgetWin_1",
+        "title": "豆包"
+      }
+    }
+  }
+}

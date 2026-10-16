@@ -9,5 +9,18 @@
   "page": {
     "route": "/workflows/cloudmusic",
     "file": "workflow.html"
-  }
+  },
+  "additionalWorkflows": [
+    {
+      "key": "doubao",
+      "route": "/workflows/doubao",
+      "aliases": [
+        "/manual-flow"
+      ],
+      "workflow": "recipes/workflows/doubao.new-work-task.query.json",
+      "capabilities": "recipes/capabilities",
+      "profiles": "recipes/profiles",
+      "record": "reports/doubao/latest-replay.json"
+    }
+  ]
 }

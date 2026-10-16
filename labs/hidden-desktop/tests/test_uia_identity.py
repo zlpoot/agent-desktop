@@ -41,7 +41,7 @@ class IdentityTests(unittest.TestCase):
         tree.window_binding = lambda: copy.deepcopy(tree.binding)
         tree.elements, tree.hwnd, tree.client = [target], 123, Client()
         tree.runtime_id = lambda element: [element.key]
-        tree._integer = lambda element, slot: {20: 7, 21: 50004, 28: 1, 38: 0}[slot]
+        tree._integer = lambda element, slot: {20: 7, 21: 50004, 28: 1, 35: 0, 36: 0, 38: 0}[slot]
         tree._string = lambda element, slot: ''
         tree._owned = lambda element, windows: None
         tree.desktop = SimpleNamespace(windows=lambda: [123], api=SimpleNamespace(window_rect=lambda hwnd: [0, 0, 200, 200]))
@@ -88,6 +88,53 @@ class IdentityTests(unittest.TestCase):
         self.assertFalse(same_identity({}, proof))
         for key in IDENTITY_KEYS:
             self.assertFalse(same_identity({**proof, key: None}, proof), key)
+
+    def native_fixture(self):
+        tree,row,registry,closed,rect,parents=self.fixture()
+        read=tree._integer
+        tree._integer=lambda element,slot: 456 if element.key==2 and slot==36 else read(element,slot)
+        api=tree.desktop.api
+        api.process_in_job=lambda pid,job:pid==7 and job=='job'
+        api.session=lambda pid:5
+        api.window_pid=lambda hwnd:7
+        api.u=SimpleNamespace(GetAncestor=lambda hwnd,kind:123)
+        tree.desktop.context={'session':5};tree.desktop.job='job'
+        tree.desktop.assert_target=lambda hwnd:hwnd
+        tree._owned=lambda element,windows:uia.UiaTree._owned(tree,element,windows)
+        return tree,row,registry,closed,rect,parents
+
+    def test_explicit_native_strategy_proves_same_owned_window_without_claiming_uniqueness(self):
+        tree,row,registry,closed,*_=self.native_fixture()
+        with patch.object(uia,'Com',side_effect=lambda pointer:registry[pointer.value]):
+            proof=tree.prove_target_from_native_ancestor(row)
+        self.assertEqual(proof['strategy'],'uia-to-owned-native-ancestor')
+        self.assertEqual(proof['ancestorDepth'],1)
+        self.assertEqual(proof['nativeAncestor']['hwnd'],456)
+        self.assertNotIn('globalUnique',proof)
+        self.assertEqual(closed,[2,99])
+
+    def test_native_anchor_rejects_other_owned_window_job_session_and_native_pid_mismatch(self):
+        for kind in ('other-window','job','session','native-pid'):
+            tree,row,registry,closed,*_=self.native_fixture()
+            if kind=='other-window':
+                tree.desktop.windows=lambda:[123,456]
+                tree.desktop.api.u.GetAncestor=lambda hwnd,kind:456
+            elif kind=='job':tree.desktop.api.process_in_job=lambda pid,job:False
+            elif kind=='session':tree.desktop.api.session=lambda pid:6
+            else:tree.desktop.api.window_pid=lambda hwnd:8
+            with self.subTest(kind=kind),patch.object(uia,'Com',side_effect=lambda pointer:registry[pointer.value]):
+                with self.assertRaises(uia.UiaError):tree.prove_target_from_native_ancestor(row)
+
+    def test_native_strategy_does_not_increase_depth_budget_or_accept_missing_ancestry(self):
+        tree,row,registry,closed,rect,parents=self.fixture()
+        element_type=type(tree.elements[0])
+        tree.binding['rootRuntimeId']=[999]
+        for key in range(4,22):registry[key]=element_type(key)
+        parents.update({key:key+1 for key in range(1,21)})
+        with patch.object(uia,'Com',side_effect=lambda pointer:registry[pointer.value]):
+            with self.assertRaisesRegex(uia.UiaError,'ancestry-unproven'):
+                tree.prove_target_from_native_ancestor(row)
+        self.assertEqual(len(closed),17)  # 16 个已读祖先 + walker；没有继续读第 17 层。
 
 
 if __name__ == '__main__': unittest.main()

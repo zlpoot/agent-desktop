@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.verifyWorkPage",
+  "revision": 5,
+  "title": "核验新工作页面",
+  "profile": "doubao.work",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.verifyWorkPage",
+      "title": "核验新工作页面",
+      "description": "独立观察两个页面标志和唯一输入容器，并验证占位提示在容器内部。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "verify_page",
+          "markers": [
+            {
+              "roleName": "Text",
+              "name": "今天有什么工作要处理？"
+            },
+            {
+              "roleName": "Text",
+              "name": "发消息或创建任务... / 使用技能 @ 添加资料"
+            }
+          ],
+          "container": {
+            "roleName": "Group",
+            "classes": [
+              "tiptap ProseMirror",
+              "tiptap ProseMirror ProseMirror-focused"
+            ]
+          },
+          "readyTimeoutMs": 15000
+        }
+      ],
+      "completion": "页面标志、唯一输入容器和占位提示关系已核验。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "9e62370e33c58fb44b79f23274558c500b0046c7c87303d950fc451f03e9f820",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
+  }
+}

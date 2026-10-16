@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.captureWorkPage",
+  "revision": 5,
+  "title": "记录当前工作页面",
+  "profile": "doubao.work",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.captureWorkPage",
+      "title": "记录当前工作页面",
+      "description": "核对当前实例、进程和窗口后抓取已渲染画面。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "capture"
+        }
+      ],
+      "completion": "当前实例画面已记录。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "a33d3ea033f3b1c9874751604c47c3dca7afab738fd196dffb3fb97a52d49ad0",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
+  }
+}

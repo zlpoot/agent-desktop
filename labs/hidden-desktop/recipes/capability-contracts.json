@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "id": "cloudmusic.launch",
+      "title": "启动或复用网易云",
+      "description": "启动当前已学习版本，或核对后复用自有实例；不需要歌曲或搜索参数。",
+      "parameters": [],
+      "targets": [],
+      "preconditions": {
+        "ownedApplication": false,
+        "boundTargets": []
+      },
+      "verification": [
+        "唯一自有窗口、版本和窗口规格一致；取得当前画面。"
+      ],
+      "implementationSha256": "cb630d6fa5df3b6e4838c32f97ee155e3da59db80888063e91050abbba4a04bd"
+    },
+    {
+      "id": "cloudmusic.prepareSearch",
+      "title": "显示搜索入口",
+      "description": "在当前自有实例中显示搜索入口，页面选择条件由执行 JSON 声明。",
+      "parameters": [],
+      "targets": [],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": []
+      },
+      "verification": [
+        "局部观察搜索入口；不提交搜索，不改变歌曲参数。"
+      ],
+      "implementationSha256": "e6c58318e43de7ef924bc7a941a384b6989bba744c509ef388d8e7956e6e5df8"
+    },
+    {
+      "id": "cloudmusic.locateSearch",
+      "title": "绑定已学搜索目标",
+      "description": "绑定当前实例的搜索框和提交入口，为后续输入和提交提供身份约束。",
+      "parameters": [],
+      "targets": [
+        "search",
+        "submit"
+      ],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": []
+      },
+      "verification": [
+        "在已学范围内唯一重绑两个目标，并核对当前身份。"
+      ],
+      "implementationSha256": "740ee357ec5d1e9cae1de4f0a9b1d325efe76c9a1dc3dc4674e7dc2d83a81050"
+    },
+    {
+      "id": "cloudmusic.fillSearch",
+      "title": "填写搜索词并核验",
+      "description": "只接收本次 query；向已绑定搜索框赋值，独立回读严格相等后记住已验证值。",
+      "parameters": [
+        "query"
+      ],
+      "targets": [
+        "search"
+      ],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": [
+          "search"
+        ]
+      },
+      "verification": [
+        "当前搜索框值严格等于 query；后续提交只能消费该已验证值。"
+      ],
+      "implementationSha256": "733a0828bffd67d91c50920c77326e1445526e13b27057c11c5a1472ca8705cd"
+    },
+    {
+      "id": "cloudmusic.submitSearch",
+      "title": "提交已验证搜索词",
+      "description": "只提交与当前独立回读结果相同的 query；提交一次后消费已验证状态。",
+      "parameters": [
+        "query"
+      ],
+      "targets": [
+        "search",
+        "submit"
+      ],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": [
+          "search",
+          "submit"
+        ],
+        "verifiedInput": {
+          "state": "verifiedQuery",
+          "parameter": "query"
+        }
+      },
+      "verification": [
+        "提交前重新回读 query，核对目标身份；一次派发，失败或效果未知不重发。"
+      ],
+      "implementationSha256": "9eb0db71c79c1f754779e869bb8e75a373253968aa9ae66c87d6bedb3b5e52a3"
+    },
+    {
+      "id": "cloudmusic.openSong",
+      "title": "打开指定歌曲详情并保持播放",
+      "description": "接收 song 和 artist，在 JSON 声明的结果容器内匹配；按已配置策略打开歌曲并核对详情。",
+      "parameters": [
+        "song",
+        "artist"
+      ],
+      "targets": [],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": []
+      },
+      "verification": [
+        "步骤内局部读取匹配搜索结果；独立核对详情页、歌曲和歌手，并取得画面。"
+      ],
+      "implementationSha256": "ad940cc4e53a0d2cd3d859bf9754fa41e385f2432e8c17718ba940da3719617a"
+    },
+    {
+      "id": "cloudmusic.playSong",
+      "title": "核验目标歌曲正在播放",
+      "description": "兼容保留 playSong ID。本能力只观察与核验，不派发播放、暂停或恢复动作。",
+      "parameters": [
+        "song",
+        "artist"
+      ],
+      "targets": [],
+      "preconditions": {
+        "ownedApplication": true,
+        "boundTargets": []
+      },
+      "verification": [
+        "步骤内局部读取详情播放器；歌名、歌手及正在播放标志同时满足 JSON 谓词。"
+      ],
+      "implementationSha256": "c1e08de7fbff17b4ef9b9a41e293ca6765144099fa28e5827d1e0338651fe856"
+    }
+  ]
+}

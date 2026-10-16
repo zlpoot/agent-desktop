@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.launch",
+  "revision": 5,
+  "title": "启动并核验豆包主窗口",
+  "profile": "doubao.work",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.launch",
+      "title": "启动并核验豆包主窗口",
+      "description": "启动或复用自有实例，唯一选择主窗口；不切换到普通桌面。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "ensure_app"
+        }
+      ],
+      "completion": "已核验自有豆包实例、主窗口和应用版本。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": false,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": [
+      "typedContent",
+      "submittedContent"
+    ]
+  },
+  "verification": {
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "5d416b92bf5ae3dca7760f9109f119f8dfff2aac1373facedaa6ebb53447ba69",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
+  }
+}

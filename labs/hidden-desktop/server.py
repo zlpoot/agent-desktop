@@ -31,9 +31,12 @@ from capabilities import _as_code  # noqa: E402
 from hidden_desktop import Blocked  # noqa: E402
 from learned_replay import LearnedReplay, ReplayError  # noqa: E402
 from live_preview import LivePreview, PreviewError  # noqa: E402
-from skill_composition import SkillLibrary  # noqa: E402
+from capability_contract import ContractLibrary  # noqa: E402
 from replay_contract import validate_recipe  # noqa: E402
 from experiment_config import load_experiment  # noqa: E402
+from app_startup import load_presets, select_started_window  # noqa: E402
+from instruction_replay import InstructionLibrary  # noqa: E402
+
 
 LAB_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PORT = 8790
@@ -45,6 +48,8 @@ LAB = CapabilityRuntime(lease=PAGE_LEASE_SECONDS)
 LOCK = threading.RLock()
 LAST = {"preview": None}
 PREVIEW = LivePreview()
+APP_PRESETS = load_presets(LAB_DIR)
+
 
 
 def publish_preview(info):
@@ -57,14 +62,33 @@ def publish_preview(info):
 
 
 EXPERIMENT = load_experiment(LAB_DIR)
-LIBRARY = SkillLibrary(EXPERIMENT.workflow, EXPERIMENT.capabilities, validate_recipe, require_local=True)
+LIBRARY = ContractLibrary(EXPERIMENT.workflow, EXPERIMENT.capabilities, validate_recipe, require_local=True,
+                          contracts_path=os.path.join(LAB_DIR, 'recipes', 'capability-contracts.json'))
 REPLAY = LearnedReplay(LAB, LOCK,
                        EXPERIMENT.template, EXPERIMENT.learned,
                        publish_preview, library=LIBRARY,
                        job_path=EXPERIMENT.record, paths_path=EXPERIMENT.paths)
+LIBRARIES = {'default': LIBRARY}
+REPLAYS = {'default': REPLAY}
+WORKFLOW_PAGES = {EXPERIMENT.page_route: 'default'}
+WORKFLOW_LINKS = []
+for configuration in EXPERIMENT.additional_workflows:
+    key = configuration['key']
+    library = InstructionLibrary(configuration['workflow'], configuration['capabilities'], configuration['profiles'])
+    definition = library.summary()  # 启动即校验全部引用、参数和版本配置；不执行应用动作。
+    WORKFLOW_LINKS.append({'route': configuration['route'], 'title': definition['workflow']['title']})
+    LIBRARIES[key] = library
+    REPLAYS[key] = LearnedReplay(LAB, LOCK, configuration['workflow'], configuration['workflow'], publish_preview,
+                                library=library, job_path=configuration['record'])
+    for route in (configuration['route'], *configuration['aliases']):
+        WORKFLOW_PAGES[route] = key
 
 
-def snapshot():
+def replay_busy():
+    return any(replay.busy() for replay in REPLAYS.values())
+
+
+def snapshot(profile='default'):
     """声明 + 事实 + 可用性 + 日志，供页面渲染。"""
     with LOCK:
         facts = LAB.facts()
@@ -88,7 +112,10 @@ def snapshot():
             "lastPreview": PREVIEW.latest(desktop),
             "previewSession": desktop.context['instanceId'] if desktop and desktop.context else None,
             "previewTransport": PREVIEW.stats(desktop),
-            "learned": REPLAY.summary(),
+            "learned": REPLAYS[profile].summary(),
+            "appLaunchPresets": APP_PRESETS,
+            "manualFlow": WORKFLOW_LINKS[0] if WORKFLOW_LINKS else None,
+            "workflowPage": {"route": EXPERIMENT.page_route},
         }
 
 
@@ -165,13 +192,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "message": "仅允许本机访问"}, 403)
         if route in ("/", "/index.html"):
             return self._file(os.path.join(LAB_DIR, "ui.html"), "text/html; charset=utf-8")
-        if route == EXPERIMENT.page_route:
+        query = parse_qs(urlparse(self.path).query)
+        profile = (query.get('profile') or ['default'])[0]
+        if profile not in REPLAYS:
+            return self._json({'ok': False, 'message': '未知流程配置'}, 404)
+        replay, library = REPLAYS[profile], LIBRARIES[profile]
+        if route == '/api/workflows':
+            return self._json({'ok': True, 'pages': WORKFLOW_PAGES})
+        if route in WORKFLOW_PAGES:
             return self._file(EXPERIMENT.page_file, 'text/html; charset=utf-8')
         if route == '/workflow.js':
             return self._file(os.path.join(LAB_DIR, 'workflow.js'), 'text/javascript; charset=utf-8')
         if route == '/api/composition':
             try:
-                return self._json({'ok': True, 'registry': LIBRARY.summary()})
+                return self._json({'ok': True, 'registry': library.summary()})
             except (ValueError, OSError, ReplayError) as error:
                 return self._json({'ok': False, 'error': {'code': 'composition-unavailable', 'detail': str(error)}}, 409)
         if route == "/learned-skills.js":
@@ -179,14 +213,14 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/live-preview.js':
             return self._file(os.path.join(LAB_DIR, 'live-preview.js'), 'text/javascript; charset=utf-8')
         if route == "/api/state":
-            return self._json({"ok": True, "state": snapshot()})
+            return self._json({"ok": True, "state": snapshot(profile)})
         if route in ('/api/learned/status', '/api/learned/latest'):
             job_id = 'latest' if route.endswith('/latest') else (parse_qs(urlparse(self.path).query).get('id') or [''])[0]
             try:
-                job = REPLAY.status(job_id)
+                job = replay.status(job_id)
                 payload = {'ok': True, 'job': job}
                 if job['status'] != 'running':
-                    payload['state'] = snapshot()
+                    payload['state'] = snapshot(profile)
                 return self._json(payload)
             except ReplayError as error:
                 if route.endswith('/latest'):
@@ -208,13 +242,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "message": "仅允许本机访问"}, 403)
         if self.headers.get("X-Lab") != "1":
             return self._json({"ok": False, "message": "缺少本机页面标识"}, 403)
+        profile = (parse_qs(urlparse(self.path).query).get('profile') or ['default'])[0]
+        if profile not in REPLAYS:
+            return self._json({'ok': False, 'error': {'code': 'unknown-workflow-profile'}}, 404)
         try:
             payload = self._body()
         except Exception as error:
             return self._json({"ok": False, "message": "请求体无效: %s" % error}, 400)
 
         if route == "/api/invoke":
-            return self._invoke(payload)
+            return self._invoke(payload, profile)
         if route == '/api/preview/live':
             # 独立只读路径，不排在 UIA/学习持有的执行锁之后。
             # Desktop 内的预览锁保证 capture 与 close 不会交叉释放资源。
@@ -230,11 +267,21 @@ class Handler(BaseHTTPRequestHandler):
         if route == '/api/learned/start':
             if not isinstance(payload, dict) or not isinstance(payload.get('action'), str) or not isinstance(payload.get('inputs', {}), dict):
                 return self._json({'ok': False, 'error': {'code': 'invalid-replay-request'}}, 400)
-            if REPLAY.busy():
+            profile = (parse_qs(urlparse(self.path).query).get('profile') or ['default'])[0]
+            if profile not in REPLAYS:
+                return self._json({'ok': False, 'error': {'code': 'unknown-workflow-profile'}}, 404)
+            replay = REPLAYS[profile]
+            if replay_busy():
                 return self._json({'ok': False, 'error': {'code': 'replay-busy'}}, 409)
             with LOCK:
                 try:
-                    job_id = REPLAY.start(payload['action'], payload.get('inputs'))
+                    if replay_busy():
+                        raise ReplayError('replay-busy')
+                    # 同一隐藏桌面只允许一条执行链；切换应用/流程时废弃其他实例的临时证据。
+                    for other in REPLAYS.values():
+                        if other is not replay:
+                            other.invalidate()
+                    job_id = replay.start(payload['action'], payload.get('inputs'))
                     return self._json({'ok': True, 'jobId': job_id})
                 except ReplayError as error:
                     return self._json({'ok': False, 'error': {'code': str(error)}}, 409)
@@ -243,35 +290,43 @@ class Handler(BaseHTTPRequestHandler):
                 LAB.log = []
                 LAST.clear()
                 PREVIEW.clear()
-            return self._json({"ok": True, "result": {"message": "日志与画面已清空"}, "state": snapshot()})
+                return self._json({"ok": True, "result": {"message": "日志与画面已清空"}, "state": snapshot(profile)})
         return self._json({"ok": False, "message": "未知动作"}, 404)
 
-    def _invoke(self, payload):
+    def _invoke(self, payload, profile='default'):
         capability_id = str(payload.get("id") or "")
         arguments = payload.get("arguments") or {}
-        if REPLAY.busy():
+        if replay_busy():
             return self._json({'ok': False, 'error': {'code': 'replay-busy'}}, 409)
         with LOCK:
-            if REPLAY.busy():
+            if replay_busy():
                 return self._json({'ok': False, 'error': {'code': 'replay-busy'}}, 409)
             try:
                 if capability_id.startswith('act.') or capability_id in ('env.hidden.open', 'env.app.launch', 'env.app.close', 'locate.window'):
-                    REPLAY.invalidate()
+                    for replay in REPLAYS.values():
+                        replay.invalidate()
                 outcome = LAB.invoke(capability_id, arguments)
+                if capability_id == 'env.app.launch':
+                    startup = select_started_window(LAB, arguments, APP_PRESETS)
+                    if startup is not None:
+                        outcome['result']['startup'] = startup
+                        outcome['elapsedMs'] += startup['elapsedMs']
+                        LAB.log_line('启动后已唯一选定主窗口：%s (%s)，归属核验通过'
+                                     % (startup['window']['title'], startup['window']['hwnd']))
                 if capability_id in ('observe.capture', 'verify.capture.rendered'):
                     outcome['result'] = publish_preview(outcome['result'])
             except CapabilityError as error:
                 LAB.log_line("%s 被拒：%s" % (capability_id, error.code), "error")
                 LAST["invoke"] = {"id": capability_id, "ok": False, "error": error.payload()}
                 return self._json({"ok": False, "capability": capability_id,
-                                   "error": error.payload(), "state": snapshot()})
+                                   "error": error.payload(), "state": snapshot(profile)})
             except Exception as error:                     # 兜底：绝不吞掉
                 LAB.log_line("%s 未预期失败：%s" % (capability_id, error), "error")
                 payload_error = {"code": "dispatch-effect-unknown", "kind": "unknown",
                                  "detail": "%s: %s" % (type(error).__name__, error)}
                 LAST["invoke"] = {"id": capability_id, "ok": False, "error": payload_error}
                 return self._json({"ok": False, "capability": capability_id,
-                                   "error": payload_error, "state": snapshot()},
+                                   "error": payload_error, "state": snapshot(profile)},
                                   status=500)
 
             capability = next(c for c in CAPABILITIES if c["id"] == capability_id)
@@ -285,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
             LAST["invoke"] = {"id": capability_id, "ok": True, "result": outcome["result"],
                               "elapsedMs": outcome["elapsedMs"]}
             return self._json({"ok": True, "capability": capability_id, **outcome,
-                               "state": snapshot()})
+                               "state": snapshot(profile)})
 
 
 def free_port(preferred):
@@ -320,7 +375,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        REPLAY.shutdown()
+        for replay in REPLAYS.values():
+            replay.shutdown()
         with LOCK:
             if LAB.desktop and LAB.desktop.context:
                 try:

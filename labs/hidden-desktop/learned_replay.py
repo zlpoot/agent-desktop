@@ -82,6 +82,10 @@ class LearnedReplay:
             return self.finalizing or bool(self.job and self.job['status'] == 'running')
 
     def summary(self):
+        if getattr(self.library, 'execution_model', None) == 'capability-steps':
+            with self.state_lock:
+                return {'learningRequired': False, 'bound': bool(self.binding),
+                        'requiresReset': self.requires_reset, 'values': copy.deepcopy(self.values), 'busy': self.busy()}
         template = load_recipe(self.template_path)
         try:
             recipe, reason = load_recipe(self.learned_path, True), None
@@ -196,6 +200,8 @@ class LearnedReplay:
         return self._environment(recipe)
 
     def _environment(self, recipe):
+        if recipe.get('executionModel') == 'capability-steps':
+            recipe = self.library.runtime_recipe(recipe)
         def mismatch(code):
             if recipe.get('localReplay'):
                 raise RelearnRequired('learning-required:' + code)
@@ -695,6 +701,9 @@ class LearnedReplay:
                     raise ReplayError(detail)
 
     def _run_capability(self, recipe, inputs):
+        if recipe.get('executionModel') == 'capability-steps':
+            from instruction_replay import run_instructions
+            return run_instructions(self, recipe, inputs)
         if self.library is not None and getattr(self.library, 'require_local', False):
             validate_local_profile(recipe)
         operation = recipe['operations'][0]
@@ -711,6 +720,9 @@ class LearnedReplay:
                 self.active_recipe = copy.deepcopy(recipe)
             else:
                 self._drop()
+        if self.library is not None and hasattr(self.library, 'check_preconditions'):
+            self.trace('replay.preconditions', {'capability': recipe['id']},
+                       lambda: self.library.check_preconditions(self, recipe, inputs))
         return self._operation(recipe, operation, inputs)
 
     def _run_workflow(self, workflow_id, inputs):
@@ -738,15 +750,21 @@ class LearnedReplay:
                     original_identity = identity
                     outputs.append({'capability': recipe['id'], 'output': output})
                     with self.state_lock:
-                        steps[index].update(status='done', finishedAt=time.time(), output=copy.deepcopy(output))
+                        steps[index].update(status='waiting' if output.get('pending') else 'done', finishedAt=time.time(), output=copy.deepcopy(output))
+                    if output.get('pending'):
+                        return {'workflow': workflow_id, 'parameters': parameters, 'steps': outputs,
+                                'pending': True, 'completion': output['completion'], 'acceptance': 'manual'}
                 except Exception as error:
                     with self.state_lock:
                         steps[index].update(status='failed', finishedAt=time.time(), error=str(error))
                     raise
-            return {'workflow': workflow_id, 'parameters': parameters, 'steps': outputs,
+            result = {'workflow': workflow_id, 'parameters': parameters, 'steps': outputs,
                     'completion': workflow.get('completion', '整体流程调用完成，请核对结果。'),
                     'acceptance': plan[-1][1]['operations'][0].get('acceptance', 'automatic'),
                     'preview': outputs[-1]['output'].get('preview')}
+            if 'answer' in outputs[-1]['output']:
+                result['answer'] = outputs[-1]['output']['answer']
+            return result
         finally:
             self.current_step = None
 
@@ -774,7 +792,7 @@ class LearnedReplay:
         try:
             with self.host_lock:
                 composition_action = action.startswith(('workflow:', 'learn-workflow:', 'capability:'))
-                template = None if composition_action else load_recipe(self.template_path)
+                template = None if composition_action or action == 'reset' else load_recipe(self.template_path)
                 if action == 'reset':
                     self._drop()
                     self.requires_reset = False
@@ -785,6 +803,8 @@ class LearnedReplay:
                     if self.requires_reset:
                         raise ReplayError('reset-or-learning-required')
                     namespace, capability_id = action.split(':', 1)
+                    if self.learning_paths and getattr(self.library, 'execution_model', None) == 'capability-steps':
+                        raise ReplayError('this-library-requires-explicit-relearning')
                     if namespace in ('workflow','learn-workflow'):
                         if self.learning_paths:self._drop()
                         result = self._run_workflow(capability_id, inputs)
@@ -798,6 +818,8 @@ class LearnedReplay:
                         result = self._run_capability(recipe, inputs)
                         acceptance = recipe['operations'][0].get('acceptance', 'automatic')
                         verdict = recipe['operations'][0].get('completion', '子能力调用与核验完成。')
+                        if result.get('pending'):
+                            verdict = result['completion']
                 elif action == 'learn':
                     result = self._learn(template)
                     self.requires_reset = False
@@ -840,8 +862,8 @@ class LearnedReplay:
                     verdict = operation.get('completion', '动作与实时核验完成。')
                 with self.state_lock:
                     self.finalizing = self.job_path is not None
-                    self.job.update(status='done', output=result, finishedAt=time.time(),
-                                    verification={'status': '待人工核对' if acceptance == 'manual' else '通过', 'evidence': verdict})
+                    self.job.update(status='waiting' if result.get('pending') else 'done', output=result, finishedAt=time.time(),
+                                    verification={'status': '等待回答' if result.get('pending') else '待人工核对' if acceptance == 'manual' else '通过', 'evidence': verdict})
         except Exception as error:
             # _drop 也在此线程，异常或中断后不保留半成品 COM 绑定。
             cleanup_error = None

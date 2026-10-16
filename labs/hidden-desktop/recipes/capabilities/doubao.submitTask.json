@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.submitTask",
+  "revision": 5,
+  "title": "核验内容并提交一次",
+  "profile": "doubao.work",
+  "profileSha256": "3c6ed8fb31ed21a3cfea07b8a347809a341f08ceaaed6611075dd4bcab772778",
+  "parameters": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "operations": [
+    {
+      "id": "doubao.submitTask",
+      "title": "核验内容并提交一次",
+      "description": "仅接受本轮填写回执；重新观察内容、按钮和同矩形发送容器，点击前消耗一次性发送机会。",
+      "inputs": [
+        "content"
+      ],
+      "steps": [
+        {
+          "op": "submit_container",
+          "container": {
+            "roleName": "Group",
+            "classes": [
+              "tiptap ProseMirror",
+              "tiptap ProseMirror ProseMirror-focused"
+            ]
+          },
+          "text": "${content}",
+          "button": {
+            "roleName": "Button",
+            "autoId": "flow-end-msg-send"
+          },
+          "sendContainer": {
+            "roleName": "Group",
+            "className": "size-36"
+          },
+          "ancestryStrategy": "owned-native-anchor",
+          "requires": "typedContent",
+          "receipt": "submittedContent"
+        }
+      ],
+      "completion": "已核对本轮完整内容并提交一次；回答尚未核验。",
+      "acceptance": "manual"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": {
+      "state": "typedContent",
+      "parameter": "content"
+    },
+    "absentStates": [
+      "submittedContent"
+    ]
+  },
+  "verification": {
+    "status": "recorded",
+    "report": "reports/ui/doubao-json-real-validation.json",
+    "testedRevision": 4,
+    "testedDefinitionSha256": "ba1e5742c32379ac29cedc306d2a4ed970601abdd0ab63ba654ee40610f199ae",
+    "scope": "Current local executable and declared layout; real composed replay plus independent capability calls; response facts remain manual."
+  }
+}

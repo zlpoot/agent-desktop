@@ -44,7 +44,10 @@ def _target_field(help_text="定位目标控件；不填偏移时点其客户区
     return {"type": "target", "label": "目标控件", "required": True, "help": help_text,
             "optionalConstraints": {'expectedIdentity': {'type': 'object',
                 'requiredKeys': list(IDENTITY_KEYS),
-                'help': '传入上一定位的 identity；仍重新全局查询，并拒绝身份变化'}}}
+                'help': '传入上一定位的 identity；仍重新全局查询，并拒绝身份变化'},
+                'ancestryStrategy': {'type': 'string', 'enum': ['full-tree', 'owned-native-anchor'],
+                    'default': 'full-tree',
+                    'help': '显式选择有界 UIA 链连接当前自有窗口的原生祖先；不增加深度或放宽归属'}}}
 
 
 # --------------------------------------------------------------------------- #
@@ -923,7 +926,10 @@ class CapabilityRuntime:
         if not row["enabled"] or row["offscreen"]:
             raise CapabilityError("target-not-usable",
                                   "enabled=%s offscreen=%s" % (row["enabled"], row["offscreen"]))
-        proof = tree.prove_target(row)
+        ancestry = spec.get('ancestryStrategy', 'full-tree')
+        if ancestry not in ('full-tree', 'owned-native-anchor'):
+            raise CapabilityError('invalid-argument', 'unsupported-ancestry-strategy')
+        proof = tree.prove_target_from_native_ancestor(row) if ancestry == 'owned-native-anchor' else tree.prove_target(row)
         expected = spec.get('expectedIdentity')
         if expected is not None and not same_identity(expected, proof):
             raise CapabilityError('target-identity-changed', '新观察的目标与上一定位身份不一致；请重新发现')
