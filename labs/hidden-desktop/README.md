@@ -109,6 +109,50 @@ python server.py --no-browser
 
 页面左边是按层分组的能力目录，右边是"隐藏窗口画面 + 本次会话 + 执行日志"。
 
+`env.app.launch` 的应用下拉包含网易云音乐和豆包。豆包预设路径为
+`E:\app\Doubao\app\Doubao.exe`（主程序，绕过根目录启动器），附加参数为空；
+选择后自动填写，仍通过共用启动能力执行。
+
+应用预设统一来自 `app-launch-presets.json`。豆包声明准确标题“豆包”和窗口类名
+`Chrome_WidgetWin_1`；启动后最多等待 15 秒，在本次隐藏桌面 Job 内唯一匹配主窗口，
+再独立核验实际进程路径、同用户、同会话及实例身份，成功后自动抓图并恢复实时画面。
+子进程承载界面受支持；没有匹配、重复匹配或身份漂移均明确停止，不猜最大窗口、不重发启动或静默续租。
+
+豆包“新工作任务”现位于 `/workflows/doubao`，原 `/manual-flow` 地址保留为同页入口。
+整体流程 ID 保留 `doubao.new-work-task.query`，定义在
+`recipes/workflows/doubao.new-work-task.query.json`；八个独立子能力位于 `recipes/capabilities/doubao.*.json`：
+
+| 子能力 | 参数 | 前置条件与核验 |
+| --- | --- | --- |
+| `doubao.launch` | 无 | 启动或复用自有实例，按 JSON 的主窗口规则唯一选择并核验版本、进程及窗口身份 |
+| `doubao.openNewWorkTask` | 无 | 自有应用，入口完整观察与唯一重绑后点击一次；建立新一轮 |
+| `doubao.verifyWorkPage` | 无 | 页面标志、唯一输入容器及内部占位提示 |
+| `doubao.locateTaskInput` | 无 | 唯一输入容器、独立重绑及 enabled/offscreen 只读核验 |
+| `doubao.captureWorkPage` | 无 | 已渲染画面与本轮实例、PID、HWND 一致 |
+| `doubao.fillTask` | `content` | 只接受空白占位提示；焦点变化后重绑，定向输入一次并独立回读 |
+| `doubao.submitTask` | `content` | 本轮填写回执与完整文本一致，发送按钮和容器唯一且同矩形，派发前消耗发送机会 |
+| `doubao.readTaskResult` | `content` | 本轮提交回执、唯一问题、完成标志、底部标志及完整可见正文 |
+
+每个子能力都有自己的参数、目标规则、前置条件、核验和历史验证来源；流程按 revision 与内容哈希引用，
+不复制动作脚本。任务默认值只放在流程 JSON；应用路径、主窗口与版本指纹位于
+`recipes/profiles/doubao.work.json`。共享代码不内置应用名称、任务文本、日期或答案。
+这些文件是源定义；本轮将其标为 `packaged-pending-replay`，沿用历史步骤证据，不冒充封装后实测。
+
+豆包和网易云均通过 `LearnedReplay` 调度。`instruction_replay.py` 为共用执行器补充有限的窗口、
+文本容器、一次性提交和语义区域读取指令，不引入豆包专用执行器。旧前端固定步骤脚本已移除，
+两者共用 `workflow.html` / `workflow.js`。页面可逐项手动调用，也可回放完整流程；完整流程会提交一次任务。
+回答未完成时显示“等待回答”，手动再调 `doubao.readTaskResult` 只读刷新，不重发问题。
+返回正文使用纯文本；读取成功只表示本轮关联及正文完整性通过，不等同于事实核查。
+
+隐藏桌面仍要求自有 Job、同用户、同会话、实例和窗口连续一致，保持原租约和动作预算。
+`owned-native-anchor` 仍是显式的已有受约束策略，不改变基础能力默认值。
+只有已识别的只读 `uia-hresult-80040201` 允许同窗口最多三次重读；输入和提交不自动重试。
+未知动作效果、身份漂移、重复目标或查询不完整均停止。输入/提交回执只存在服务端当前执行实例；
+刷新网页后可继续读取，重启服务、显式重置、外部动作或切换流程会清掉临时证据，不能恢复旧回执自动发送。
+多个流程共用一个桌面时串行执行，基础能力动作也会使所有流程的临时绑定失效。
+
+本轮仅做语法、配置/哈希装载和 HTTP/页面基础启动验证，不启动豆包、不填写或提交真实任务，不跑完整测试。
+
 典型流程（每一步都能在页面上看到结果）：
 
 1. `env.hidden.open` → 创建自有隐藏桌面
@@ -127,33 +171,24 @@ python server.py --no-browser
 
 ## 三、目标测试窗口
 
-### 歌曲搜索与打开的手动流程
+### JSON 能力与完整流程入口
 
-页面左侧可切换「基础能力目录」和「搜索并打开歌曲」，右侧画面保持固定。
-这是本实验中的手动能力编排，不依赖或接入主工程，也不使用真实模型。
+基础能力页只保留通用目录和配置生成的入口。旧的固定歌曲状态机及重复的已学能力视图已移除，
+统一进入 `experiment.json` 指定的流程页。标题、输入字段、默认值、步骤及输入绑定都读取现有 JSON。
+旧能力 ID、`capability:<id>` 调用方式及兼容学习/执行接口保持。
 
-1. 在能力目录创建隐藏桌面、启动已配置的网易云，必要时用 `locate.window` 选定窗口。
-2. 保证租约有效；分步操作时间较长时，显式调用 `control.lease.renew`，例如 `seconds=900`。
-3. 切换到流程，逐次点击「执行第 N 步」。每一步展示能力与参数预览、实际调用和返回、核验结果。
-4. 搜索词固定为 `甲乙丙丁 李佳薇`，目标为李佳薇《甲乙丙丁（你我怎么两清）》。
-   搜索入口、歌曲标题从完整的实时 UIA 观察中手动选择，不保存坐标、索引或占位文字为永久定位。
-5. 打开前须人工核对同一歌曲行的歌手；打开后重新读取 UIA 和已渲染截图，再单独人工确认已进入详情页。
-   同屏出现歌名与歌手只记为文字证据，不自动判定详情页验收通过。
+网页能力契约由 `recipes/capability-contracts.json` 声明，`capability_contract.py` 按内容哈希引用
+原学习文件，给出精简参数、绑定目标、局部目标谓词、前置条件和核验说明。无输入的启动、搜索准备
+和绑定能力不再对外声明歌名/歌手；填写、提交只接收 query；打开及核验播放只接收 song/artist。
+`cloudmusic.playSong` 保留兼容 ID，展示为“核验目标歌曲正在播放”，不增加播放或暂停动作。
 
-流程没有收藏、下载、双击播放、后台自动推进或动作自动重试。`act.keypress` 仍未实现：
-如果应用没有可点击的搜索入口而只能通过 Enter 提交，流程会停下，不能宣称搜索已经成功。
-目标不唯一、树被截断、窗口更换、值回读不一致、调用失败均停止推进；先核对现场，再新建一轮。
-等待结果加载时可点击「重新观察当前页」，不会重复提交搜索或打开动作。
-基础能力目录中的界面操作或窗口更换会使当前流程失效；只读观察、抓图和显式续租不使流程失效。
+前置条件在服务器的共用执行线程检查：当前自有实例、所需目标已绑定、搜索词已独立核验且与
+提交参数一致。各动作原有的当前身份、输入回读、独立结果读取、预算和失效处理继续执行。
+参数契约或引用的执行定义变化立即拒绝，不自动接受漂移。
 
-记录保留在当前页面内，可导出 JSON；新一轮保留本页的上一轮记录。刷新页面会清空流程记录。
-本流程的纯状态机合成验证（Fake 能力返回、无网络和实机输入）：
-
-```bash
-node --test labs/hidden-desktop/tests/song-flow.test.cjs
-```
-
-该验证不代表真实歌曲流程已通过，实际搜索与打开由页面逐步验证。
+网易云清理阶段未修改其执行学习文件。本轮豆包封装同样不动 MCP；MCP 所引用的 `learned/capabilities/`、工作流哈希及其适配语义保持不变，
+其中较宽的旧学习字段作为兼容执行定义保留；网页的调用方契约与这些执行/绑定记录分开呈现。
+下文早期固定歌曲、前端状态机与历史验证章节仅是历史记录，不表示当前入口仍运行旧逻辑。
 
 ### UIA 角色查询与等待显示
 
@@ -192,7 +227,6 @@ provider 的原生角色缓存仍占约 12 秒；这是单次场景测量，不�
 ```bash
 python -m unittest discover -s labs/hidden-desktop/tests -p test_uia_role_query.py -v
 python -m unittest discover -s labs/hidden-desktop/tests -p test_capabilities.py -v
-node --test labs/hidden-desktop/tests/song-flow.test.cjs
 ```
 
 自建一个经典 Win32 表单，控件都带稳定 `automationId`：
@@ -441,7 +475,7 @@ GET `/api/learned/status?id=<jobId>` 读取当前子调用、耗时、结果和�
 
 ```powershell
 python -m unittest discover -s labs/hidden-desktop/tests -p test_learned_replay.py -q
-node --test labs/hidden-desktop/tests/learned-client.test.cjs labs/hidden-desktop/tests/song-flow.test.cjs
+node --test labs/hidden-desktop/tests/learned-client.test.cjs
 ```
 
 ## 十四、实时画面与截图传输生命周期

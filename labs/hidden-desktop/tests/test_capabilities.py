@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import capabilities as caps  # noqa: E402
 from hidden_desktop import Blocked, CleanupUnconfirmed  # noqa: E402
 from uia_client import UiaError, ROLE_NAMES  # noqa: E402
+from uia_identity import IDENTITY_KEYS  # noqa: E402
 
 
 class DeclarationTests(unittest.TestCase):
@@ -382,6 +383,22 @@ class LocateTruncationTests(unittest.TestCase):
         with self.assertRaises(caps.CapabilityError) as caught:
             self.runtime._locate(tree, {'kind': 'role', 'role': 'Button', 'expectedIdentity': {}})
         self.assertEqual(caught.exception.code, 'target-not-unique')
+
+    def test_explicit_native_ancestry_strategy_still_requires_global_uniqueness_and_expected_identity(self):
+        tree=self.StubTree([self.row(role=50026,class_name='sample-editor')])
+        proof={key:[7] if key.endswith('RuntimeId') or key=='runtimeId' else key for key in IDENTITY_KEYS}
+        tree.prove_target=lambda row:self.fail('explicit mode must not silently use the default strategy')
+        tree.prove_target_from_native_ancestor=lambda row:dict(proof,identityRebound=True,strategy='uia-to-owned-native-ancestor')
+        spec=dict(kind='className',value='sample-editor',ancestryStrategy='owned-native-anchor')
+        selected=self.runtime._locate(tree,spec)
+        self.assertTrue(selected['identity']['globalUnique'])
+        self.runtime._locate(tree,{**spec,'expectedIdentity':selected['identity']})
+        with self.assertRaises(caps.CapabilityError) as caught:
+            self.runtime._locate(tree,{**spec,'expectedIdentity':{**selected['identity'],'runtimeId':[99]}})
+        self.assertEqual(caught.exception.code,'target-identity-changed')
+        tree.rows.append(self.row(role=50026,class_name='sample-editor'))
+        with self.assertRaises(caps.CapabilityError) as caught:self.runtime._locate(tree,spec)
+        self.assertEqual(caught.exception.code,'target-not-unique')
 
     def test_uia_tree_declares_a_real_app_sized_budget(self):
         from uia_client import MAX_ELEMENTS

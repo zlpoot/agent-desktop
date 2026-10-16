@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.openNewWorkTask",
+  "revision": 1,
+  "title": "打开新工作任务",
+  "profile": "doubao.work",
+  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.openNewWorkTask",
+      "title": "打开新工作任务",
+      "description": "完整观察唯一入口并重新绑定，点击一次；工作页由后续能力独立核验。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "open_entry",
+          "selector": {
+            "kind": "role",
+            "role": "Button",
+            "value": "新工作任务 Ctrl N"
+          },
+          "match": {
+            "roleName": "Button",
+            "name": "新工作任务 Ctrl N"
+          }
+        }
+      ],
+      "completion": "已派发一次入口点击，工作页仍需独立核验。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+  }
+}

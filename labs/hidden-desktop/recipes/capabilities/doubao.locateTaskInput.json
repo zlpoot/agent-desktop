@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.locateTaskInput",
+  "revision": 1,
+  "title": "定位并核验任务输入容器",
+  "profile": "doubao.work",
+  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.locateTaskInput",
+      "title": "定位并核验任务输入容器",
+      "description": "重新定位唯一输入容器，保留 owned-native-anchor 策略并只读核验 enabled/offscreen。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "verify_container",
+          "container": {
+            "roleName": "Group",
+            "classes": [
+              "tiptap ProseMirror",
+              "tiptap ProseMirror ProseMirror-focused"
+            ]
+          },
+          "ancestryStrategy": "owned-native-anchor"
+        }
+      ],
+      "completion": "输入容器全局唯一性、独立身份和只读状态已核验。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+  }
+}

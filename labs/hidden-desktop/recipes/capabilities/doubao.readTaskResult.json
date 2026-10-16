@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.readTaskResult",
+  "revision": 1,
+  "title": "读取本轮完成回答",
+  "profile": "doubao.work",
+  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "parameters": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "operations": [
+    {
+      "id": "doubao.readTaskResult",
+      "title": "读取本轮完成回答",
+      "description": "只读刷新，要求本轮提交回执、唯一问题、完成标志和完整可见正文；不重新发送任务。",
+      "inputs": [
+        "content"
+      ],
+      "steps": [
+        {
+          "op": "read_response",
+          "text": "${content}",
+          "scope": {
+            "roleName": "Group",
+            "name": "doc_editor"
+          },
+          "completed": {
+            "roleName": "Button",
+            "className": "header-eGdsQP",
+            "namePrefix": "共用时 ",
+            "nameSuffix": " 秒"
+          },
+          "footer": {
+            "roleName": "Button",
+            "name": "朗读"
+          },
+          "requires": "submittedContent",
+          "verification": "已核对本轮问题、完成标志及完整可见正文；应用返回内容尚未独立核实事实。"
+        }
+      ],
+      "completion": "本轮完成回答已返回页面；正文事实仍待人工核对。",
+      "acceptance": "manual"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": {
+      "state": "submittedContent",
+      "parameter": "content"
+    },
+    "absentStates": []
+  },
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+  }
+}

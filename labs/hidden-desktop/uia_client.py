@@ -195,13 +195,17 @@ class UiaTree:
         """在全局唯一筛选之后调用；RawWalker 只证明祖先归属，不用于选目标。"""
         return self._prove_element(row,False)
 
+    def prove_target_from_native_ancestor(self, row):
+        """显式实验模式：有界 UIA 祖先链 + 同一自有目标窗口的原生 HWND 锚点。"""
+        return self._prove_element(row, False, native_anchor=True)
+
     def prove_container(self,row):
         """只读容器允许内容延伸出窗口；输入叶子仍须完整位于窗口内。"""
         if row['role'] not in (50026,50030,50033) or not row['autoId']:
             raise UiaError('learning-required:invalid-local-container')
         return self._prove_element(row,True)
 
-    def _prove_element(self,row,container):
+    def _prove_element(self,row,container, native_anchor=False):
         if self.window_binding() != self.binding:
             raise UiaError('uia-target-identity-changed')
         element = self.elements[row['index']]
@@ -221,10 +225,21 @@ class UiaTree:
         self.client.call(16, (C.POINTER(C.c_void_p),), (C.byref(pointer),))
         walker, parents = Com(pointer), []
         current = element
+        anchor = None
         try:
             for depth in range(17):
                 if self.runtime_id(current) == self.binding['rootRuntimeId']:
                     break
+                if native_anchor:
+                    native = self._integer(current, 36)
+                    if native:
+                        # _owned 已逐级核验进程/Job/会话/密码；原生链必须回到当前窗口，
+                        # 仅在同一桌面上的其他窗口不够。没有锚点仍按原深度上限拒绝。
+                        self.desktop.assert_target(native)
+                        if native == self.hwnd or self.desktop.api.u.GetAncestor(native, 2) == self.hwnd:
+                            anchor = {'hwnd':native,'pid':self._integer(current,20),'runtimeId':self.runtime_id(current)}
+                            break
+                        raise UiaError('uia-ancestry-unproven')
                 if depth == 16:
                     raise UiaError('uia-ancestry-unproven')
                 pointer = C.c_void_p()
@@ -247,7 +262,8 @@ class UiaTree:
             if not inside:
                 raise UiaError('uia-ancestry-unproven')
             return {**self.binding, 'elementPid': self._integer(element, 20), 'runtimeId': rid,
-                    'ancestorDepth': depth, 'strategy': 'full-tree',
+                    'ancestorDepth': depth, 'strategy': 'uia-to-owned-native-ancestor' if anchor else 'full-tree',
+                    **({'nativeAncestor':anchor} if anchor else {}),
                     'identityRebound': True}
         finally:
             for parent in parents:

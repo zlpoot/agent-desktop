@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.fillTask",
+  "revision": 1,
+  "title": "填写任务内容并独立回读",
+  "profile": "doubao.work",
+  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "parameters": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "operations": [
+    {
+      "id": "doubao.fillTask",
+      "title": "填写任务内容并独立回读",
+      "description": "仅在空白占位提示完全匹配时输入一次；焦点变化后重新绑定，输入后独立观察完整内容。",
+      "inputs": [
+        "content"
+      ],
+      "steps": [
+        {
+          "op": "fill_container",
+          "container": {
+            "roleName": "Group",
+            "classes": [
+              "tiptap ProseMirror",
+              "tiptap ProseMirror ProseMirror-focused"
+            ]
+          },
+          "emptyText": "发消息或创建任务... / 使用技能 @ 添加资料",
+          "text": "${content}",
+          "ancestryStrategy": "owned-native-anchor",
+          "receipt": "typedContent"
+        }
+      ],
+      "completion": "任务内容已填写并独立回读；尚未提交。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": [
+      "typedContent",
+      "submittedContent"
+    ]
+  },
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+  }
+}

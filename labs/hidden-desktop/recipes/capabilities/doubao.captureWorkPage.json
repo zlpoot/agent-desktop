@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "kind": "learned-capability",
+  "executionModel": "capability-steps",
+  "id": "doubao.captureWorkPage",
+  "revision": 1,
+  "title": "记录当前工作页面",
+  "profile": "doubao.work",
+  "profileSha256": "2c8023d2cf83f50c00d5ff52bf33558330a130e1a7307da128647fc2a2afd4ee",
+  "parameters": {},
+  "operations": [
+    {
+      "id": "doubao.captureWorkPage",
+      "title": "记录当前工作页面",
+      "description": "核对当前实例、进程和窗口后抓取已渲染画面。",
+      "inputs": [],
+      "steps": [
+        {
+          "op": "capture"
+        }
+      ],
+      "completion": "当前实例画面已记录。",
+      "acceptance": "automatic"
+    }
+  ],
+  "preconditions": {
+    "ownedApplication": true,
+    "boundTargets": [],
+    "verifiedInput": null,
+    "absentStates": []
+  },
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "既有已验证步骤的声明式封装，封装后真实回放待验证。"
+  }
+}

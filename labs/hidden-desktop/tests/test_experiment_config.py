@@ -57,5 +57,11 @@ class ExperimentConfigTests(unittest.TestCase):
             path.write_text(content, encoding='utf-8')
             with self.assertRaises(ValueError):load_experiment(self.root)
 
+    def test_optional_manual_flow_stays_inside_lab(self):
+        self.data['manualFlow']='recipes/manual.json';self.write()
+        self.assertEqual(load_experiment(self.root).manual_flow,self.root/'recipes/manual.json')
+        self.data['manualFlow']='../outside.json';self.write()
+        with self.assertRaises(ValueError):load_experiment(self.root)
+
 
 if __name__ == '__main__':unittest.main()

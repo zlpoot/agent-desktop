@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "kind": "workflow",
+  "id": "doubao.new-work-task.query",
+  "revision": 1,
+  "title": "豆包：新工作任务并读取结果",
+  "description": "由八个独立 JSON 子能力组合；完整流程会填写并提交一次任务。回答未完成时仅手动刷新读取能力。",
+  "parameters": {
+    "content": {
+      "type": "string",
+      "maxLength": 512,
+      "label": "任务内容",
+      "default": "查询一下2028年春节是哪一天？"
+    }
+  },
+  "automaticRetry": false,
+  "onFailure": "stop",
+  "completion": "本轮任务已提交一次，并已关联核验完成回答；正文事实待人工核对。",
+  "verification": {
+    "status": "packaged-pending-replay",
+    "historicalEvidence": "reports/ui/doubao-query-integrated.json",
+    "scope": "原有逐步执行记录已验证；JSON 拆分后本轮仅验证基础启动，尚未实际回放。"
+  },
+  "steps": [
+    {
+      "id": "step-1",
+      "capability": "doubao.launch",
+      "revision": 1,
+      "definitionSha256": "167b219bc33894e08fcd9a055ef75b62deddab7342c144df843b760970ad02a3",
+      "inputs": {}
+    },
+    {
+      "id": "step-2",
+      "capability": "doubao.openNewWorkTask",
+      "revision": 1,
+      "definitionSha256": "2d57b606efed5ada7d1e5f4e047b74267de6fa3347cede479d1c0ff509db61b0",
+      "inputs": {}
+    },
+    {
+      "id": "step-3",
+      "capability": "doubao.verifyWorkPage",
+      "revision": 1,
+      "definitionSha256": "2798f3ffbe132e4a5098abca08c858547ec709d533bc8eea91e5b9ef3df06271",
+      "inputs": {}
+    },
+    {
+      "id": "step-4",
+      "capability": "doubao.locateTaskInput",
+      "revision": 1,
+      "definitionSha256": "1a925439d818468ed90eb9c6ac0942663d37d2f6ac0e94af3614a1b124e16118",
+      "inputs": {}
+    },
+    {
+      "id": "step-5",
+      "capability": "doubao.captureWorkPage",
+      "revision": 1,
+      "definitionSha256": "99853b3a45c598faa8c3f424d918f4d9fb8dd520e632b497fa7d0bc6ac4c698c",
+      "inputs": {}
+    },
+    {
+      "id": "step-6",
+      "capability": "doubao.fillTask",
+      "revision": 1,
+      "definitionSha256": "3b992248926e10ac4922c21f9f3361859a1cf9663080874f2b731edcda260184",
+      "inputs": {
+        "content": {
+          "input": "content"
+        }
+      }
+    },
+    {
+      "id": "step-7",
+      "capability": "doubao.submitTask",
+      "revision": 1,
+      "definitionSha256": "43a7c8b47f0137286f7edc2eb86406142a0980fef22ab7311897754da69624e1",
+      "inputs": {
+        "content": {
+          "input": "content"
+        }
+      }
+    },
+    {
+      "id": "step-8",
+      "capability": "doubao.readTaskResult",
+      "revision": 1,
+      "definitionSha256": "48a31835b640aa77ba8b2af3333a1a0ddcece12e93f8c5eac0df02cbcf016eb6",
+      "inputs": {
+        "content": {
+          "input": "content"
+        }
+      }
+    }
+  ],
+  "runLabel": "回放完整流程（含提交一次）"
+}

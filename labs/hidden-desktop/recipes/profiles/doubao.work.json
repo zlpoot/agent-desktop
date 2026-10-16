@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "executable": "E:\\app\\Doubao\\app\\Doubao.exe",
+    "arguments": ""
+  },
+  "environment": {
+    "kind": "hidden-desktop",
+    "window": {
+      "kind": "className",
+      "value": "Chrome_WidgetWin_1"
+    }
+  },
+  "mainWindow": {
+    "className": "Chrome_WidgetWin_1",
+    "title": "豆包"
+  },
+  "applicationFingerprint": {
+    "path": "E:\\app\\Doubao\\app\\Doubao.exe",
+    "size": 5412240,
+    "sha256": "08ac1bdb674861d7201f1d2703c21d7d7267e788b8c5b37120e18199c9d4d65b"
+  }
+}
