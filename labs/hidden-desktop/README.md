@@ -1,5 +1,19 @@
 # Hidden Desktop 基础能力测试台
 
+## 包边界与合成检查
+
+第一批结构整理引入 `hidden_desktop_lab/`：纯契约位于 `contracts/`，任务服务位于
+`tasks/`，网页 HTTP 适配位于 `transports/`，`bootstrap.py` 显式装配并持有测试台资源。
+原 `server.py` 启动命令、`agent_runtime` / `experiment_config` 导入和 MCP 注册路径保持。
+导入入口不会读取实验 JSON、学习记录或报告，也不会创建执行器、桌面或 UIA 实例。
+运行服务时才显式装配；静态资源、配方、学习数据和报告仍按 lab 根目录解析。
+
+从仓库根目录运行 `npm run test:labs`，按明确清单执行合成 Python、JS 和浏览器检查；
+也可分别运行 `test:labs:python`、`test:labs:js`、`test:labs:browser`。
+浏览器检查使用已安装的 Playwright Chromium 缓存，可通过 `PLAYWRIGHT_BROWSERS_PATH` 指定。
+清单不包含真实桌面烟测或任何真实模型验证脚本，根目录原有检查仍须分别运行。
+结构、迁移边界及基线说明见 [第一批结构整理](docs/package-boundary.md)。
+
 ## 共用代码与实验数据
 
 - `replay_contract.py`：JSON 契约、错误类型、文件读取和安全上限；不包含应用名或任务参数。

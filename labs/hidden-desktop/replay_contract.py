@@ -4,7 +4,7 @@ import json
 import os
 from pathlib import Path
 
-from replay_observation import validate_match
+from hidden_desktop_lab.contracts.matching import validate_match
 
 
 LOCAL_LIMITS = {

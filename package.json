@@ -45,7 +45,11 @@
     "test:local-workspace:viewer:windows": "node spikes/local-workspace/verify-viewer.mjs --real",
     "test:local-workspace:takeover:windows": "node spikes/local-workspace/verify-viewer.mjs --real --takeover",
     "demo:local-workspace:netease": "python spikes/local-workspace/host.py --real",
-    "test:local-workspace:netease:windows": "python spikes/local-workspace/verify-netease.py --real --takeover"
+    "test:local-workspace:netease:windows": "python spikes/local-workspace/verify-netease.py --real --takeover",
+    "test:labs": "python scripts/run-lab-tests.py all",
+    "test:labs:python": "python scripts/run-lab-tests.py python",
+    "test:labs:js": "python scripts/run-lab-tests.py js",
+    "test:labs:browser": "python scripts/run-lab-tests.py browser"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.17",

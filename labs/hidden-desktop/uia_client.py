@@ -17,20 +17,7 @@ from ctypes import wintypes as W
 import time
 import uuid
 from uia_identity import read_runtime_id
-
-# UIA ControlType id（与 UIA_*ControlTypeId 一致），仅用于可读展示。
-ROLE_NAMES = {
-    50000: "Button", 50001: "Calendar", 50002: "CheckBox", 50003: "ComboBox",
-    50004: "Edit", 50005: "Hyperlink", 50006: "Image", 50007: "ListItem",
-    50008: "List", 50009: "Menu", 50010: "MenuBar", 50011: "MenuItem",
-    50012: "ProgressBar", 50013: "RadioButton", 50014: "ScrollBar", 50015: "Slider",
-    50016: "Spinner", 50017: "StatusBar", 50018: "Tab", 50019: "TabItem",
-    50020: "Text", 50021: "ToolBar", 50022: "ToolTip", 50023: "Tree",
-    50024: "TreeItem", 50025: "Custom", 50026: "Group", 50027: "Thumb",
-    50028: "DataGrid", 50029: "DataItem", 50030: "Document", 50031: "SplitButton",
-    50032: "Window", 50033: "Pane", 50034: "Header", 50035: "HeaderItem",
-    50036: "Table", 50037: "TitleBar", 50038: "Separator",
-}
+from hidden_desktop_lab.contracts.uia import ROLE_NAMES, UiaError
 
 UIA_VALUE_PATTERN_ID = 10002
 IID_VALUE_PATTERN = "a94cd8b1-0844-4cd6-9d2d-640537ab39e9"
@@ -38,10 +25,6 @@ UIA_INVOKE_PATTERN_ID = 10000
 IID_INVOKE_PATTERN = "fb377fbe-8ea6-46d5-9c73-6499642d3059"
 
 MAX_ELEMENTS = 2000
-
-
-class UiaError(RuntimeError):
-    """UIA 调用失败；消息形如 uia-<reason> 或 uia-hresult-xxxxxxxx。"""
 
 
 class GUID(C.Structure):
@@ -418,7 +401,7 @@ class UiaTree:
         这是显式局部范围，不能当作整个窗口的全局唯一性证明。零矩形包装层继续
         遍历；可见且不相交的祖先分支按学习配置裁除。超预算/深度明确失败。
         """
-        from replay_observation import validate_match
+        from hidden_desktop_lab.contracts.matching import validate_match
         validate_match({'role': 50004, 'anyName': True, 'region': region})
         if region is None or not 1 <= budget <= 256 or not 1 <= max_depth <= 16:
             raise UiaError('learning-required:invalid-local-scope')
