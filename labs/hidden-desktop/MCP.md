@@ -1,6 +1,7 @@
 # Labs runtime + MCP + thin skill
 
-此入口只运行合成数据。复用 `CapabilityRuntime` 的基础能力调度、`SkillLibrary` 的 JSON
+默认入口只运行合成数据；独立、显式启用的真实 profile 仅支持网易云搜索框填写与回读。
+两种模式复用 `CapabilityRuntime` 的基础能力调度、`SkillLibrary` 的 JSON
 引用及哈希校验、`LearnedReplay` 的专用线程/绑定/输入/独立回读执行器。
 `synthetic_runtime.py` 注入 FakeRuntime / FakeTree；不会实例化原生桌面 API，不启动应用、
 访问模型、第三方站点或读取本机 `learned/`、`reports/`、私有配置。
@@ -19,7 +20,8 @@ python labs/hidden-desktop/mcp_stdio.py --fake
 ```
 
 该进程等待 MCP 输入，没有网页。stdout 仅输出 UTF-8 JSON-RPC；不应在终端中等待
-启动横幅。默认也是 synthetic，`--real`、`--live`、外部配方和任意路径参数均不支持。
+启动横幅。默认也是 synthetic；真实执行必须同时指定 `--real --profile cloudmusic-fill-search`。
+不支持 `--live`、外部配方或任意路径参数。
 
 快速安装项目级 MCP 和 skill（安装及真实 Codex 验证脚本需要 Python 3.11+）：
 
@@ -82,7 +84,46 @@ MCP 策略。该入口没有真实 backend，不能通过参数启用实机、�
   不支持 HTTP、远程多租户、sampling、resources 或取消。消息上限 64 KiB，超限关闭连接。
 
 Windows 实验暂停、P3 NO-GO、A5 safety FAIL 及主工程整体未完成的状态不因本合成链路改变。
-此版本不暴露真实 backend；后续实机集成须另行授权、配置与验证。
+合成入口不会切换真实 backend；真实 profile 的启用与验证须明确授权。
+
+## 网易云最小真实 profile
+
+```powershell
+python labs/hidden-desktop/install_codex.py --real
+codex mcp get agent_desktop_lab_real --json
+# 在 Codex 设置的 MCP servers 中 Restart，或重启 Codex，加载新增的原生工具。
+python labs/hidden-desktop/verify_cloudmusic_mcp.py --real --query "接入测试"
+```
+
+安装器新增项目级 `agent_desktop_lab_real`，保留 `agent_desktop_lab` 合成入口。
+真实入口设置 `default_tools_approval_mode=prompt`，沿用常规审批，不改变全局权限。
+启动参数固定为 `mcp_stdio.py --real --profile cloudmusic-fill-search`；MCP 请求不能选择
+程序路径、学习文件、任意操作、预算或模式。发现目录不会打开桌面；`session_open` 才创建
+自有隐藏桌面并起算 300 秒租约。
+
+`real_backend.py` 组合现有原生能力、JSON 执行器和已学局部定位。新流程
+`recipes/workflows/cloudmusic.fill-search.json` 按原 revision/哈希引用现有四个子能力：
+`cloudmusic.launch` → `cloudmusic.prepareSearch` → `cloudmusic.locateSearch` → `cloudmusic.fillSearch`。
+同样暴露这四个子能力以便分段观察。参数只有 `query`（1..200 字符）。显示搜索入口时，
+既有 prepareSearch 可按已声明谓词收起详情页；不提交搜索、不打开歌曲或控制播放。
+
+应用路径/启动参数必须与既有模板相同；读取本机 `learned/capabilities/` 的指定记录，
+检查定义哈希、应用文件指纹及局部布局契约，不自动生成/更新学习数据。记录缺失或变化即
+拒绝。应用已在用户桌面运行时继续按既有规则拒绝，不接管或关闭用户实例。
+应用可能使用自身已有设置及联网行为；隐藏桌面不是数据或网络隔离环境。
+
+真实 `observation_get` 在原 UIA 线程重读当前绑定搜索框，同时检查实例、目标身份和租约，
+返回 `scope=real-owned-window-input-readback`、实际 `value` 及自有窗口截图证据路径。
+截图只保存在忽略提交的 `reports/mcp-real/<id>/observation.png`，重复观察仅覆盖本会话
+这一张，不建立帧队列；观察不修改已完成 job 的调用历史。
+`verification.status=passed` 只证明本条输入/回读检查；`realWorldValidated=false` 保留，
+不代表搜索结果、播放或整体安全验收。关闭先在所属线程释放 UIA，再通过原生清理检查
+关闭自有进程及隐藏桌面，将 `cleaned` 转换为 `cleanup.closed`；任一清理失败阻止重新开启。
+
+验证脚本通过已注册项目 STDIO MCP 执行完整协议链，独立核对四步完成、一次输入、当前值
+和清理，保存 `.artifacts/lab-tasks-real/*.json`，不调用模型。它证明真实 backend 的 MCP
+链路；桌面端原生工具是否加载须在 Restart 后单独确认，不以脚本代调冒充。
+离线测试 `test_real_backend.py` 仅使用生成 JSON、FakeRuntime/假原生边界，不导入真实学习记录。
 
 ## 合成验证
 

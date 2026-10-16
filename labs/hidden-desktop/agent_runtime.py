@@ -139,7 +139,7 @@ class TaskRuntime:
                 raise TaskError('session-recovery-required')
             if len(self.jobs) >= self.MAX_TASKS:
                 raise TaskError('task-history-full')
-            self.backend.lab.desktop.guard()
+            self.backend.guard()
             # The executor checks dependencies again before dispatch. First pin the
             # advertised definition here, including directly called sub-capabilities.
             try:
@@ -162,7 +162,8 @@ class TaskRuntime:
             record = self.jobs[job_id]
             raw = record['raw']
             calls = raw.get('calls', [])
-            mutations = [call for call in calls if call['capability'] in ('replay.value.set', 'replay.click')]
+            mutations = [call for call in calls if call['capability'] in (
+                'replay.value.set', 'replay.click', 'env.app.launch', 'act.window.fit', 'act.type')]
             running = raw['status'] == 'running'
             failed = raw['status'] == 'failed'
             manual = not running and not failed and raw.get('verification', {}).get('status') == '待人工核对'

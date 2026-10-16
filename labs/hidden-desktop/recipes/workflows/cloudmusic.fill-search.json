@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "kind": "workflow",
+  "id": "cloudmusic.fill-search",
+  "revision": 1,
+  "title": "启动网易云并填写、核对搜索框",
+  "completion": "搜索框已填写并独立回读；未提交搜索或播放。",
+  "automaticRetry": false,
+  "onFailure": "stop",
+  "parameters": {"query": {"type": "string", "maxLength": 200}},
+  "steps": [
+    {"id": "launch", "capability": "cloudmusic.launch", "revision": 6,
+     "definitionSha256": "cb630d6fa5df3b6e4838c32f97ee155e3da59db80888063e91050abbba4a04bd", "inputs": {}},
+    {"id": "prepare", "capability": "cloudmusic.prepareSearch", "revision": 6,
+     "definitionSha256": "e6c58318e43de7ef924bc7a941a384b6989bba744c509ef388d8e7956e6e5df8", "inputs": {}},
+    {"id": "bind", "capability": "cloudmusic.locateSearch", "revision": 6,
+     "definitionSha256": "740ee357ec5d1e9cae1de4f0a9b1d325efe76c9a1dc3dc4674e7dc2d83a81050", "inputs": {}},
+    {"id": "fill", "capability": "cloudmusic.fillSearch", "revision": 6,
+     "definitionSha256": "733a0828bffd67d91c50920c77326e1445526e13b27057c11c5a1472ca8705cd",
+     "inputs": {"query": {"input": "query"}}}
+  ]
+}
