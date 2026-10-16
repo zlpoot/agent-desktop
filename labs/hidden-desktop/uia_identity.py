@@ -7,7 +7,7 @@ IDENTITY_KEYS = ('desktop', 'instanceId', 'session', 'hwnd', 'windowPid',
 
 
 def read_runtime_id(tree, element):
-    from uia_client import UiaError
+    from hidden_desktop_lab.contracts.uia import UiaError
     aut = tree.aut
     for name, args, result in (
         ('SafeArrayGetDim', [C.c_void_p], W.UINT),

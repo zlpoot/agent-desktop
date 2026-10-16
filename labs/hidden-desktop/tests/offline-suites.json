@@ -1,0 +1,24 @@
+{
+  "python": [
+    "test_agent_mcp.py",
+    "test_app_startup.py",
+    "test_bench_application.py",
+    "test_capabilities.py",
+    "test_experiment_config.py",
+    "test_hidden_desktop.py",
+    "test_install_profiles.py",
+    "test_jev.py",
+    "test_learned_paths.py",
+    "test_learned_replay.py",
+    "test_live_preview.py",
+    "test_local_replay.py",
+    "test_package_boundary.py",
+    "test_real_backend.py",
+    "test_replay_observation.py",
+    "test_skill_composition.py",
+    "test_uia_identity.py",
+    "test_uia_role_query.py"
+  ],
+  "js": ["live-preview.test.cjs", "learned-client.test.cjs"],
+  "browser": ["jev-page.test.mjs"]
+}
