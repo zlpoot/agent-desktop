@@ -4,6 +4,43 @@ import { test } from "node:test";
 import { ChatCompletionsModel, parseModelAction } from "../src/agent/chat-completions-model.js";
 import { initialState } from "../src/graph/state.js";
 
+test('desktop DeepSeek decisions disable default thinking only for the official supported endpoint', async t => {
+  const original = globalThis.fetch;
+  const payloads: Record<string, unknown>[] = [];
+  globalThis.fetch = async (_url, init) => {
+    payloads.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"kind":"wait","ms":0}' } }] }));
+  };
+  t.after(() => { globalThis.fetch = original; });
+  for (const options of [
+    { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', environment: 'desktop' as const },
+    { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', environment: 'browser' as const },
+    { baseUrl: 'https://synthetic.invalid', model: 'deepseek-flash', environment: 'desktop' as const },
+    { baseUrl: 'https://api.deepseek.com', model: 'other-model', environment: 'desktop' as const },
+  ]) {
+    await new ChatCompletionsModel({ ...options, apiKey: 'synthetic' }).decide(initialState('synthetic', 'wait'));
+  }
+  assert.deepEqual(payloads[0].thinking, { type: 'disabled' });
+  assert.ok(payloads.every(payload => payload.stream === false));
+  assert.ok(payloads.slice(1).every(payload => payload.thinking === undefined));
+});
+
+test('response body timeout and malformed JSON retain distinct errors without leaking provider text', async t => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  const model = new ChatCompletionsModel({ baseUrl: 'https://synthetic.invalid', model: 'test', apiKey: 'synthetic' });
+  globalThis.fetch = async () => {
+    const response = new Response('{}');
+    response.json = async () => { throw new DOMException('synthetic-secret', 'TimeoutError'); };
+    return response;
+  };
+  await assert.rejects(() => model.planTask('synthetic'), /^Error: 模型服务请求或响应读取超时$/);
+  globalThis.fetch = async () => new Response('synthetic-secret');
+  await assert.rejects(() => model.planTask('synthetic'), /^Error: 模型服务未返回有效 JSON$/);
+  globalThis.fetch = async () => new Response('synthetic-secret', { status: 401 });
+  await assert.rejects(() => model.planTask('synthetic'), /^Error: 模型服务返回 HTTP 401$/);
+});
+
 test("模型适配器读取模型列表，并把目标和页面观察转换为单步动作", async () => {
   let received: Record<string, unknown> | undefined;
   let completions = 0;

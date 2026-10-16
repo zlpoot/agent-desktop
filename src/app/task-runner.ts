@@ -52,7 +52,7 @@ export interface TaskController {
   submitScenario?(request: { desktopTarget: TaskDesktopTarget; scenarioId: string }, budget?: BudgetOverride): string;
   desktopOptions?(): Promise<readonly import('./task-desktop-sessions.js').TaskDesktopOption[]>;
   submitWorkflow?(request: WorkflowExecutionRequest, budget?: BudgetOverride, target?: TaskDesktopTarget): string;
-  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser' }): string;
+  submit(goal: string, options?: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser'; appBindingId?: string }): string;
   resume(taskId: string, response: { approved?: boolean; answer?: string }): void;
   pause(taskId: string): void;
   continue(taskId: string): void;
@@ -243,14 +243,23 @@ export class DesktopTaskController implements TaskController {
     } finally { db.close(); trace.close(); }
   }
 
-  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser' } = {}): string {
+  submit(goal: string, options: { admin?: boolean; budget?: BudgetOverride; desktopTarget?: TaskDesktopTarget; destination?: 'browser'; appBindingId?: string } = {}): string {
     this.assertOpen();
     if (options.destination !== undefined && options.destination !== 'browser') throw new Error('invalid-task-destination');
     if (options.destination === 'browser' && options.desktopTarget !== undefined) throw new Error('desktop-target-destination-conflict');
     const budget = parseBudgetOverride(options.budget);
     const target = options.desktopTarget !== undefined ? this.requireDesktopSessions().assertTarget(options.desktopTarget) : undefined;
+    let selectedApp: EnvironmentAppBinding | undefined;
+    if (options.appBindingId !== undefined) {
+      if (!target || typeof options.appBindingId !== 'string' || !options.appBindingId || options.appBindingId.length > 128) throw new Error('task-app-target-required');
+      const registry = this.options.environmentApps?.forEnvironment(target).registry;
+      selectedApp = registry?.get(options.appBindingId);
+      if (!registry || !selectedApp) throw new Error('task-app-profile-unavailable');
+      assertAppAdmission(registry, selectedApp.appBindingId);
+      if (selectedApp.validity !== 'current' || selectedApp.availability !== 'available' || selectedApp.trust === 'discovered') throw new Error('task-app-confirmation-required');
+    }
     const route = routeTask(goal, { ...options, desktopTarget: target }, this.registry);
-    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget, target, options.destination);
+    if (route.kind === "generic") return this.submitGeneric(route.goal, undefined, budget, target, options.destination, selectedApp);
     // Legacy specialized desktop executors cannot bypass explicit Session binding.
     // Binding them to new Provider routes is outside P5-A.
     if (route.request.environment === 'windows') throw new Error('desktop-target-required');
@@ -309,7 +318,7 @@ export class DesktopTaskController implements TaskController {
   }
 
   private submitGeneric(goal: string, workflowRef?: import('../graph/state.js').ComputerState['workflowRef'],
-    budget?: BudgetOverride, target?: TaskDesktopTarget, destination?: WorkflowExecutionRequest['destination']): string {
+    budget?: BudgetOverride, target?: TaskDesktopTarget, destination?: WorkflowExecutionRequest['destination'], selectedApp?: EnvironmentAppBinding): string {
     const contract = workflowRef ? undefined : taskContract(goal, taskProfile(goal, this.registry));
     const taskId = randomUUID();
     createTaskBudget(this.rootDir, taskId, budget);
@@ -320,6 +329,9 @@ export class DesktopTaskController implements TaskController {
     const trace = this.traceStore(this.tracePath);
     try { trace.save("queued", { ...initialState(taskId, goal), taskBindingVersion: 1,
       ...(target ? { desktopTarget: desktopTarget(target.providerId, target.environmentId) } : {}), ...(contract ? { taskContract: contract } : {}),
+      ...(selectedApp && target ? { appOnboarding: { taskId, interactionId: randomUUID(), appName: selectedApp.displayName,
+        desktopTarget: target, state: 'discovering' as const, candidates: [], appBindingId: selectedApp.appBindingId,
+        profileRevision: selectedApp.profileRevision, profileDigest: selectedApp.profileDigest } } : {}),
       ...(workflowRef ? { workflowRef } : {}), summary: workflowRef ? '已绑定指定流程，等待准备执行环境' : "等待模型规划任务" }); }
     finally { trace.close(); }
     this.enqueue(() => this.runGeneric(taskId), taskId);
@@ -440,7 +452,8 @@ export class DesktopTaskController implements TaskController {
       const model = modelProvider.createModel(explicit ? {
         environment: explicit.workflow.environment === 'browser' ? 'browser' : 'desktop',
         visualMode: explicit.workflow.environment === 'windows',
-      } : route.environment === 'browser' ? { environment: 'browser', visualMode: false } : undefined);
+      } : route.environment === 'browser' ? { environment: 'browser', visualMode: false }
+        : { environment: 'desktop', visualMode: false });
       let windowHandle: number | undefined;
       let desktopBinding = savedForResume?.desktopBinding;
       let plan = queued.plan;
@@ -736,12 +749,14 @@ export class DesktopTaskController implements TaskController {
           maxSteps: queued.taskContract.taskActionLimit, maxRetries: 2,
           pauseRequested: (id) => trace.pauseRequested(id), onStageCompleted: stageCompletion });
         const state = { ...initialState(taskId, queued.goal, plan, completionCriteria), ...taskDesktopFields(queued), verificationContract,
+          appOnboarding: queued.appOnboarding,
           contractCoverage,
           taskContract: queued.taskContract, completedStages: [], stagePlanVersion: 0 };
         trace.save("task_contract", state);
         await graph.invoke(state, { configurable: { thread_id: taskId } });
       } else {
         await runTaskAgent({ taskId, goal: queued.goal, environment,
+          appOnboarding: queued.appOnboarding,
           plan, completionCriteria: completionCriteria!, verificationContract, contractCoverage,
           ...taskDesktopFields(queued) }, {
           runtime, exploreModel, trace, tracePath: this.tracePath, workflowStore: workflows,

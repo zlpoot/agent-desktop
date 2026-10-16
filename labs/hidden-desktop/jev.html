@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JEV 独立测试台</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f6fa;color:#19283d;font:15px/1.6 system-ui,sans-serif}main{max-width:1200px;margin:auto;padding:30px}header{display:flex;justify-content:space-between;align-items:center;gap:20px}h1{font-size:27px;margin:0}h2{font-size:18px;margin:0 0 14px}p{margin:8px 0 20px;color:#506078}.badge{padding:6px 14px;border-radius:20px;background:#e1eaff;font-weight:650}.layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px}section{background:white;border:1px solid #dce2eb;border-radius:14px;padding:22px;margin-bottom:18px}label{display:block;margin:16px 0 6px;font-weight:600}select,button{font:inherit;border-radius:8px;padding:10px;border:1px solid #bcc8d9;max-width:100%}select{width:100%;background:white}button{cursor:pointer;background:#2459d3;color:white;border:0;margin-top:16px}button.secondary{background:#e9eef8;color:#203a66}button:disabled{opacity:.45;cursor:wait}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f5f9;padding:16px;border-radius:8px;font:13px/1.6 ui-monospace,Consolas,monospace;max-height:480px;overflow:auto}.status{font-weight:650;color:#2350a0}.error{color:#b32b3e}.record{border-top:1px solid #e2e7ee;padding-top:14px;margin-top:14px}small{color:#617086}#history:empty:after{content:'尚无请求。选择用例后手动执行。';color:#617086}@media(max-width:800px){.layout{grid-template-columns:1fr}main{padding:16px}header{align-items:flex-start}}
+</style>
+<main>
+<header><div><h1>JEV 独立测试台</h1><p>连接检查、候选选择与语义核验 · Hidden Desktop Lab</p></div><span id="mode" class="badge">正在加载</span></header>
+<div class="layout"><div><section>
+<h2>测试配置</h2><div id="config">读取配置中…</div>
+<p><small>沿用 AD：JEV_BASE_URL + COMPUTER_USE_API_KEY，模型 jev。支持根目录 .env，密钥仅由服务端读取。</small></p>
+<button id="models" class="secondary" disabled>检查 /v1/models</button>
+<label for="case">合成用例</label><select id="case" disabled></select>
+<label for="fault">Fake 故障注入</label><select id="fault" disabled></select>
+<button id="run" disabled>执行当前用例</button>
+<p id="progress" role="status" aria-live="polite"></p>
+<small>每次点击最多一次请求，无自动重试；每轮最多 20 次，单次网络等待 5 秒，置信度阈值 0.8。失败也计入预算。</small>
+</section><section><h2>结果含义</h2><p>“符合预期”由本地合成用例的预期值独立比较。协议接受、模型结论与用例结果分别显示。</p><small>Fake 仅验证测试台逻辑。真实 JEV 需以 --live 启动并手动点击。测试不会执行候选动作，也不读取窗口、截图或浏览器状态。</small></section></div>
+<div><section><h2>请求预览</h2><small>POST /v1/systemone · Authorization: Bearer [服务端配置]</small><pre id="request"></pre></section>
+<section><h2>本页测试记录</h2><small>刷新后清空；记录仅保留当前页，不写入配置或磁盘。</small><div id="history"></div></section></div></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let state, busy = false;
+const faultLabels = {'none':'正常响应','low-confidence':'置信度不足','invalid-choice':'候选越界','invalid-confidence':'置信度格式无效','wrong-type':'答案类型错误','missing-answer':'答案缺失','timeout':'请求超时','http-error':'HTTP 503'};
+function controls() {
+  for (const id of ['models','run','case','fault']) $(id).disabled = busy || !state || state.callsUsed >= state.callsMax;
+}
+function preview() {
+  const fixture = state.cases.find(c => c.id === $('case').value);
+  $('request').textContent = JSON.stringify(fixture.request, null, 2);
+}
+async function refresh() {
+  const response = await fetch('/api/jev/state');
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw Error(data.error || '配置加载失败');
+  state = data.state;
+  $('mode').textContent = state.mode === 'live' ? '真实 JEV · 手动请求' : 'FAKE · 离线合成';
+  $('config').textContent = `模型 ${state.model} · 已用 ${state.callsUsed}/${state.callsMax} 次`;
+  controls();
+}
+async function run(operation) {
+  if (busy || !state || state.callsUsed >= state.callsMax) return;
+  busy = true; controls();
+  const started = performance.now();
+  const progress = () => { $('progress').textContent = `请求进行中 · 已等待 ${((performance.now()-started)/1000).toFixed(1)} 秒`; };
+  progress(); const timer = setInterval(progress, 250);
+  const record = document.createElement('div'); record.className = 'record';
+  const heading = document.createElement('div'); heading.className = 'status';
+  const detail = document.createElement('pre');
+  record.append(heading, detail); $('history').prepend(record);
+  try {
+    const response = await fetch('/api/jev/run', {method:'POST', headers:{'Content-Type':'application/json','X-Lab':'1'},
+      body:JSON.stringify({operation, caseId:$('case').value, fault:$('fault').value})});
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw Error(data.error || '请求失败');
+    const r = data.record;
+    heading.textContent = `${r.mode.toUpperCase()} · ${operation === 'models' ? '模型 jev 可用' : `${r.caseId} · 协议接受 · ${r.result.matchesExpected ? '符合预期' : '不符合预期'}`}`;
+    if (r.result.matchesExpected === false) heading.classList.add('error');
+    detail.textContent = JSON.stringify(r, null, 2);
+  } catch (error) {
+    heading.classList.add('error'); heading.textContent = '请求失败 / 协议拒绝';
+    detail.textContent = error.message;
+  } finally {
+    clearInterval(timer);
+    $('progress').textContent = `本次结束 · ${((performance.now()-started)/1000).toFixed(1)} 秒`;
+    try { await refresh(); } catch (error) { $('progress').textContent += ' · ' + error.message; }
+    busy = false; controls();
+  }
+}
+$('models').onclick = () => run('models');
+$('run').onclick = () => run('systemone');
+$('case').onchange = preview;
+(async () => {
+  try {
+    await refresh();
+    for (const c of state.cases) { const option = document.createElement('option'); option.value=c.id; option.textContent=c.label; $('case').append(option); }
+    for (const f of state.faults) { const option = document.createElement('option'); option.value=f; option.textContent=faultLabels[f]; $('fault').append(option); }
+    preview();
+  } catch (error) { $('progress').textContent=error.message; $('mode').textContent='加载失败'; }
+})();
+</script>
+</html>

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import subprocess
 import sys
 import unittest
@@ -17,11 +18,14 @@ class StdioTests(unittest.TestCase):
     def test_chinese_profile_uses_utf8_even_with_windows_gbk_default(self):
         # Exercise the actual dispatcher with a fake owner; never loads Win32 APIs.
         script = '''import importlib.util, threading
+from unittest.mock import Mock
 spec = importlib.util.spec_from_file_location('worker', %r)
 w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
 class FakeOwner:
     def __init__(self, *args):
         self.lock = threading.RLock(); self.watch_stop = threading.Event()
+        self.api = Mock(); self.native = Mock(); self.native.token.return_value = ('synthetic-user', 1, 'medium')
+        self.scope = {}; self.preview_id = 'a' * 32
         self.watcher = threading.Thread(target=lambda: None); self.watcher.start()
         self.fence = type('Fence', (), {'db': type('Database', (), {'close': lambda self: None})()})()
     def instances(self, profile): return [profile['displayName']]
@@ -37,10 +41,18 @@ w.main()
                     dict(id=2, method='instances', fields=dict(profile=dict(displayName='网易云音乐'))),
                     dict(id=3, method='close'), dict(id=4, method='inspect', fields=dict(spec={})),
                     dict(id=5, method='preview', fields=dict(profile={}))]
-        result = subprocess.run([sys.executable, '-c', script], input=('\n'.join(json.dumps(item, ensure_ascii=False) for item in requests) + '\n').encode('utf-8'),
-                                capture_output=True, timeout=5, env=environment)
-        self.assertEqual(result.returncode, 0, result.stderr.decode('utf-8', errors='replace'))
-        replies = [json.loads(line) for line in result.stdout.decode('utf-8').splitlines()]
+        # Keep the pipe open until each ACK: EOF intentionally cancels queued work.
+        with subprocess.Popen([sys.executable, '-c', script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, env=environment) as process:
+            deadline = threading.Timer(5, process.kill); deadline.daemon = True; deadline.start()
+            try:
+                replies = []
+                for item in requests:
+                    process.stdin.write((json.dumps(item, ensure_ascii=False) + '\n').encode('utf-8')); process.stdin.flush()
+                    replies.append(json.loads(process.stdout.readline().decode('utf-8')))
+                _, errors = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 0, errors.decode('utf-8', errors='replace'))
+            finally: deadline.cancel()
         self.assertEqual(replies[1]['result'], ['网易云音乐'])
         self.assertEqual(replies[2]['result'], {'cleaned': True})
         self.assertEqual(replies[3]['error'], 'app-installation-path-unavailable')
@@ -62,6 +74,7 @@ class ManualWorkerTests(unittest.TestCase):
 
     def owner(self):
         owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         owner.blocked = False; owner.context = {'synthetic': True}; owner.deadline = 200
         owner.expires_at = '2099-01-01T00:00:00Z'; owner.profile = dict(appBindingId='a', profileDigest='digest')
         owner.process = 'synthetic-owned-process'; owner.ended = None
@@ -97,6 +110,7 @@ class GenericWindowTests(unittest.TestCase):
         from types import SimpleNamespace
         import ctypes as C
         owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         profile = dict(appBindingId='app', profileDigest='digest', identity={'fingerprint': 'synthetic'},
                        launchSpec=dict(kind='exe', executable=r'D:\Synthetic\Viewer.exe', args=[]))
         owner.profile = profile; owner.process = 1; owner.pid = 42; owner.hwnd = None; owner.token = 'owned'
@@ -124,9 +138,10 @@ class GenericWindowTests(unittest.TestCase):
         owner.thread_desktop = lambda: state['desktop']
         return owner, profile, state
 
-    def test_generic_class_needs_original_pid_image_job_user_root_and_restores_default(self):
+    def test_generic_class_needs_original_pid_image_job_user_root_without_thread_rebind(self):
         owner, profile, state = self.owner()
         self.assertEqual(len(owner.instances(profile)), 1)
+        owner.api.u.SetThreadDesktop.assert_not_called()
         owner.api.class_name.return_value = 'SyntheticEditorClass'
         self.assertEqual(len(owner.instances(profile)), 1)
         for mutation in ({'window_pid': 99}, {'visible': False}, {'windows': []}):
@@ -146,6 +161,7 @@ class GenericWindowTests(unittest.TestCase):
         from types import SimpleNamespace
         import psutil
         owner = worker.OwnedApp.__new__(worker.OwnedApp); owner.current = Mock(); owner.inspect = Mock()
+        owner.expiry_lock = threading.RLock()
         owner.process = None; owner.api = Mock(); owner.fence = Mock()
         owner.reservation_id = '00000000-0000-0000-0000-000000000001'
         profile = dict(launchSpec=dict(kind='exe', executable=r'D:\Synthetic\Viewer.exe', args=[]))
@@ -199,6 +215,7 @@ class PreviewTests(unittest.TestCase):
     def owner(self, directory):
         from policy import png_rgb
         owner=worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         owner.preview_files=set();owner.preview_dir=Path(directory)/'frames';owner.preview_id='a'*32
         owner.pid=42;owner.hwnd=10;owner.name='synthetic-owned';owner.context={'windowsSessionId':1};owner.expires_at='2099-01-01T00:00:00Z'
         owner.api=Mock();owner.api.assert_default=Mock();owner.instances=Mock(return_value=[{'owned':True}]);owner.current=Mock()
@@ -352,6 +369,7 @@ class ReservationOwnershipTests(unittest.TestCase):
 
     def test_borrowed_reserve_and_release_cannot_change_owner_resources_or_deadline(self):
         owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         owner.context = {'original': True}; owner.reservation_id = self.A
         owner.deadline = 123; owner.current = Mock(return_value=owner.context); owner.close = Mock()
         owner.api = Mock(); owner.inspect = Mock()
@@ -404,6 +422,7 @@ class StopAndFitTests(unittest.TestCase):
     def fit_owner(self, width=2575, height=1407):
         import ctypes as C
         owner = worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         owner.token = 'original-token'; owner.hwnd = 10; owner.pid = 42; owner.name = 'original-desktop'
         owner.desktop = 9; owner.context = {'windowsSessionId': 1}; owner.current = Mock()
         owner.instances = Mock(return_value=[{'original': True}]); owner.api = Mock()
@@ -436,6 +455,7 @@ class StopAndFitTests(unittest.TestCase):
 class CleanupAckTests(unittest.TestCase):
     def owner(self):
         owner=worker.OwnedApp.__new__(worker.OwnedApp)
+        owner.expiry_lock = threading.RLock()
         owner.api=Mock();owner.api.assert_default=Mock();owner.api.u.CloseDesktop.return_value=True
         owner.api.k.CloseHandle.return_value=True;owner.api.k.TerminateJobObject.return_value=True
         owner.api.job_active.return_value=0

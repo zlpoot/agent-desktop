@@ -155,6 +155,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       event.node === 'queued' || event.node === 'shutdown_cancelled').map(event => ({ kind: event.node,
         detail: (JSON.parse(event.payload_json) as ComputerState).summary, time: event.created_at }));
     const lastScenarioEvent = scenarioEvents.at(-1)?.kind;
+    const desktopTaskCleanup = events.filter(event => event.node.startsWith('desktop_task_cleanup_')).at(-1)?.node;
     const scenarioResult = state.desktopScenario ? {
       phase: lastScenarioEvent ?? 'unknown',
       execution: state.desktopScenarioDispatched ? state.desktopScenarioVerification?.verdict === 'pass' ? 'PASS' : 'UNKNOWN' : 'NOTRUN',
@@ -290,6 +291,7 @@ function readRun(rootDir: string, source: string, taskId: string) {
       appOnboarding: state.appOnboarding,
       desktopScenario: state.desktopScenario,
       desktopScenarioResult: scenarioResult,
+      desktopTaskCleanup: desktopTaskCleanup?.replace('desktop_task_cleanup_', ''),
       desktopExecutionBinding: state.desktopExecutionBinding,
       desktopTargetRequired: !state.desktopTarget && !!(state.desktopVmId || state.desktopBinding || state.taskContract?.environment === 'windows'),
       workflowReplayState: state.workflowReplayState,
@@ -591,7 +593,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             return json(response, 202, { taskId, source: 'web-tasks.sqlite' });
           }
           if (url.pathname === "/api/tasks") {
-            if (Object.keys(body).some(key => !['goal', 'admin', 'destination', 'criteria', 'constraints', 'budget', 'desktopTarget'].includes(key))) {
+            if (Object.keys(body).some(key => !['goal', 'admin', 'destination', 'criteria', 'constraints', 'budget', 'desktopTarget', 'appBindingId'].includes(key))) {
               throw new Error('task-fields-not-allowed');
             }
             if (body.scenarioId !== undefined || body.desktopScenario !== undefined) throw new Error('desktop-scenario-explicit-route-required');
@@ -604,6 +606,9 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             }
             let goal = body.goal.trim();
             const target = requestedDesktopTarget(body.desktopTarget);
+            if (body.appBindingId !== undefined && (!target || typeof body.appBindingId !== 'string' || !body.appBindingId || body.appBindingId.length > 128)) {
+              throw new Error('task-app-target-required');
+            }
             if (['guest', 'desktop'].includes(body.destination as string) && !target) throw new Error('desktop-target-required');
             if (['host', 'browser'].includes(body.destination as string) && target) throw new Error('desktop-target-destination-conflict');
             for (const [field, label] of [["criteria", "完成条件"], ["constraints", "操作限制"]]) {
@@ -614,6 +619,7 @@ export function createDashboardServer(rootDir = process.cwd(), controller?: Task
             if (goal.length > 4000) throw new Error("任务要求最多 4000 字");
             const taskId = controller.submit(goal, { admin: body.admin === true,
               budget: parseBudgetOverride(body.budget), ...(target ? { desktopTarget: target } : {}),
+              ...(typeof body.appBindingId === 'string' ? { appBindingId: body.appBindingId } : {}),
               ...(['host', 'browser'].includes(body.destination as string) ? { destination: 'browser' as const } : {}) });
             return json(response, 202, { taskId, source: "web-tasks.sqlite" });
           }

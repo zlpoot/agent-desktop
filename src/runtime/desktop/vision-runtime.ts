@@ -113,7 +113,7 @@ export class DesktopVisionRuntime implements RuntimeAdapter {
     return { attempts };
   }
 
-  execute(action: ComputerAction, resolution?: ActionResolution) { return this.desktop.execute(action, resolution); }
+  execute(action: ComputerAction, resolution?: ActionResolution, actionId?: string) { return this.desktop.execute(action, resolution, actionId); }
   resolveAction(action: ComputerAction) { return this.desktop.resolveAction(action); }
   recoverFocus() { return this.desktop.recoverFocus(); }
   restore(observation: Observation) { return this.desktop.restore(observation); }

@@ -140,12 +140,16 @@ test('durable trace rejects binding overwrite/erasure, target changes and late b
 });
 test('controller uses explicit target with ordinary goal, persists before control, and never uses VM text', async () => {
   const dir = directory(); let begin = 0, connected = 0;
+  const modelEnvironments: unknown[] = [];
   const trace = new SqliteTrace(join(dir, 'web-tasks.sqlite'));
   const sessions = fixtureDesktopSessions(async () => { connected++; return {
     async listWindows() { return []; }, async close() {},
   } as unknown as WorkerClient; }, { workerEndpoint: () => 'unused', assertTaskAllowed() {},
     async beginTask(id) { begin++; assert.ok(trace.load(id)?.desktopExecutionBinding); }, async finishTask() { return false; } });
-  const controller = new DesktopTaskController(dir, { modelProvider: haltedModel, desktopSessions: sessions });
+  const controller = new DesktopTaskController(dir, { modelProvider: { createModel(options) {
+    modelEnvironments.push(options?.environment);
+    return haltedModel.createModel(options);
+  } }, desktopSessions: sessions });
   try {
     assert.throws(() => controller.submit('ordinary goal', { desktopTarget: null as unknown as typeof target }), /invalid-desktop-target/);
     const explicit = controller.submit('ordinary goal', { desktopTarget: fixtureDesktopTarget });
@@ -157,6 +161,7 @@ test('controller uses explicit target with ordinary goal, persists before contro
     assert.match(trace.load(explicit)?.error ?? '', /PLAN_HALT/);
     assert.equal(trace.load(unselected)?.desktopTarget, undefined);
     assert.match(trace.load(unselected)?.error ?? '', /PLAN_HALT/);
+    assert.deepEqual(modelEnvironments, ['desktop', 'desktop']);
   } finally { await controller.close(); trace.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 test('an unselected Windows plan fails before app launch, native discovery or runtime connection', async () => {
