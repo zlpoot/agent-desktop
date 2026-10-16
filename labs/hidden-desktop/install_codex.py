@@ -6,13 +6,15 @@ import sys
 import tomllib
 
 
-def install(root, real=False):
+def install(root, real=False, search=False):
+    if search and not real:
+        raise SystemExit('--search requires --real')
     lab = root / 'labs/hidden-desktop'
     config = root / '.codex/config.toml'
     text = config.read_text(encoding='utf-8') if config.exists() else ''
     settings = tomllib.loads(text)
-    name = 'agent_desktop_lab_real' if real else 'agent_desktop_lab'
-    arguments = ['--real', '--profile', 'cloudmusic-fill-search'] if real else ['--fake']
+    name = 'agent_desktop_lab_search' if search else 'agent_desktop_lab_real' if real else 'agent_desktop_lab'
+    arguments = ['--real', '--profile', 'cloudmusic-search' if search else 'cloudmusic-fill-search'] if real else ['--fake']
     expected = {'command': sys.executable, 'args': [str(lab / 'mcp_stdio.py'), *arguments],
                 'cwd': str(root), 'default_tools_approval_mode': 'prompt' if real else 'approve'}
     current = settings.get('mcp_servers', {}).get(name)
@@ -41,4 +43,6 @@ def install(root, real=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--real', action='store_true', help='Register the explicit CloudMusic real profile, with normal tool approval.')
-    install(Path(__file__).resolve().parents[2], parser.parse_args().real)
+    parser.add_argument('--search', action='store_true', help='With --real, register complete search and read-only matching results, without playback.')
+    args = parser.parse_args()
+    install(Path(__file__).resolve().parents[2], args.real, args.search)

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "kind": "workflow",
+  "id": "cloudmusic.search",
+  "revision": 1,
+  "title": "Submit CloudMusic search and read matching result",
+  "completion": "Search submitted once; matching title and artist read without opening songs. Acceptance remains manual.",
+  "automaticRetry": false,
+  "onFailure": "stop",
+  "parameters": {
+    "song": {
+      "type": "string",
+      "maxLength": 140
+    },
+    "artist": {
+      "type": "string",
+      "maxLength": 40
+    }
+  },
+  "steps": [
+    {
+      "id": "launch",
+      "capability": "cloudmusic.launch",
+      "revision": 6,
+      "definitionSha256": "cb630d6fa5df3b6e4838c32f97ee155e3da59db80888063e91050abbba4a04bd",
+      "inputs": {}
+    },
+    {
+      "id": "prepare",
+      "capability": "cloudmusic.prepareSearch",
+      "revision": 6,
+      "definitionSha256": "e6c58318e43de7ef924bc7a941a384b6989bba744c509ef388d8e7956e6e5df8",
+      "inputs": {}
+    },
+    {
+      "id": "bind",
+      "capability": "cloudmusic.locateSearch",
+      "revision": 6,
+      "definitionSha256": "740ee357ec5d1e9cae1de4f0a9b1d325efe76c9a1dc3dc4674e7dc2d83a81050",
+      "inputs": {}
+    },
+    {
+      "id": "fill",
+      "capability": "cloudmusic.fillSearch",
+      "revision": 6,
+      "definitionSha256": "733a0828bffd67d91c50920c77326e1445526e13b27057c11c5a1472ca8705cd",
+      "inputs": {
+        "query": {
+          "join": [
+            {
+              "input": "song"
+            },
+            {
+              "input": "artist"
+            }
+          ],
+          "separator": " "
+        }
+      }
+    },
+    {
+      "id": "submit",
+      "capability": "cloudmusic.submitSearch",
+      "revision": 6,
+      "definitionSha256": "9eb0db71c79c1f754779e869bb8e75a373253968aa9ae66c87d6bedb3b5e52a3",
+      "inputs": {
+        "query": {
+          "join": [
+            {
+              "input": "song"
+            },
+            {
+              "input": "artist"
+            }
+          ],
+          "separator": " "
+        }
+      }
+    },
+    {
+      "id": "read-results",
+      "capability": "cloudmusic.readSearchResults",
+      "revision": 1,
+      "definitionSha256": "dfaadb8c2fdfafc990ccd30b5ed45c5ad71c22f996d17a3cbabda7f9d13f41c5",
+      "inputs": {
+        "song": {
+          "input": "song"
+        },
+        "artist": {
+          "input": "artist"
+        }
+      }
+    }
+  ]
+}

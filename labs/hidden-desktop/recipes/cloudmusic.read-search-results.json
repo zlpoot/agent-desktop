@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "cloudmusic.readSearchResults",
+  "title": "只读核对搜索结果中的曲名和歌手",
+  "source": {
+    "capability": "cloudmusic.openSong",
+    "definitionSha256": "ad940cc4e53a0d2cd3d859bf9754fa41e385f2432e8c17718ba940da3719617a"
+  }
+}

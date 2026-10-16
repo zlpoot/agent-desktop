@@ -1,6 +1,6 @@
 # Labs runtime + MCP + thin skill
 
-默认入口只运行合成数据；独立、显式启用的真实 profile 仅支持网易云搜索框填写与回读。
+默认入口只运行合成数据；独立、显式启用的真实 profile 支持网易云填写回读或提交搜索并只读核对结果。
 两种模式复用 `CapabilityRuntime` 的基础能力调度、`SkillLibrary` 的 JSON
 引用及哈希校验、`LearnedReplay` 的专用线程/绑定/输入/独立回读执行器。
 `synthetic_runtime.py` 注入 FakeRuntime / FakeTree；不会实例化原生桌面 API，不启动应用、
@@ -124,6 +124,37 @@ python labs/hidden-desktop/verify_cloudmusic_mcp.py --real --query "接入测试
 和清理，保存 `.artifacts/lab-tasks-real/*.json`，不调用模型。它证明真实 backend 的 MCP
 链路；桌面端原生工具是否加载须在 Restart 后单独确认，不以脚本代调冒充。
 离线测试 `test_real_backend.py` 仅使用生成 JSON、FakeRuntime/假原生边界，不导入真实学习记录。
+
+## 提交搜索与只读结果 profile
+
+```powershell
+python labs/hidden-desktop/install_codex.py --real --search
+codex mcp get agent_desktop_lab_search --json
+# Restart MCP 后，通过此原生入口发现并运行 cloudmusic.search。
+```
+
+此入口与填写入口独立，启动参数为 `--real --profile cloudmusic-search`，使用常规审批。
+`cloudmusic.search` 的参数为 `song`（1..140 字符）与 `artist`（1..40 字符），沿用现有
+JSON 的空格连接规则形成 query。目录仅有这条完整流程及六个子能力：原四项加
+`cloudmusic.submitSearch`、`cloudmusic.readSearchResults`；不暴露打开歌曲、播放或收藏。
+
+流程继续按 revision/哈希引用已有五项已学能力。只读 reader 的声明
+`recipes/cloudmusic.read-search-results.json` 固定引用已有 `cloudmusic.openSong` 的哈希，
+仅提取它的第一个只读结果就绪谓词，随后 `assert_rows`、`capture`，不执行其中的任何点击。
+reader 的派生 JSON 同样由完整流程的哈希引用；不生成或覆盖本机学习文件、不更改执行器指令集。
+沿用原配方 `timeoutMs=2000` 的就绪轮询阈值；单次同步 UIA 调用不承诺硬超时，
+缺失、轮询超时、身份或结果变化均失败停止，不重发搜索。
+分段调用 reader 时要求前一任务已经提交且查询与本次曲名/歌手一致。
+
+提交后的 `manual-required` 保留到完整流程结束，不因只读匹配成功而升级自动业务验收。
+`observation_get` 在原线程读取当前目标和关联歌手的实际名称，返回 `results.rows`、截图
+和 `scope=real-owned-window-search-results`。它检查的是原声明区域中的首个匹配候选，
+`completeResultList=false`、`globalUnique=null`，不代表完整列表或全局唯一。
+reader 显式换页时释放输入绑定，因此最终 `value` 可以为 null；结果证据来自实际行，
+不把输入参数直接当作结果文本。观察不改写已完成任务历史。
+
+其余租约、预算、同实例归属、未知效果停止及清理检查与填写入口相同。
+原生验证必须在 MCP Restart 后直接调用此服务器的工具；独立 STDIO 脚本不替代原生验证。
 
 ## 合成验证
 

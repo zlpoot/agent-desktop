@@ -78,7 +78,7 @@ TOOLS = [
 TOOL_INDEX = {entry['name']: entry for entry in TOOLS}
 
 
-def tools_for_mode(mode):
+def tools_for_mode(mode, search=False):
     entries = copy.deepcopy(TOOLS)
     if mode == 'synthetic':
         return entries
@@ -88,17 +88,31 @@ def tools_for_mode(mode):
         'task_start': 'Start one pinned CloudMusic JSON task. Launch/fill/readback only; no search submission or playback. Retain requestId and jobId.',
         'observation_get': 'Independently read the current owned search field and capture evidence while idle. Does not prove search or playback results.',
         'session_close': 'Release UIA on its owning thread and close owned application processes and hidden desktop. Refuses while busy.'}
+    if search:
+        descriptions.update(
+            capabilities_list='List the pinned CloudMusic complete search workflow and its six children. No playback or favorites.',
+            task_start='Start one pinned CloudMusic JSON search task. May submit search once; read results without opening songs, playback or favorites. Retain requestId/jobId.',
+            observation_get='Read actual current matching result names and owned-window evidence while idle. Scoped to the first matching result in the declared region; not a complete result list.')
     for entry in entries:
         schema = entry['outputSchema']
         schema['properties']['mode'] = {'const': 'real'}
         entry['description'] = descriptions.get(entry['name'], entry['description'])
         entry['annotations']['openWorldHint'] = True
         if entry['name'] == 'capabilities_list':
-            schema['properties']['capabilities']['maxItems'] = 5
+            schema['properties']['capabilities']['maxItems'] = 7 if search else 5
         if entry['name'] == 'observation_get':
             schema['properties']['observation'] = {'type': 'object', 'required': ['scope', 'pixels', 'value'],
-                'properties': {'scope': {'const': 'real-owned-window-input-readback'},
+                'properties': {'scope': {'const': 'real-owned-window-search-results' if search else 'real-owned-window-input-readback'},
                                'pixels': {'const': False}, 'value': {'type': ['string', 'null']}}}
+            if search:
+                schema['properties']['observation']['properties']['results'] = {
+                    'type': 'object', 'required': ['rows', 'selection', 'completeResultList', 'globalUnique'],
+                    'properties': {
+                        'rows': {'type': 'array', 'minItems': 2, 'maxItems': 2, 'items': {
+                            'type': 'object', 'required': ['role', 'name'], 'additionalProperties': False,
+                            'properties': {'role': {'const': 50020}, 'name': {'type': 'string', 'maxLength': 512}}}},
+                        'selection': {'const': 'first-visible-match-in-declared-region'},
+                        'completeResultList': {'const': False}, 'globalUnique': {'type': 'null'}}}
     return entries
 
 
@@ -116,7 +130,7 @@ def result(payload, error=False):
 class McpServer:
     def __init__(self, runtime):
         self.runtime = runtime
-        self.tools = tools_for_mode(runtime.backend.mode)
+        self.tools = tools_for_mode(runtime.backend.mode, getattr(runtime.backend, 'search_enabled', False))
         self.tool_index = {entry['name']: entry for entry in self.tools}
         self.initialized = self.ready = False
 
@@ -177,6 +191,8 @@ class McpServer:
                            'capabilities': {'tools': {'listChanged': False}},
                            'serverInfo': {'name': 'agent-desktop-labs', 'version': '0.1.0'},
                            'instructions': ('Synthetic only. ' if self.runtime.backend.mode == 'synthetic' else
+                                           'Real owned-desktop CloudMusic search and read-only results; no playback or favorites. '
+                                           if getattr(self.runtime.backend, 'search_enabled', False) else
                                            'Real owned-desktop CloudMusic fill/readback only; no search submission or playback. ')
                                            + 'Inspect tasks, explicitly session_open before task_start, '
                                            'retain requestId/jobId, query completion, '
@@ -245,13 +261,13 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--fake', action='store_true', help='Explicit synthetic mode (also the default).')
     modes.add_argument('--real', action='store_true', help='Authorize native owned-desktop execution for this process.')
-    parser.add_argument('--profile', choices=['cloudmusic-fill-search'])
+    parser.add_argument('--profile', choices=['cloudmusic-fill-search', 'cloudmusic-search'])
     args = parser.parse_args()
     if args.real != bool(args.profile):
-        parser.error('--real and --profile cloudmusic-fill-search must be specified together')
+        parser.error('--real and an explicit --profile must be specified together')
     if args.real:
         from real_backend import RealBackend
-        factory = RealBackend
+        factory = lambda: RealBackend(search=args.profile == 'cloudmusic-search')
     else:
         factory = SyntheticBackend
     try:
