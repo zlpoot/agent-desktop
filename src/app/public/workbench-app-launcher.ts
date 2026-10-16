@@ -45,12 +45,14 @@ window.createWorkbenchAppLauncher = (root, select) => {
   const button = (label: string, action: () => unknown) => { const value = node('button', label); value.type = 'button'; value.onclick = action; return value; };
   const status = node('p', '选择桌面环境后，可选择并打开应用。'); status.id = 'task-app-status'; status.setAttribute('role', 'status');
   const identity = node('p'); identity.id = 'task-app-identity';
+  const identityDetails = node('details'); identityDetails.className = 'workbench-app-details';
+  identityDetails.append(node('summary', '应用信息'), identity);
   const confirmation = node('section'); confirmation.id = 'task-app-confirmation';
   const preview = node('section'); preview.id = 'task-app-preview';
   const previewImage = node('img'); previewImage.hidden = true; previewImage.alt = '所选应用在 Hidden Desktop 中的窗口画面';
-  const previewStatus = node('p', '窗口确认后显示画面。仅查看，不接收鼠标键盘操作。'); previewStatus.setAttribute('role', 'status');
-  preview.append(node('h3', 'Hidden Desktop 窗口预览（只读）'), previewImage, previewStatus);
-  const refresh = button('刷新 App 列表', () => load());
+  const previewStatus = node('p', '打开应用后显示窗口画面。'); previewStatus.setAttribute('role', 'status');
+  preview.append(node('h3', '应用画面'), previewImage, previewStatus);
+  const refresh = button('刷新应用', () => load());
   const scan = button('发现应用', () => act('scan'));
   function requestOpenSelectedApp() {
     const chosen = choices.get(select.value); if (!chosen) return;
@@ -63,7 +65,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     const app = choices.get(select.value)?.app;
     if (app) void act('stop', { appBindingId: app.appBindingId, expectedRevision: app.revision });
   }); stop.id = 'task-app-stop';
-  const addApp = button('添加 APP', () => { form.hidden = !form.hidden; }); addApp.id = 'task-app-add';
+  const addApp = button('添加应用', () => { form.hidden = !form.hidden; }); addApp.id = 'task-app-add';
   const form = node('section'); form.hidden = true;
   const path = node('input'); path.id = 'task-app-path'; path.placeholder = 'C:\\Apps\\Example.exe';
   const pathLabel = node('label', '所选环境中的 .exe 绝对路径'); pathLabel.htmlFor = path.id;
@@ -71,9 +73,9 @@ window.createWorkbenchAppLauncher = (root, select) => {
   const nameLabel = node('label', '应用名称（可修改）'); nameLabel.htmlFor = name.id;
   path.oninput = () => { name.value = path.value.trim().split(/[\\/]/).at(-1)?.replace(/\.exe$/i, '') || ''; };
   const save = button('检查并保存', () => act('path', { path: path.value.trim(), displayName: name.value.trim(), save: true }));
-  form.append(pathLabel, path, nameLabel, name, save, node('p', '保存不启动。打开后确认原进程的单个主窗口；较大的受控窗口会缩小以显示预览。可立即关闭，资源最多保留 60 秒；兼容性以实际结果为准。'));
+  form.append(pathLabel, path, nameLabel, name, save, node('p', '保存应用后，在列表中选择并打开。'));
   const actions = node('div'); actions.className = 'workbench-app-actions'; actions.append(open, stop, addApp, scan, refresh);
-  root.classList.add('workbench-app-launcher'); root.append(actions, form, identity, confirmation, status, preview);
+  root.classList.add('workbench-app-launcher'); root.append(actions, form, identityDetails, confirmation, status, preview);
   let scope: WorkbenchAppTarget | undefined, state: WorkbenchAppView | undefined;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let previewTimer: ReturnType<typeof setTimeout> | undefined, previewVersion = 0, previewBusy = false;
@@ -111,7 +113,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     choices = new Map(); select.replaceChildren(node('option', '请选择应用')); (select.firstChild as HTMLOptionElement).value = '';
     const registered = (state?.registered || []).filter(confirmed);
     const add = (value: string, label: string, choice: WorkbenchAppChoice) => { const option = node('option', label); option.value = value; select.append(option); choices.set(value, choice); };
-    for (const app of registered) add(`app:${app.appBindingId}`, `${app.displayName} · ${app.identity?.version || '版本未知'}（配置已保存）`, { app });
+    for (const app of registered) add(`app:${app.appBindingId}`, `${app.displayName}${app.identity?.version ? ` · ${app.identity.version}` : ''}`, { app });
     for (const candidate of state?.candidates || []) {
       if (registered.some(app => app.installationId === candidate.candidate.installationId && app.identity?.fingerprint === candidate.contentFingerprint &&
           (!candidate.version || app.identity!.version === candidate.version) && JSON.stringify(app.launchSpec) === JSON.stringify(candidate.candidate.launchSpec))) continue;
@@ -128,6 +130,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     addApp.disabled = save.disabled = busy || !state?.readiness.controlledLaunch || !state?.readiness.discovery;
     path.disabled = name.disabled = busy;
     identity.textContent = value ? `${value.displayName}\n环境：${scope!.providerId} / ${scope!.environmentId}\n${launchText(value.launchSpec)}` : '';
+    identityDetails.hidden = !value;
     confirmation.replaceChildren();
     if (state?.confirmation) {
       const display = state.confirmation;
@@ -143,8 +146,8 @@ window.createWorkbenchAppLauncher = (root, select) => {
       const result = await post({ action: 'open', desktopTarget: selected });
       if (current !== version) { end(result); return; }
       state = checked(result, selected);
-      status.textContent = !state.readiness.controlledLaunch ? '本环境尚未配置受控启动，请到“环境与应用”检查配置。'
-        : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '尚无已确认应用。点击“添加 APP”粘贴本环境中的路径并保存。';
+      status.textContent = !state.readiness.controlledLaunch ? '请到“环境与应用”完成应用启动配置。'
+        : state.registered.some(confirmed) ? '选择应用后点击“打开应用”。' : '点击“添加应用”，保存本环境中的应用。';
     } catch (error) { if (current === version) status.textContent = `App 列表不可用：${(error as Error).message}。可刷新重试或到“环境与应用”检查配置。`; }
     finally { if (current === version) { busy = false; render(); } }
   }
@@ -268,7 +271,7 @@ window.createWorkbenchAppLauncher = (root, select) => {
     clearPreview();
     if (state) state.confirmation = undefined;
     render();
-    status.textContent = !state?.readiness.controlledLaunch ? '本环境尚未配置受控启动，请到“环境与应用”检查配置。'
+    status.textContent = !state?.readiness.controlledLaunch ? '请到“环境与应用”完成应用启动配置。'
       : select.value ? '配置已保存，尚未打开；请点击“打开应用”。' : '请选择应用。';
     showLiveStatus(); scheduleStatus();
     void loadPreview();

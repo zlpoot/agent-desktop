@@ -7,7 +7,7 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
     node.value = value; node.textContent = label; node.disabled = disabled;
     if (!node.parentElement) select.append(node);
   };
-  if (includeBrowser) { if (explicitSelection) option('', '请选择执行环境'); option('browser', 'Browser · 通用任务（受控 Chromium）'); }
+  if (includeBrowser) { if (explicitSelection) option('', '请选择执行环境'); option('browser', '浏览器'); }
   else option('', '请选择执行桌面');
   let request = 0;
   function load() {
@@ -43,10 +43,12 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
       option('', '请选择合成执行环境');
       if (wasBrowser) select.value = '';
     }
-    const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': 'Local Workspace' };
+    const labels = { physical: '本机桌面', 'virtual-machine': '虚拟机', 'local-workspace': '隐藏桌面' };
     for (const item of environments) {
       const appWorkspace = item.providerId === 'workbench-apps' && item.environmentId === 'local-workspace:apps';
-      option(key(item), `${appWorkspace ? 'Hidden Desktop' : item.environmentId === 'local-workspace:chrome' ? 'Hidden Workspace Chrome' : labels[item.kind] || item.kind} · ${item.providerId} / ${item.environmentId}${!item.executable ? appWorkspace && allowApps ? '（仅打开应用，最长 60 秒）' : item.scenarios?.length ? '（仅支持有限场景）' : '（暂不支持此任务）' : ''}`, !allowApps && !item.executable && !(allowScenarios && item.scenarios?.length));
+      const label = appWorkspace ? '隐藏桌面 · 应用' : item.environmentId === 'local-workspace:chrome' ? '隐藏桌面 · 浏览器' : labels[item.kind] || item.kind;
+      const peers = environments.filter(peer => peer.kind === item.kind && peer.environmentId !== 'local-workspace:apps' && peer.environmentId !== 'local-workspace:chrome');
+      option(key(item), `${label}${!appWorkspace && item.environmentId !== 'local-workspace:chrome' && peers.length > 1 ? ` · ${item.environmentId}` : ''}`, !allowApps && !item.executable && !(allowScenarios && item.scenarios?.length));
     }
     if (previous && previous !== 'browser') {
       if (![...select.options].some(node => node.value === previous)) option(previous, '此前选择的桌面不可用，请重新选择', true);
@@ -67,13 +69,9 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
     listed: () => loaded,
     synthetic: () => fixtureOnly,
     description() {
-      if (!loaded) return error ? '环境目录读取失败；不能判断桌面是否已配置。可重新读取。Browser 单独核对模型配置。' : '正在读取环境目录。';
-      const missing = [];
-      if (!environments.some(item => item.kind === 'physical')) missing.push('Physical 未发现；平台或配置未提供，不能判断为离线');
-      if (!environments.some(item => item.kind === 'virtual-machine')) missing.push('VM 未发现；请核对已配置的 Hyper-V Guest，不自动启动');
-      if (!environments.some(item => item.kind === 'local-workspace')) missing.push('Local Workspace / Hidden Chrome 未发现；请核对启动配置');
+      if (!loaded) return error ? '环境列表读取失败，请刷新。' : '正在读取环境列表。';
       const item = this.selected();
-      return [item && !item.executable ? `普通任务未开放：${item.blockedReason || '执行器未提供'}。固定场景分别按自身状态选择。` : '', ...missing].filter(Boolean).join('；');
+      return item ? '执行前核对所选环境的连接、应用与操作权限。' : includeBrowser && select.value === 'browser' ? '使用浏览器完成网页任务。' : '选择任务的执行位置。';
     },
     problem(scenarioId) {
       if (includeBrowser && select.value === 'browser' && !fixtureOnly) return '';
@@ -84,12 +82,8 @@ window.createDesktopSelection = function (select, includeBrowser, changed, allow
         const scene = item.scenarios?.find(scene => scene.id === scenarioId);
         return scene?.availability === 'supported' ? '' : `此前选择的场景不可用，请重新选择。${scene ? `${scene.availability}：${scene.reason || '未声明支持'}` : '场景已不在目录中'}`;
       }
-      if (allowScenarios && !item.executable && item.scenarios?.length) return '请选择一个已支持的固定场景；不会自动选择。';
-      if (!item.executable) return item.kind === 'local-workspace'
-        ? 'Local Workspace 仅支持有限的已验证场景，暂不支持通用任务或 Workflow。'
-        : item.blockedReason === 'physical-task-policy-required' ? '本机桌面尚未配置输入策略。'
-        : item.blockedReason === 'physical-task-capability-not-proven' ? '本机桌面通用执行能力尚未完成范围化验证。'
-        : '该桌面没有可用的任务执行器。';
+      if (allowScenarios && !item.executable && item.scenarios?.length) return '请选择执行计划。';
+      if (!item.executable) return '请在“环境与应用”中核对所选环境的任务配置。';
       return '';
     },
     payload(scenarioId) {
@@ -108,20 +102,20 @@ window.createTaskExperience = function () {
   function clearAdmissionMessage() {
     if ($('task-message').dataset.state === 'admission') { $('task-message').textContent = ''; delete $('task-message').dataset.state; }
   }
-  document.querySelector('.composer-intro h2').textContent = '告诉 Agent 想完成什么';
-  document.querySelector('.composer-intro p').textContent = '任务、规则计划与工作流共用已有执行记录。权限与结果以后台检查为准。';
+  document.querySelector('.composer-intro h2').textContent = '新建任务';
+  document.querySelector('.composer-intro p').textContent = '选择运行方式和执行环境，描述希望完成的目标。';
   $('task-goal').placeholder = '例如：整理当前文档，并说明希望得到的结果…';
   const targetLabel = el('label', '执行环境');
   const target = el('select', ''); target.id = 'task-destination';
   targetLabel.append(target); form.prepend(targetLabel);
-  const scenarioLabel = el('label', '执行计划 / 已支持的固定场景');
+  const scenarioLabel = el('label', '执行计划');
   const scenario = el('select', ''); scenario.id = 'task-scenario'; scenarioLabel.append(scenario); targetLabel.after(scenarioLabel);
   scenarioLabel.hidden = true;
   const choices = el('div', '', 'composer-choices'); choices.append(targetLabel, scenarioLabel);
-  const modes = [['stable','稳定','通过已验证工作流运行；工作台尚未接通稳定模式，请从工作流页核对版本与执行资格。'],
-    ['autonomous','自主','沿用通用任务入口。模型配置、目标连接、权限和预算仍由后端执行前检查；可提交不代表已就绪。'],
-    ['learning','学习','待启用：尚无专用学习执行适配，不用自主任务冒充学习模式。'],
-    ['optimize','优化','待实现：尚无版本优化执行适配；可在工作流页查看已有版本与证据。']];
+  const modes = [['stable','稳定','选择已保存的技能，按固定版本和参数执行。'],
+    ['autonomous','自主','围绕任务目标规划操作，并核对执行结果。'],
+    ['learning','学习','探索完成任务的方法，将操作流程保存为可复用技能。'],
+    ['optimize','优化','围绕已有技能改进步骤，并验证新的版本。']];
   const modeField = el('input', ''); modeField.type = 'hidden'; modeField.id = 'task-mode'; modeField.value = 'autonomous';
   const modeSelector = el('fieldset', '', 'mode-selector'); modeSelector.append(el('legend', '运行模式'));
   const modeOptions = el('div', '', 'mode-options');
@@ -131,12 +125,12 @@ window.createTaskExperience = function () {
     const wrapper = el('label', ''); const radio = el('input', ''); radio.type = 'radio'; radio.name = 'task-mode-choice';radio.value = value;
     radio.setAttribute('aria-label', label); radio.setAttribute('aria-describedby','task-mode-description');
     const caption = el('span', label);
-    caption.append(el('small', ({stable:'需工作流入口', autonomous:'后台预检', learning:'待启用', optimize:'待实现'})[value]));
+    caption.append(el('small', ({stable:'复用技能', autonomous:'完成目标', learning:'学习技能', optimize:'改进技能'})[value]));
     wrapper.append(radio, caption); modeOptions.append(wrapper);radios.push(radio);
     radio.onchange = () => {clearAdmissionMessage();modeField.value = value;save();update();};
   }
   modeSelector.append(modeField, modeOptions, modeDescription);
-  form.querySelector('.task-composer').after(modeSelector, choices);
+  form.querySelector('.task-composer').before(modeSelector, choices);
   const appLabel = el('label', '应用（可选）'); const app = el('select', ''); app.disabled = true;
   app.id = 'task-application'; app.setAttribute('aria-label', '应用（可选）');
   appLabel.append(app);choices.append(appLabel);
@@ -144,13 +138,13 @@ window.createTaskExperience = function () {
   const appPanel = el('section', '', 'workbench-app-panel');
   appPanel.setAttribute('aria-label', '打开环境中的应用'); choices.after(appPanel);
   const appLauncher = window.createWorkbenchAppLauncher(appPanel, app);
-  const readiness = el('section', '', 'readiness-card'); readiness.setAttribute('role', 'status');
-  const heading = el('h3', '正在检查执行环境'); const hint = el('p', ''); readiness.append(heading, hint);
+  const readiness = el('details', '', 'readiness-card');
+  const heading = el('summary', '运行配置'); const hint = el('p', ''); readiness.append(heading, hint);
   const modelStatus = el('p', '正在读取模型配置…'); modelStatus.id = 'task-model-status';
   const directoryStatus = el('p', ''); directoryStatus.id = 'task-environment-status';
   const settingsLink = el('a', '到设置配置模型'); settingsLink.href = '#/settings';
   const helpLink = el('a', '执行环境配置与操作说明'); helpLink.href = '/environment-help'; helpLink.target = '_blank'; helpLink.rel = 'noopener';
-  const refreshEntry = el('button', '重新读取准备状态'); refreshEntry.type = 'button';
+  const refreshEntry = el('button', '刷新运行配置'); refreshEntry.type = 'button';
   readiness.append(modelStatus, directoryStatus, settingsLink, document.createTextNode(' · '), helpLink, refreshEntry);
   form.before(readiness);
   $('task-goal').maxLength = 2000;
@@ -170,12 +164,13 @@ window.createTaskExperience = function () {
   form.append(advanced);
   const preview = el('details', '', 'execution-preview'); preview.id = 'task-execution-preview';
   const previewText = el('p', ''); previewText.id = 'task-preview-summary';
-  preview.append(el('summary', '查看执行计划与准备条件'), previewText);
-  const workflowButton = el('button', '选择与预览工作流'); workflowButton.type = 'button';workflowButton.onclick = () => window.Workbench.navigate('workflows');
+  preview.append(el('summary', '任务执行信息'), previewText);
+  const workflowButton = el('button', '选择已保存的技能'); workflowButton.type = 'button';workflowButton.onclick = () => window.Workbench.navigate('workflows');
   preview.append(workflowButton);form.append(preview,form.querySelector('.task-composer-footer'));
   readiness.remove(); form.append(readiness); // Readiness stays next to the real submit button.
   form.append(form.querySelector('.task-composer-footer'));
-  const submitStatus = el('span', '');submitStatus.id = 'task-submit-state';submitStatus.setAttribute('role', 'status');readiness.append(submitStatus);
+  const submitStatus = el('span', '');submitStatus.id = 'task-submit-state';submitStatus.setAttribute('role', 'status');
+  form.querySelector('.task-composer-footer').prepend(submitStatus);
   const attention = el('section', '', 'attention-list panel'); attention.append(el('h3', '待处理'));
   attention.hidden = true;
   const attentionItems = el('div', ''); attention.append(attentionItems);
@@ -305,10 +300,9 @@ window.createTaskExperience = function () {
       const retainedScenario = renderedDestination && JSON.parse(renderedDestination)[0] === target.value ? scenario.value : '';
       renderedDestination = renderKey;
       scenario.replaceChildren();
-      const placeholder = el('option', item?.executable ? '通用任务' : '请选择固定场景'); placeholder.value = ''; scenario.append(placeholder);
-      const labels = { supported: '已支持', unavailable: '不可用', unsupported: '不支持', 'not-proven': '尚未验证' };
+      const placeholder = el('option', item?.executable ? '根据任务目标规划' : '请选择执行计划'); placeholder.value = ''; scenario.append(placeholder);
       for (const scene of catalog) {
-        const choice = el('option', `${scene.label} · ${labels[scene.availability]}${scene.reason ? ` · ${scene.reason}` : ''}`);
+        const choice = el('option', scene.label);
         choice.value = scene.id; choice.disabled = scene.availability !== 'supported'; scenario.append(choice);
       }
       const requestedScenario = target.value === draftDestination && draftScenario ? draftScenario : retainedScenario;
@@ -321,11 +315,13 @@ window.createTaskExperience = function () {
     }
     scenarioLabel.hidden = !catalog.length && !scenario.value;
     const finite = !!scenario.value;
+    appPanel.hidden = !item;
     fields.goal.disabled = finite; fields.criteria.disabled = finite; fields.constraints.disabled = finite; $('task-admin').disabled = finite;
     const mode = modes.find(([id])=>id === modeField.value);
-    const modeProblem = !finite && modeField.value !== 'autonomous' ? mode[2] : '';
+    const modeProblem = !finite && modeField.value !== 'autonomous'
+      ? modeField.value === 'stable' ? '请在工作流中选择固定版本和参数后运行。' : '本次任务尚未取得该模式的执行配置，请核对运行配置。' : '';
     for (const radio of radios) {radio.checked = radio.value === modeField.value;radio.disabled = finite;}
-    modeDescription.textContent = finite ? '当前明确选择了固定规则计划；四种模式不参与该计划执行。' : mode[2];
+    modeDescription.textContent = finite ? '按所选执行计划运行，并记录结果。' : mode[2];
     const problem = selection.problem(scenario.value) || modeProblem;
     const admissionProblem = problem || (!finite && target.value === 'browser' ? modelProblem : '');
     const blocked = !!admissionProblem;
@@ -334,15 +330,15 @@ window.createTaskExperience = function () {
     directoryStatus.textContent = selection.description();
     modelStatus.hidden = finite || target.value !== 'browser'; settingsLink.hidden = modelStatus.hidden;
     readiness.dataset.state = admissionProblem || !budgetReady ? 'blocked' : 'ready';
-    heading.textContent = admissionProblem ? '尚不可提交' : !budgetReady ? '任务预算服务未就绪' : finite ? '可提交固定规则计划 · 后台重新预检' : '可提交通用任务 · 后台检查模型与环境';
+    heading.textContent = '运行配置';
     hint.textContent = (selection.synthetic() ? '合成体验：无真实桌面输入、应用启动或模型调用；NOT HUMAN VERIFIED。' : '') +
-      (admissionProblem || (!budgetReady ? '任务预算服务暂不可用。' : finite ? '仅执行所选固定场景，自由任务文本、完成条件与管理员开关不参与执行。支持状态不代表当前窗口已就绪；执行时重新检查目标、能力与输入租约。Hidden Chrome 只读场景不创建 Key；创建候选须独立一次性授权，已消费授权不可复用。' : target.value === 'browser' ? '通用 Browser Task 使用受控 Chromium，与 Hidden Workspace Chrome 固定场景分别执行。配置完整不代表模型连通或浏览器启动通过；执行时后台检查。' : '执行时检查所选桌面的连接、窗口、权限与输入租约；已占用或未就绪时拒绝执行。'));
+      (admissionProblem || (!budgetReady ? '正在读取任务预算，请稍后刷新。' : finite ? '运行所选计划，执行过程、结果验证与资源清理分别记录。' : '执行前核对目标、模型、权限和预算。'));
     const label = target.value ? target.selectedOptions[0]?.textContent || '' : '';
     const budgetText = globalBudget ? [['deepseek', 'DeepSeek'], ['jev', 'JEV']].map(([key, name]) =>
       `${name} ${fields[key + 'Calls'].value || globalBudget[key].maxCalls} 次 / ${fields[key + 'Tokens'].value || globalBudget[key].maxTokens} Token`).join('；') : '预算服务未就绪';
-    previewText.textContent = `模式：${finite ? '固定规则计划（不属于四种模式）' : mode[1]}\n环境：${label || '待选择'}\n计划：${finite ? scenario.selectedOptions[0]?.textContent : modeProblem ? '此模式没有已接通的工作台执行入口' : '根据目标在后台规划；未获得输入与副作用许可前不执行'}\n应用：按当前任务的后台发现与确认，页面不自动启动\n文件：只从实际执行与验收记录确认；此预览不创建文件\n模型 / 预算：${finite ? '规则执行；不启用模型' : '模型配置在后台核对'}；${budgetText}\n权限 / 副作用：动作可能修改应用或文件；真实风险批准与一次性授权由后台校验，本预览不发出动作。`;
-    submitStatus.textContent = busy ? '提交处理中，请勿重复发送。' : blocked ? '禁用原因见上方；选择与预览不会执行。' : '';
-    window.Workbench?.draft({label,description:modeDescription.textContent+' '+hint.textContent});
+    previewText.textContent = `运行方式：${finite ? '执行计划' : mode[1]}\n执行环境：${label || '待选择'}\n任务计划：${finite ? scenario.selectedOptions[0]?.textContent : mode[2]}\n应用：${app.selectedOptions[0]?.textContent || '按任务选择'}\n预算：${finite ? '规则执行；不调用模型' : budgetText}\n结果：执行进度、验证结论与证据保存在任务记录中。`;
+    submitStatus.textContent = busy ? '提交处理中，请勿重复发送。' : blocked || !budgetReady ? '提交前请核对运行配置。' : '';
+    window.Workbench?.draft({label,description:finite ? scenario.selectedOptions[0]?.textContent || '' : mode[2]});
   }
   function loadBudget() {
     budgetReady = false; update();
@@ -363,9 +359,8 @@ window.createTaskExperience = function () {
           !state.sources || !['endpoint', 'model', 'apiKey'].every(key => Object.hasOwn(sources, state.sources[key])) ||
           data.appliesTo !== 'next-task-start') throw Error('invalid-model-status');
       modelProblem = state.ready ? '' : `模型配置不完整：${state.reasons.join('；')}。请到设置保存，再重新读取。`;
-      modelStatus.textContent = `API 地址 ${state.endpoint || '未配置'}（${sources[state.sources.endpoint]}）；模型 ${state.model || '未配置'}（${sources[state.sources.model]}）；Key ${state.keyConfigured ? '已配置' : '未配置'}（${sources[state.sources.apiKey]}）。` +
-        (Object.values(state.sources).includes('environment') ? ' 环境变量正在覆盖对应本机保存值。' : '') +
-        (state.ready ? ' 配置完整；模型连通与浏览器启动尚未验证。新任务开始执行时读取。' : ' 配置不完整。');
+      modelStatus.textContent = `模型：${state.model || '待配置'} · ${state.ready ? '配置已保存' : '请完成模型配置'}` +
+        (Object.values(state.sources).includes('environment') ? ' · 使用环境变量配置' : '');
     } catch {
       if (current !== modelRequest) return;
       modelProblem = '模型配置读取失败 / UNKNOWN；请重新读取或到设置核对。'; modelStatus.textContent = modelProblem;
